@@ -16,6 +16,7 @@ class Webinar extends Model
         'user_id',
         'uuid',
         'title',
+        'title_prefix',
         'host_name',
         'description',
         'scheduled_at',
@@ -92,5 +93,18 @@ class Webinar extends Model
     public function analyticsEvents(): HasMany
     {
         return $this->hasMany(AnalyticsEvent::class);
+    }
+
+    /**
+     * Subject/header line for emails: "[Prefix] : Title" (default prefix when unset).
+     */
+    public function prefixedTitleLine(): string
+    {
+        $prefix = trim((string) ($this->title_prefix ?? ''));
+        if ($prefix === '') {
+            $prefix = '[Confirmation]';
+        }
+
+        return "{$prefix} : {$this->title}";
     }
 }

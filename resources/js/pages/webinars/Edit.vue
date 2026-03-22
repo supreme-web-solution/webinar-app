@@ -6,6 +6,7 @@ import type { BreadcrumbItem } from '@/types';
 
 type WebinarPayload = {
     id: number;
+    title_prefix: string;
     title: string;
     host_name: string;
     description: string;

@@ -7,6 +7,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 
 type WebinarFormData = {
+    title_prefix: string;
     title: string;
     host_name: string;
     description: string;
@@ -493,15 +494,33 @@ const submit = (): void => {
         <form class="space-y-6" @submit.prevent="submit">
             <div v-if="activeStep === 0" class="grid gap-4 rounded-lg border p-4">
                 <h3 class="text-lg font-semibold">Basics</h3>
-                <div class="grid gap-2">
-                    <Label for="title">{{ markRequired('Webinar Title') }}</Label>
-                    <Input id="title" v-model="form.title" required />
-                    <InputError :message="form.errors.title" />
+                <div class="grid gap-2 md:grid-cols-2 md:gap-4">
+                    <div class="grid gap-2">
+                        <Label for="title_prefix">Title prefix</Label>
+                        <Input
+                            id="title_prefix"
+                            v-model="form.title_prefix"
+                            placeholder="[Confirmation]"
+                        />
+                        <InputError :message="form.errors.title_prefix" />
+                    </div>
+                    <div class="grid gap-2">
+                        <Label for="title">{{ markRequired('Webinar Title') }}</Label>
+                        <Input id="title" v-model="form.title" required />
+                        <InputError :message="form.errors.title" />
+                    </div>
                 </div>
-                <div class="grid gap-2">
-                    <Label for="host_name">{{ markRequired('Host Name') }}</Label>
-                    <Input id="host_name" v-model="form.host_name" required />
-                    <InputError :message="form.errors.host_name" />
+                <div class="grid gap-2 md:grid-cols-2 md:gap-4">
+                    <div class="grid gap-2">
+                        <Label for="host_name">{{ markRequired('Host Name') }}</Label>
+                        <Input id="host_name" v-model="form.host_name" required />
+                        <InputError :message="form.errors.host_name" />
+                    </div>
+                    <div class="grid gap-2">
+                        <Label for="thumbnail_path">Thumbnail Path / URL</Label>
+                        <Input id="thumbnail_path" v-model="form.thumbnail_path" placeholder="/storage/webinars/thumb.jpg" />
+                        <InputError :message="form.errors.thumbnail_path" />
+                    </div>
                 </div>
                 <div class="grid gap-2">
                     <Label for="description">Description</Label>
@@ -512,11 +531,6 @@ const submit = (): void => {
                         class="w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm"
                     />
                     <InputError :message="form.errors.description" />
-                </div>
-                <div class="grid gap-2">
-                    <Label for="thumbnail_path">Thumbnail Path / URL</Label>
-                    <Input id="thumbnail_path" v-model="form.thumbnail_path" placeholder="/storage/webinars/thumb.jpg" />
-                    <InputError :message="form.errors.thumbnail_path" />
                 </div>
                 <div class="grid gap-2 md:grid-cols-2 md:gap-4">
                     <div class="grid gap-2">
@@ -685,7 +699,7 @@ const submit = (): void => {
                     <div class="grid gap-3 rounded-md border p-3">
                         <Label for="attendee_csv">Import File *</Label>
                         <Input id="attendee_csv" type="file" accept=".csv,.txt,.xlsx,.xls" @change="onAttendeeCsvSelected" />
-                        <Button type="button" variant="outline" :disabled="attendeeCsvForm.processing" @click="importAttendeesCsv">
+                        <Button type="button"  :disabled="attendeeCsvForm.processing" @click="importAttendeesCsv">
                             Upload and Register
                         </Button>
                     </div>

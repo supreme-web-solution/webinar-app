@@ -85,7 +85,7 @@ class WebinarAttendeeController extends Controller
                 $sent = $resendService->sendWebinarEmail(
                     $webinar,
                     $registrant,
-                    "You're invited: {$webinar->title}",
+                    $webinar->prefixedTitleLine(),
                     'You have been registered for this webinar. Click below to join when ready.'
                 );
 
@@ -154,7 +154,7 @@ class WebinarAttendeeController extends Controller
             $sent = $resendService->sendWebinarEmail(
                 $webinar,
                 $registrant,
-                "Reminder: {$webinar->title}",
+                'Reminder: '.$webinar->prefixedTitleLine(),
                 'This is a reminder that your webinar is ready. Click below to join now.'
             );
 

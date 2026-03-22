@@ -24,6 +24,7 @@ class StoreWebinarRequest extends FormRequest
     {
         return [
             'title' => ['required', 'string', 'max:255'],
+            'title_prefix' => ['nullable', 'string', 'max:255'],
             'host_name' => ['required', 'string', 'max:255'],
             'description' => ['nullable', 'string'],
             'scheduled_at' => ['required', 'date_format:Y-m-d\\TH:i'],

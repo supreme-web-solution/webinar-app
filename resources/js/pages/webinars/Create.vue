@@ -5,6 +5,7 @@ import AppLayout from '@/layouts/AppLayout.vue';
 import type { BreadcrumbItem } from '@/types';
 
 type Defaults = {
+    title_prefix: string;
     title: string;
     host_name: string;
     description: string;

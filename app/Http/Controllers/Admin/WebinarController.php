@@ -48,6 +48,7 @@ class WebinarController extends Controller
         return Inertia::render('webinars/Create', [
             'defaults' => [
                 'title' => '',
+                'title_prefix' => '[Confirmation]',
                 'host_name' => (string) Auth::user()?->name,
                 'description' => '',
                 'scheduled_at' => Carbon::now()->addDay()->format('Y-m-d\\TH:i'),
@@ -86,6 +87,7 @@ class WebinarController extends Controller
         $data = $request->validated();
         $offers = $data['offers'] ?? [];
         unset($data['offers']);
+        $data = $this->normalizeTitlePrefixPayload($data);
         $data = $this->normalizeSchedulePayload($data);
         $data = $this->normalizeRegistrationSettingsPayload($data);
         $data['user_id'] = Auth::id();
@@ -110,6 +112,7 @@ class WebinarController extends Controller
             'webinar' => [
                 'id' => $webinar->id,
                 'title' => $webinar->title,
+                'title_prefix' => $webinar->title_prefix ?: '[Confirmation]',
                 'host_name' => $webinar->host_name,
                 'description' => $webinar->description,
                 'scheduled_at' => $webinar->scheduled_at
@@ -197,6 +200,7 @@ class WebinarController extends Controller
         $data = $request->validated();
         $offers = $data['offers'] ?? [];
         unset($data['offers']);
+        $data = $this->normalizeTitlePrefixPayload($data);
         $data = $this->normalizeSchedulePayload($data);
         $data = $this->normalizeRegistrationSettingsPayload($data);
 
@@ -310,6 +314,18 @@ class WebinarController extends Controller
         $data['registration_settings'] = [
             'buttons' => $normalized,
         ];
+
+        return $data;
+    }
+
+    /**
+     * @param array<string, mixed> $data
+     * @return array<string, mixed>
+     */
+    private function normalizeTitlePrefixPayload(array $data): array
+    {
+        $raw = trim((string) ($data['title_prefix'] ?? ''));
+        $data['title_prefix'] = $raw !== '' ? $raw : '[Confirmation]';
 
         return $data;
     }

@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\Admin\WebinarController;
+use App\Http\Controllers\DashboardController;
 use App\Http\Controllers\Admin\WebinarAttendeeController;
 use App\Http\Controllers\Admin\WebinarChatController as AdminWebinarChatController;
 use App\Http\Controllers\UnsubscribeController;
@@ -15,7 +16,7 @@ Route::inertia('/', 'Welcome', [
 ])->name('home');
 
 Route::middleware(['auth', 'verified'])->group(function () {
-    Route::inertia('dashboard', 'Dashboard')->name('dashboard');
+    Route::get('dashboard', DashboardController::class)->name('dashboard');
 
     Route::prefix('admin')->name('admin.')->group(function () {
         Route::resource('webinars', WebinarController::class)->except(['show', 'destroy']);

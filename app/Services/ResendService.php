@@ -32,12 +32,14 @@ class ResendService
             ? '<p style="margin: 0 0 12px 0; color: #4b5563; font-size: 14px; line-height: 1.55;">'.e($webinarDescription).'</p>'
             : '';
 
+        $prefixedTitle = e($webinar->prefixedTitleLine());
+
         $html = "
             <div style=\"background:#f3f4f6;padding:24px 12px;font-family:Arial,Helvetica,sans-serif;color:#111827;\">
                 <div style=\"max-width:620px;margin:0 auto;background:#ffffff;border:1px solid #e5e7eb;border-radius:14px;overflow:hidden;\">
                     <div style=\"background:linear-gradient(135deg,#0f172a,#1e3a8a);padding:18px 22px;\">
                         <p style=\"margin:0;color:#bfdbfe;font-size:12px;letter-spacing:.06em;text-transform:uppercase;font-weight:700;\">On-Demand Webinar</p>
-                        <h1 style=\"margin:8px 0 0 0;color:#ffffff;font-size:24px;line-height:1.25;\">".e($webinar->title)."</h1>
+                        <h1 style=\"margin:8px 0 0 0;color:#ffffff;font-size:24px;line-height:1.25;\">{$prefixedTitle}</h1>
                     </div>
 
                     <div style=\"padding:22px;\">

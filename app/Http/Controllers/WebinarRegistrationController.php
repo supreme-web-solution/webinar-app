@@ -78,7 +78,7 @@ class WebinarRegistrationController extends Controller
             $resendService->sendWebinarEmail(
                 $webinar,
                 $registrant,
-                "Registration confirmed: {$webinar->title}",
+                $webinar->prefixedTitleLine(),
                 'Thanks for registering. Use the button below to join your webinar anytime.'
             );
         }
@@ -111,7 +111,7 @@ class WebinarRegistrationController extends Controller
             $resendService->sendWebinarEmail(
                 $webinar,
                 $registrant,
-                "Registration confirmed: {$webinar->title}",
+                $webinar->prefixedTitleLine(),
                 'Thanks for registering. Use the button below to join your webinar anytime.'
             );
         }
