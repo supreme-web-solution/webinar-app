@@ -94,7 +94,7 @@ class WebinarAttendeeController extends Controller
                 $webinar,
                 collect($registrantIdsForEmail)->unique()->values(),
                 $webinar->prefixedTitleLine(),
-                'You have been registered for this webinar. Click below to join when ready.'
+                'You have been registered for this webinar. Click below to join the webinar.'
             )
             : 0;
 
@@ -153,7 +153,7 @@ class WebinarAttendeeController extends Controller
             $webinar,
             $registrants->pluck('id')->values(),
             'Reminder: '.$webinar->prefixedTitleLine(),
-            'This is a reminder that your webinar is ready. Click below to join now.',
+            'This is a reminder that the webinar is starting soon. Click below to join the webinar.',
             'reminder_sent_at'
         );
 

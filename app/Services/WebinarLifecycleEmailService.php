@@ -60,7 +60,7 @@ class WebinarLifecycleEmailService
             $webinar,
             $registrantIds,
             'Reminder: '.$webinar->prefixedTitleLine(),
-            'Your webinar starts soon. Click below to join when you are ready.',
+            'The webinar is starting soon. Click below to join the webinar.',
             'reminder_sent_at'
         );
     }
@@ -77,7 +77,7 @@ class WebinarLifecycleEmailService
             $webinar,
             $registrantIds,
             'Follow-up: '.$webinar->prefixedTitleLine(),
-            'Thanks for attending. Reach out to the host if you need additional resources or replay details.',
+            'Thanks for attending. Reach out to the host if you need additional resources or the replay details.',
             'follow_up_sent_at'
         );
     }

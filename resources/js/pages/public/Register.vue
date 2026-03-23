@@ -79,14 +79,14 @@ const buttonUrgencyText = (button: { urgency_mode: 'none' | 'minutes' | 'live'; 
 
     <div class="mx-auto grid min-h-screen max-w-5xl items-center gap-6 p-6 md:grid-cols-2">
         <div class="space-y-4">
-            <p class="text-xs font-semibold uppercase tracking-wide text-primary">On-Demand Webinar</p>
+            <p class="text-xs font-semibold uppercase tracking-wide text-primary">Webinar Impact</p>
             <h1 class="text-3xl font-bold">{{ webinar.title }}</h1>
             <p class="text-sm text-muted-foreground">Hosted by {{ webinar.host_name }}</p>
             <p class="text-sm text-muted-foreground">{{ webinar.description }}</p>
         </div>
 
         <form class="space-y-4 rounded-xl border bg-card p-6 shadow-sm" @submit.prevent="submit">
-            <h2 class="text-xl font-semibold">Fill In Your Details To Join The Training</h2>
+            <h2 class="text-xl font-semibold">Fill In Your Details To Join The Webinar</h2>
             <div class="grid gap-2">
                 <Label for="name">Name</Label>
                 <Input id="name" v-model="form.name" required />

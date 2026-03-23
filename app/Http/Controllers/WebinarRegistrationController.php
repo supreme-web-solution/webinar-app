@@ -85,7 +85,7 @@ class WebinarRegistrationController extends Controller
                 $webinar->id,
                 [$registrant->id],
                 $webinar->prefixedTitleLine(),
-                'Thanks for registering. Use the button below to join your webinar anytime.'
+                'Thanks for registering. Use the button below to join the webinar.'
             )->onQueue('emails');
         }
 
@@ -123,7 +123,7 @@ class WebinarRegistrationController extends Controller
                 $webinar->id,
                 [$registrant->id],
                 $webinar->prefixedTitleLine(),
-                'Thanks for registering. Use the button below to join your webinar anytime.'
+                'Thanks for registering. Use the button below to join the webinar.'
             )->onQueue('emails');
         }
 

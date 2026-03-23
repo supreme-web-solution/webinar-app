@@ -78,14 +78,14 @@ const breadcrumbs: BreadcrumbItem[] = [
             <div>
                 <h1 class="text-2xl font-semibold">Create Webinar</h1>
                 <p class="text-sm text-muted-foreground">
-                    Use the step tabs to configure your on-demand webinar experience.
+                    Use the step tabs to configure your webinar experience.
                 </p>
             </div>
 
             <WebinarWizardForm
                 mode="create"
                 method="post"
-                action-url="/admin/webinars"
+                action-url="/admin/webinars"    
                 :initial-values="defaults"
                 :attendees="attendees"
                 :attendee-import-url="attendeeImportUrl"

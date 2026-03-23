@@ -256,7 +256,7 @@ const copyLink = async (link: string, label: string): Promise<void> => {
                         </div>
                         <h3 class="text-lg font-semibold">No webinars yet</h3>
                         <p class="mt-2 max-w-sm text-sm text-muted-foreground">
-                            Create your first on-demand webinar to start collecting registrations and
+                            Create your first webinar to start collecting registrations and
                             tracking views.
                         </p>
                         <Button as-child class="mt-6 gap-1.5">
