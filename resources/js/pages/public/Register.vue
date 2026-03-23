@@ -79,7 +79,7 @@ const buttonUrgencyText = (button: { urgency_mode: 'none' | 'minutes' | 'live'; 
 
     <div class="mx-auto grid min-h-screen max-w-5xl items-center gap-6 p-6 md:grid-cols-2">
         <div class="space-y-4">
-            <p class="text-xs font-semibold uppercase tracking-wide text-primary">Webinar Impact</p>
+            <p class="text-xs font-semibold uppercase tracking-wide text-primary">Watch This Live Training</p>
             <h1 class="text-3xl font-bold">{{ webinar.title }}</h1>
             <p class="text-sm text-muted-foreground">Hosted by {{ webinar.host_name }}</p>
             <p class="text-sm text-muted-foreground">{{ webinar.description }}</p>
