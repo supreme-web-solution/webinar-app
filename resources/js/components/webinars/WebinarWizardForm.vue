@@ -530,7 +530,10 @@ const submit = (): void => {
                 <div class="grid gap-2">
                     <Label>Webinar Access Mode</Label>
                     <div class="grid gap-2 md:grid-cols-2">
-                        <label class="flex cursor-pointer items-start gap-3 rounded-md border p-3">
+                        <label
+                            class="flex cursor-pointer items-start gap-3 rounded-md border p-3 transition"
+                            :class="form.schedule_mode === 'auto' ? 'border-primary bg-primary/5' : 'border-border'"
+                        >
                             <input
                                 v-model="form.schedule_mode"
                                 type="radio"
@@ -542,7 +545,10 @@ const submit = (): void => {
                                 <span class="text-muted-foreground">Visitors can register and join at any time.</span>
                             </span>
                         </label>
-                        <label class="flex cursor-pointer items-start gap-3 rounded-md border p-3">
+                        <label
+                            class="flex cursor-pointer items-start gap-3 rounded-md border p-3 transition"
+                            :class="form.schedule_mode === 'scheduled' ? 'border-primary bg-primary/5' : 'border-border'"
+                        >
                             <input
                                 v-model="form.schedule_mode"
                                 type="radio"
