@@ -112,7 +112,9 @@ class Webinar extends Model
 
     public function isAutoMode(): bool
     {
-        return $this->schedule_mode === 'auto';
+        // Backward compatibility: legacy records may have a schedule timestamp
+        // but ended up with schedule_mode="auto" after schema updates.
+        return $this->schedule_mode === 'auto' && $this->scheduled_at === null;
     }
 
     public function isScheduledMode(): bool
