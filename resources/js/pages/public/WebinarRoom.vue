@@ -62,6 +62,8 @@ const pinnedOffer = ref<Offer | null>(null);
 const popupOffer = ref<Offer | null>(null);
 const droppedOffers = ref<Offer[]>([]);
 const iframeMuted = ref(true);
+const videoEnded = ref(false);
+const iframeRef = ref<HTMLIFrameElement | null>(null);
 const directVideoRef = ref<HTMLVideoElement | null>(null);
 const reactionBubbles = ref<Array<{ id: string; emoji: string; left: number }>>([]);
 
@@ -223,6 +225,7 @@ const extractVimeoVideoId = (rawUrl: string): string | null => {
 
 const embedUrl = computed(() => {
     const url = props.webinar.video_url.trim();
+    const origin = typeof window !== 'undefined' ? window.location.origin : '';
 
     if (props.webinar.video_source === 'youtube') {
         const videoId = extractYouTubeVideoId(url);
@@ -230,7 +233,22 @@ const embedUrl = computed(() => {
             return url;
         }
 
-        return `https://www.youtube.com/embed/${videoId}?autoplay=1&rel=0&modestbranding=1&playsinline=1&mute=${iframeMuted.value ? 1 : 0}`;
+        const params = [
+            'autoplay=1',
+            'mute=1',
+            'controls=0',
+            'disablekb=1',
+            'fs=0',
+            'iv_load_policy=3',
+            'modestbranding=1',
+            'rel=0',
+            'showinfo=0',
+            'playsinline=1',
+            'enablejsapi=1',
+            `origin=${encodeURIComponent(origin)}`,
+        ].join('&');
+
+        return `https://www.youtube-nocookie.com/embed/${videoId}?${params}`;
     }
 
     if (props.webinar.video_source === 'vimeo') {
@@ -239,7 +257,18 @@ const embedUrl = computed(() => {
             return url;
         }
 
-        return `https://player.vimeo.com/video/${videoId}?autoplay=1&muted=${iframeMuted.value ? 1 : 0}`;
+        const params = [
+            'autoplay=1',
+            'muted=1',
+            'controls=0',
+            'title=0',
+            'byline=0',
+            'portrait=0',
+            'keyboard=0',
+            'dnt=1',
+        ].join('&');
+
+        return `https://player.vimeo.com/video/${videoId}?${params}`;
     }
 
     return url;
@@ -259,8 +288,91 @@ const pinnedStarterMessage = computed(() => {
     return `Welcome ${name}! The webinar is starting now.`;
 });
 
+const stopAllTimers = (): void => {
+    if (timer) {
+        clearInterval(timer);
+        timer = null;
+    }
+
+    if (viewersTimer) {
+        clearInterval(viewersTimer);
+        viewersTimer = null;
+    }
+
+    if (chatPollTimer) {
+        clearInterval(chatPollTimer);
+        chatPollTimer = null;
+    }
+};
+
+const endMeeting = (): void => {
+    if (videoEnded.value) {
+        return;
+    }
+
+    videoEnded.value = true;
+    stopAllTimers();
+};
+
+const onIframeLoad = (): void => {
+    const iframe = iframeRef.value;
+    if (!iframe?.contentWindow) {
+        return;
+    }
+
+    if (props.webinar.video_source === 'youtube') {
+        iframe.contentWindow.postMessage(JSON.stringify({ event: 'listening' }), '*');
+    }
+
+    if (props.webinar.video_source === 'vimeo') {
+        iframe.contentWindow.postMessage(JSON.stringify({ method: 'addEventListener', value: 'ended' }), '*');
+    }
+};
+
+const onIframeMessage = (event: MessageEvent): void => {
+    if (videoEnded.value) {
+        return;
+    }
+
+    try {
+        let data = event.data;
+        if (typeof data === 'string') {
+            data = JSON.parse(data);
+        }
+
+        if (data?.event === 'onStateChange' && data?.info === 0) {
+            endMeeting();
+            return;
+        }
+
+        if (data?.event === 'infoDelivery' && data?.info?.playerState === 0) {
+            endMeeting();
+            return;
+        }
+
+        if (data?.event === 'ended' || data?.event === 'finish') {
+            endMeeting();
+        }
+    } catch {
+        // Not JSON or unrelated message.
+    }
+};
+
+const onDirectVideoEnded = (): void => {
+    endMeeting();
+};
+
 const tickTimeline = (): void => {
     elapsedSeconds.value += 1;
+
+    if (
+        !videoEnded.value
+        && props.webinar.video_duration_seconds
+        && elapsedSeconds.value >= props.webinar.video_duration_seconds
+    ) {
+        endMeeting();
+        return;
+    }
 
     for (const message of props.webinar.scheduled_messages) {
         if (!firedMessageIds.has(message.id) && elapsedSeconds.value >= message.trigger_second) {
@@ -335,6 +447,26 @@ const sendChat = (): void => {
 const enableSound = (): void => {
     iframeMuted.value = false;
 
+    if (props.webinar.video_source === 'youtube' && iframeRef.value?.contentWindow) {
+        iframeRef.value.contentWindow.postMessage(JSON.stringify({
+            event: 'command',
+            func: 'unMute',
+            args: [],
+        }), '*');
+        iframeRef.value.contentWindow.postMessage(JSON.stringify({
+            event: 'command',
+            func: 'setVolume',
+            args: [100],
+        }), '*');
+    }
+
+    if (props.webinar.video_source === 'vimeo' && iframeRef.value?.contentWindow) {
+        iframeRef.value.contentWindow.postMessage(JSON.stringify({
+            method: 'setVolume',
+            value: '1',
+        }), '*');
+    }
+
     if (props.webinar.video_source === 'direct' && directVideoRef.value) {
         directVideoRef.value.muted = false;
         void directVideoRef.value.play();
@@ -394,6 +526,8 @@ onMounted(() => {
         return;
     }
 
+    window.addEventListener('message', onIframeMessage);
+
     timer = setInterval(tickTimeline, 1000);
     viewersTimer = setInterval(tickViewers, 4000);
     void loadServerChat();
@@ -403,17 +537,8 @@ onMounted(() => {
 });
 
 onBeforeUnmount(() => {
-    if (timer) {
-        clearInterval(timer);
-    }
-
-    if (viewersTimer) {
-        clearInterval(viewersTimer);
-    }
-
-    if (chatPollTimer) {
-        clearInterval(chatPollTimer);
-    }
+    window.removeEventListener('message', onIframeMessage);
+    stopAllTimers();
 });
 
 const submitAccess = (): void => {
@@ -475,19 +600,38 @@ const submitAccess = (): void => {
                         <p class="text-sm text-muted-foreground">Host: {{ webinar.host_name }}</p>
                     </div>
                     <div class="text-right text-xs sm:text-sm">
-                        <p class="font-semibold text-rose-600">LIVE</p>
+                        <p v-if="!videoEnded" class="font-semibold text-rose-600">LIVE</p>
+                        <p v-else class="font-semibold text-muted-foreground">ENDED</p>
                         <p class="text-muted-foreground">{{ viewerCount }} in meeting</p>
                         <p class="text-muted-foreground">{{ prettyElapsed }}</p>
                     </div>
                 </div>
 
                 <div class="relative overflow-hidden rounded-lg border bg-black">
+                    <div
+                        v-if="videoEnded"
+                        class="absolute inset-0 z-30 flex flex-col items-center justify-center bg-gray-900/95"
+                    >
+                        <div class="flex h-14 w-14 items-center justify-center rounded-full bg-white/10">
+                            <svg class="h-7 w-7 text-white/80" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5">
+                                <path stroke-linecap="round" stroke-linejoin="round" d="M15.75 10.5l4.72-4.72a.75.75 0 011.28.53v11.38a.75.75 0 01-1.28.53l-4.72-4.72M4.5 18.75h9a2.25 2.25 0 002.25-2.25v-9a2.25 2.25 0 00-2.25-2.25h-9A2.25 2.25 0 002.25 7.5v9a2.25 2.25 0 002.25 2.25z" />
+                            </svg>
+                        </div>
+                        <h2 class="mt-4 text-xl font-semibold text-white">Meeting Ended</h2>
+                        <p class="mt-2 max-w-xs text-center text-sm text-white/60">
+                            This webinar session has concluded. Thank you for attending.
+                        </p>
+                    </div>
+
+                    <div v-if="!videoEnded" class="absolute inset-0 z-10" />
+
                     <iframe
                         v-if="webinar.video_source !== 'direct'"
+                        ref="iframeRef"
                         :src="embedUrl"
                         class="aspect-video w-full"
                         allow="autoplay; encrypted-media"
-                        allowfullscreen
+                        @load="onIframeLoad"
                     />
                     <video
                         v-else
@@ -495,11 +639,12 @@ const submitAccess = (): void => {
                         class="aspect-video w-full"
                         :src="embedUrl"
                         :muted="iframeMuted"
-                        controls
+                        playsinline
                         autoplay
+                        @ended="onDirectVideoEnded"
                     />
 
-                    <div class="pointer-events-none absolute inset-0">
+                    <div class="pointer-events-none absolute inset-0 z-20">
                         <span
                             v-for="reaction in reactionBubbles"
                             :key="reaction.id"
@@ -511,7 +656,7 @@ const submitAccess = (): void => {
                     </div>
                 </div>
 
-                <div class="mt-3 flex flex-wrap items-center gap-2">
+                <div v-if="!videoEnded" class="mt-3 flex flex-wrap items-center gap-2">
                     <button
                         type="button"
                         :disabled="!iframeMuted"
