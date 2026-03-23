@@ -29,10 +29,11 @@ class UpdateWebinarRequest extends FormRequest
         return [
             'title' => ['required', 'string', 'max:255'],
             'title_prefix' => ['nullable', 'string', 'max:255'],
+            'schedule_mode' => ['required', Rule::in(['auto', 'scheduled'])],
             'host_name' => ['required', 'string', 'max:255'],
             'description' => ['nullable', 'string'],
-            'scheduled_at' => ['required', 'date_format:Y-m-d\\TH:i'],
-            'scheduled_timezone' => ['required', 'string', 'timezone:all'],
+            'scheduled_at' => ['nullable', 'required_if:schedule_mode,scheduled', 'date_format:Y-m-d\\TH:i'],
+            'scheduled_timezone' => ['nullable', 'required_if:schedule_mode,scheduled', 'string', 'timezone:all'],
             'video_source' => ['required', Rule::in(['youtube', 'vimeo', 'direct'])],
             'video_url' => ['required', 'url', 'max:2048'],
             'video_duration_seconds' => ['nullable', 'integer', 'min:1'],

@@ -17,6 +17,7 @@ class WebinarRegistrationController extends Controller
     public function show(Webinar $webinar): Response
     {
         abort_unless($webinar->is_published, 404);
+        abort_if($webinar->hasEnded(), 404);
 
         return Inertia::render('public/Register', [
             'webinar' => [
@@ -58,6 +59,11 @@ class WebinarRegistrationController extends Controller
     public function store(StoreWebinarRegistrantRequest $request, Webinar $webinar, ResendService $resendService): RedirectResponse
     {
         abort_unless($webinar->is_published, 404);
+        if ($webinar->hasEnded()) {
+            return back()->withErrors([
+                'email' => 'This webinar has ended. Please contact the host for a replay or next session.',
+            ]);
+        }
 
         $validated = $request->validated();
         $sendConfirmation = (bool) data_get($webinar->email_settings, 'send_confirmation', true);
@@ -91,6 +97,11 @@ class WebinarRegistrationController extends Controller
     public function accessFromJoinLink(StoreWebinarRegistrantRequest $request, Webinar $webinar, ResendService $resendService): RedirectResponse
     {
         abort_unless($webinar->is_published, 404);
+        if ($webinar->hasEnded()) {
+            return back()->withErrors([
+                'email' => 'This webinar has ended. Please contact the host for more information.',
+            ]);
+        }
 
         $validated = $request->validated();
         $sendConfirmation = (bool) data_get($webinar->email_settings, 'send_confirmation', true);

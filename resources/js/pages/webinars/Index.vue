@@ -8,6 +8,8 @@ type WebinarListItem = {
     id: number;
     uuid: string;
     title: string;
+    schedule_mode: 'auto' | 'scheduled';
+    has_ended: boolean;
     host_name: string;
     video_source: string;
     is_published: boolean;
@@ -102,12 +104,14 @@ const copyLink = async (link: string, label: string): Promise<void> => {
                                 <span
                                     class="rounded-full px-2 py-1 text-xs"
                                     :class="
-                                        webinar.is_published
-                                            ? 'bg-emerald-100 text-emerald-700'
-                                            : 'bg-amber-100 text-amber-700'
+                                        webinar.has_ended
+                                            ? 'bg-rose-100 text-rose-700'
+                                            : webinar.is_published
+                                                ? 'bg-emerald-100 text-emerald-700'
+                                                : 'bg-amber-100 text-amber-700'
                                     "
                                 >
-                                    {{ webinar.is_published ? 'Published' : 'Draft' }}
+                                    {{ webinar.has_ended ? 'Ended' : webinar.is_published ? 'Published' : 'Draft' }}
                                 </span>
                             </td>
                             <td class="px-4 py-3">{{ webinar.registrants_count }}</td>

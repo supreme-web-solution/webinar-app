@@ -8,6 +8,7 @@ type WebinarPayload = {
     id: number;
     title_prefix: string;
     title: string;
+    schedule_mode: 'auto' | 'scheduled';
     host_name: string;
     description: string;
     scheduled_at: string;

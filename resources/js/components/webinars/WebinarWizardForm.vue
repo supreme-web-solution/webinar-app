@@ -9,6 +9,7 @@ import { Label } from '@/components/ui/label';
 type WebinarFormData = {
     title_prefix: string;
     title: string;
+    schedule_mode: 'auto' | 'scheduled';
     host_name: string;
     description: string;
     scheduled_at: string;
@@ -113,6 +114,24 @@ const requiredChecks: Array<{ key: keyof WebinarFormData; label: string; step: n
     { key: 'max_viewers', label: 'Max Viewers', step: 7 },
 ];
 
+const isRequiredMissing = (key: keyof WebinarFormData): boolean => {
+    if (form.schedule_mode === 'auto' && (key === 'scheduled_at' || key === 'scheduled_timezone')) {
+        return false;
+    }
+
+    const value = form[key] as unknown;
+
+    if (typeof value === 'string') {
+        return value.trim().length === 0;
+    }
+
+    if (typeof value === 'number') {
+        return Number.isNaN(value);
+    }
+
+    return value === null || value === undefined;
+};
+
 const attendeePanel = ref<'subscribed' | 'unsubscribed'>('subscribed');
 const selectedSubscribedIds = ref<number[]>([]);
 const selectedUnsubscribedIds = ref<number[]>([]);
@@ -156,37 +175,13 @@ const importAttendeesCsv = (): void => {
 const missingRequiredByStep = (step: number): string[] => {
     return requiredChecks
         .filter((item) => item.step === step)
-        .filter((item) => {
-            const value = form[item.key] as unknown;
-
-            if (typeof value === 'string') {
-                return value.trim().length === 0;
-            }
-
-            if (typeof value === 'number') {
-                return Number.isNaN(value);
-            }
-
-            return value === null || value === undefined;
-        })
+        .filter((item) => isRequiredMissing(item.key))
         .map((item) => item.label);
 };
 
 const missingRequiredAll = (): Array<{ step: number; label: string }> => {
     return requiredChecks
-        .filter((item) => {
-            const value = form[item.key] as unknown;
-
-            if (typeof value === 'string') {
-                return value.trim().length === 0;
-            }
-
-            if (typeof value === 'number') {
-                return Number.isNaN(value);
-            }
-
-            return value === null || value === undefined;
-        })
+        .filter((item) => isRequiredMissing(item.key))
         .map((item) => ({ step: item.step, label: item.label }));
 };
 
@@ -532,7 +527,36 @@ const submit = (): void => {
                     />
                     <InputError :message="form.errors.description" />
                 </div>
-                <div class="grid gap-2 md:grid-cols-2 md:gap-4">
+                <div class="grid gap-2">
+                    <Label>Webinar Access Mode</Label>
+                    <div class="grid gap-2 md:grid-cols-2">
+                        <label class="flex cursor-pointer items-start gap-3 rounded-md border p-3">
+                            <input
+                                v-model="form.schedule_mode"
+                                type="radio"
+                                value="auto"
+                                class="mt-0.5"
+                            >
+                            <span class="text-sm">
+                                <span class="block font-medium">Auto (always available)</span>
+                                <span class="text-muted-foreground">Visitors can register and join at any time.</span>
+                            </span>
+                        </label>
+                        <label class="flex cursor-pointer items-start gap-3 rounded-md border p-3">
+                            <input
+                                v-model="form.schedule_mode"
+                                type="radio"
+                                value="scheduled"
+                                class="mt-0.5"
+                            >
+                            <span class="text-sm">
+                                <span class="block font-medium">Scheduled</span>
+                                <span class="text-muted-foreground">Uses date/time and ends 1h 30m after start.</span>
+                            </span>
+                        </label>
+                    </div>
+                </div>
+                <div v-if="form.schedule_mode === 'scheduled'" class="grid gap-2 md:grid-cols-2 md:gap-4">
                     <div class="grid gap-2">
                         <Label for="scheduled_at">{{ markRequired('Webinar Date and Time') }}</Label>
                         <Input id="scheduled_at" v-model="form.scheduled_at" type="datetime-local" required />
@@ -935,7 +959,10 @@ const submit = (): void => {
             <div v-if="activeStep === 6" class="grid gap-4 rounded-lg border p-4">
                 <h3 class="text-lg font-semibold">Reminder and Notification</h3>
                 <p class="text-sm text-muted-foreground">
-                    Reminder timing uses the webinar date/time and selected timezone from the Basics tab.
+                    Confirmation sends on registration. Reminders and follow-ups run automatically for scheduled webinars.
+                </p>
+                <p class="text-xs text-muted-foreground">
+                    Auto mode has no end time, so reminder/follow-up automation is skipped.
                 </p>
                 <div class="space-y-3">
                     <label class="flex items-center gap-3 rounded-md border p-3">

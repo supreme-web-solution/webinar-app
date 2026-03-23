@@ -21,6 +21,8 @@ class WebinarRegistrant extends Model
         'email_verified_at',
         'registered_at',
         'last_joined_at',
+        'reminder_sent_at',
+        'follow_up_sent_at',
         'is_subscribed',
     ];
 
@@ -30,6 +32,8 @@ class WebinarRegistrant extends Model
             'email_verified_at' => 'datetime',
             'registered_at' => 'datetime',
             'last_joined_at' => 'datetime',
+            'reminder_sent_at' => 'datetime',
+            'follow_up_sent_at' => 'datetime',
             'is_subscribed' => 'boolean',
         ];
     }

@@ -6,6 +6,7 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Str;
 
 class Webinar extends Model
@@ -17,6 +18,7 @@ class Webinar extends Model
         'uuid',
         'title',
         'title_prefix',
+        'schedule_mode',
         'host_name',
         'description',
         'scheduled_at',
@@ -106,5 +108,35 @@ class Webinar extends Model
         }
 
         return "{$prefix} : {$this->title}";
+    }
+
+    public function isAutoMode(): bool
+    {
+        return $this->schedule_mode === 'auto';
+    }
+
+    public function isScheduledMode(): bool
+    {
+        return !$this->isAutoMode();
+    }
+
+    public function scheduledEndAt(): ?Carbon
+    {
+        if ($this->isAutoMode() || !$this->scheduled_at instanceof Carbon) {
+            return null;
+        }
+
+        return $this->scheduled_at->copy()->addMinutes(90);
+    }
+
+    public function hasEnded(): bool
+    {
+        $endAt = $this->scheduledEndAt();
+
+        if ($endAt === null) {
+            return false;
+        }
+
+        return now()->greaterThanOrEqualTo($endAt);
     }
 }

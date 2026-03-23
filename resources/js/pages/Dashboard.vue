@@ -29,6 +29,8 @@ type RecentWebinar = {
     title: string;
     uuid: string;
     host_name: string;
+    schedule_mode: 'auto' | 'scheduled';
+    has_ended: boolean;
     is_published: boolean;
     video_source: string;
     registrants_count: number;
@@ -291,25 +293,30 @@ const copyLink = async (link: string, label: string): Promise<void> => {
                                         </p>
                                     </td>
                                     <td class="py-3 pr-4 align-top">
-                                        <div v-if="w.scheduled_at_label" class="flex items-start gap-1.5 text-muted-foreground">
+                                        <div
+                                            v-if="w.schedule_mode === 'scheduled' && w.scheduled_at_label"
+                                            class="flex items-start gap-1.5 text-muted-foreground"
+                                        >
                                             <Calendar class="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden="true" />
                                             <span>
                                                 {{ w.scheduled_at_label }}
                                                 <span class="block text-[11px] opacity-80">{{ w.scheduled_timezone }}</span>
                                             </span>
                                         </div>
-                                        <span v-else class="text-muted-foreground">—</span>
+                                        <span v-else class="text-muted-foreground">Auto</span>
                                     </td>
                                     <td class="py-3 pr-4 align-top">
                                         <span
                                             class="inline-flex rounded-full px-2.5 py-0.5 text-xs font-medium"
                                             :class="
-                                                w.is_published
-                                                    ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950/50 dark:text-emerald-300'
-                                                    : 'bg-amber-100 text-amber-900 dark:bg-amber-950/50 dark:text-amber-200'
+                                                w.has_ended
+                                                    ? 'bg-rose-100 text-rose-800 dark:bg-rose-950/50 dark:text-rose-300'
+                                                    : w.is_published
+                                                        ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950/50 dark:text-emerald-300'
+                                                        : 'bg-amber-100 text-amber-900 dark:bg-amber-950/50 dark:text-amber-200'
                                             "
                                         >
-                                            {{ w.is_published ? 'Published' : 'Draft' }}
+                                            {{ w.has_ended ? 'Ended' : w.is_published ? 'Published' : 'Draft' }}
                                         </span>
                                     </td>
                                     <td class="py-3 pr-4 align-top tabular-nums">{{ w.registrants_count }}</td>

@@ -26,6 +26,8 @@ class WebinarController extends Controller
                 'id' => $webinar->id,
                 'uuid' => $webinar->uuid,
                 'title' => $webinar->title,
+                'schedule_mode' => $webinar->schedule_mode ?: 'scheduled',
+                'has_ended' => $webinar->hasEnded(),
                 'host_name' => $webinar->host_name,
                 'video_source' => $webinar->video_source,
                 'is_published' => $webinar->is_published,
@@ -49,6 +51,7 @@ class WebinarController extends Controller
             'defaults' => [
                 'title' => '',
                 'title_prefix' => '[Confirmation]',
+                'schedule_mode' => 'auto',
                 'host_name' => (string) Auth::user()?->name,
                 'description' => '',
                 'scheduled_at' => Carbon::now()->addDay()->format('Y-m-d\\TH:i'),
@@ -113,6 +116,7 @@ class WebinarController extends Controller
                 'id' => $webinar->id,
                 'title' => $webinar->title,
                 'title_prefix' => $webinar->title_prefix ?: '[Confirmation]',
+                'schedule_mode' => $webinar->schedule_mode ?: 'scheduled',
                 'host_name' => $webinar->host_name,
                 'description' => $webinar->description,
                 'scheduled_at' => $webinar->scheduled_at
@@ -336,6 +340,16 @@ class WebinarController extends Controller
      */
     private function normalizeSchedulePayload(array $data): array
     {
+        $mode = (string) ($data['schedule_mode'] ?? 'auto');
+        $data['schedule_mode'] = in_array($mode, ['auto', 'scheduled'], true) ? $mode : 'auto';
+
+        if ($data['schedule_mode'] === 'auto') {
+            $data['scheduled_at'] = null;
+            $data['scheduled_timezone'] = config('app.timezone', 'UTC');
+
+            return $data;
+        }
+
         $timezone = (string) ($data['scheduled_timezone'] ?? config('app.timezone', 'UTC'));
         $scheduledAt = (string) ($data['scheduled_at'] ?? '');
 

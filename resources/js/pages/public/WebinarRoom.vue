@@ -44,6 +44,8 @@ const props = defineProps<{
     chatToken?: string;
     accessRequired?: boolean;
     accessUrl?: string | null;
+    roomEnded?: boolean;
+    endedMessage?: string | null;
 }>();
 
 const gateForm = useForm({
@@ -310,7 +312,7 @@ const loadServerChat = async (): Promise<void> => {
 };
 
 onMounted(() => {
-    if (props.accessRequired) {
+    if (props.roomEnded || props.accessRequired) {
         return;
     }
 
@@ -377,7 +379,16 @@ const submitAccess = (): void => {
     <Head :title="webinar.title" />
 
     <div class="relative mx-auto flex min-h-screen w-full max-w-350 flex-col gap-4 p-4 lg:flex-row lg:items-stretch">
-        <section class="order-1 flex min-w-0 flex-1 flex-col gap-4">
+        <div
+            v-if="roomEnded"
+            class="flex min-h-[60vh] w-full flex-col items-center justify-center rounded-xl border bg-card p-8 text-center shadow-sm"
+        >
+            <h1 class="text-2xl font-semibold">Webinar ended</h1>
+            <p class="mt-2 max-w-xl text-sm text-muted-foreground">
+                {{ endedMessage || 'This webinar has ended. Please contact the host for replay options.' }}
+            </p>
+        </div>
+        <section v-if="!roomEnded" class="order-1 flex min-w-0 flex-1 flex-col gap-4">
             <div class="rounded-xl border bg-card p-4 shadow-sm">
                 <div class="mb-3 flex items-center justify-between gap-4">
                     <div>
@@ -451,7 +462,7 @@ const submitAccess = (): void => {
             </div>
         </section>
 
-        <aside class="order-2 flex h-[78vh] w-full flex-col overflow-hidden rounded-xl border bg-card shadow-sm lg:h-auto lg:w-95 lg:min-w-90 lg:max-w-105 lg:self-stretch">
+        <aside v-if="!roomEnded" class="order-2 flex h-[78vh] w-full flex-col overflow-hidden rounded-xl border bg-card shadow-sm lg:h-auto lg:w-95 lg:min-w-90 lg:max-w-105 lg:self-stretch">
             <div class="border-b px-4 py-3">
                 <h2 class="font-semibold">In-call chat</h2>
                 <p class="text-xs text-muted-foreground">You are {{ registrant.name || 'Guest' }}</p>
@@ -543,7 +554,7 @@ const submitAccess = (): void => {
         </aside>
 
         <div
-            v-if="accessRequired"
+            v-if="accessRequired && !roomEnded"
             class="absolute inset-0 z-40 flex items-center justify-center bg-black/40 backdrop-blur-sm"
         >
             <form
@@ -588,7 +599,7 @@ const submitAccess = (): void => {
         </div>
 
         <div
-            v-if="popupOffer"
+            v-if="popupOffer && !roomEnded"
             class="fixed bottom-4 right-4 z-50 max-w-sm rounded-xl border bg-white p-4 shadow-lg"
         >
             <h3 class="font-semibold">{{ popupOffer.title }}</h3>

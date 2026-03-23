@@ -46,6 +46,8 @@ class DashboardController extends Controller
                 'title' => $w->title,
                 'uuid' => $w->uuid,
                 'host_name' => $w->host_name,
+                'schedule_mode' => $w->schedule_mode ?: 'scheduled',
+                'has_ended' => $w->hasEnded(),
                 'is_published' => $w->is_published,
                 'video_source' => $w->video_source,
                 'registrants_count' => $w->registrants_count,

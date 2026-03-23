@@ -21,33 +21,24 @@ class WebinarRoomController extends Controller
             'scheduledMessages' => fn ($query) => $query->where('is_active', true)->orderBy('trigger_second'),
         ]);
 
+        if ($webinar->hasEnded()) {
+            return Inertia::render('public/WebinarRoom', [
+                'webinar' => $this->buildWebinarPayload($webinar),
+                'registrant' => [
+                    'name' => '',
+                    'email' => '',
+                ],
+                'chatToken' => null,
+                'accessRequired' => false,
+                'accessUrl' => null,
+                'view' => null,
+                'roomEnded' => true,
+                'endedMessage' => 'This webinar has ended. Please contact the host for replay options.',
+            ]);
+        }
+
         return Inertia::render('public/WebinarRoom', [
-            'webinar' => [
-                'id' => $webinar->id,
-                'title' => $webinar->title,
-                'host_name' => $webinar->host_name,
-                'description' => $webinar->description,
-                'video_source' => $webinar->video_source,
-                'video_url' => $webinar->video_url,
-                'video_duration_seconds' => $webinar->video_duration_seconds,
-                'min_viewers' => $webinar->min_viewers,
-                'max_viewers' => $webinar->max_viewers,
-                'offers' => $webinar->offers->map(fn ($offer) => [
-                    'id' => $offer->id,
-                    'title' => $offer->title,
-                    'description' => $offer->description,
-                    'trigger_second' => $offer->trigger_second,
-                    'button_text' => $offer->button_text,
-                    'button_url' => $offer->button_url,
-                    'display_mode' => $offer->display_mode,
-                ]),
-                'scheduled_messages' => $webinar->scheduledMessages->map(fn ($message) => [
-                    'id' => $message->id,
-                    'trigger_second' => $message->trigger_second,
-                    'sender_name' => $message->sender_name,
-                    'message' => $message->message,
-                ]),
-            ],
+            'webinar' => $this->buildWebinarPayload($webinar),
             'registrant' => [
                 'name' => '',
                 'email' => '',
@@ -56,6 +47,8 @@ class WebinarRoomController extends Controller
             'accessRequired' => true,
             'accessUrl' => route('webinar.room.access', ['webinar' => $webinar->uuid]),
             'view' => null,
+            'roomEnded' => false,
+            'endedMessage' => null,
         ]);
     }
 
@@ -70,6 +63,22 @@ class WebinarRoomController extends Controller
             ->firstOrFail();
 
         $webinar = $registrant->webinar;
+
+        if ($webinar->hasEnded()) {
+            return Inertia::render('public/WebinarRoom', [
+                'webinar' => $this->buildWebinarPayload($webinar),
+                'registrant' => [
+                    'name' => $registrant->name,
+                    'email' => $registrant->email,
+                ],
+                'chatToken' => null,
+                'accessRequired' => false,
+                'accessUrl' => null,
+                'view' => null,
+                'roomEnded' => true,
+                'endedMessage' => 'This webinar has ended. Please contact the host for replay options.',
+            ]);
+        }
 
         $registrant->update([
             'last_joined_at' => Carbon::now(),
@@ -98,32 +107,7 @@ class WebinarRoomController extends Controller
         ]);
 
         return Inertia::render('public/WebinarRoom', [
-            'webinar' => [
-                'id' => $webinar->id,
-                'title' => $webinar->title,
-                'host_name' => $webinar->host_name,
-                'description' => $webinar->description,
-                'video_source' => $webinar->video_source,
-                'video_url' => $webinar->video_url,
-                'video_duration_seconds' => $webinar->video_duration_seconds,
-                'min_viewers' => $webinar->min_viewers,
-                'max_viewers' => $webinar->max_viewers,
-                'offers' => $webinar->offers->map(fn ($offer) => [
-                    'id' => $offer->id,
-                    'title' => $offer->title,
-                    'description' => $offer->description,
-                    'trigger_second' => $offer->trigger_second,
-                    'button_text' => $offer->button_text,
-                    'button_url' => $offer->button_url,
-                    'display_mode' => $offer->display_mode,
-                ]),
-                'scheduled_messages' => $webinar->scheduledMessages->map(fn ($message) => [
-                    'id' => $message->id,
-                    'trigger_second' => $message->trigger_second,
-                    'sender_name' => $message->sender_name,
-                    'message' => $message->message,
-                ]),
-            ],
+            'webinar' => $this->buildWebinarPayload($webinar),
             'registrant' => [
                 'name' => $registrant->name,
                 'email' => $registrant->email,
@@ -136,6 +120,41 @@ class WebinarRoomController extends Controller
                 'joined_at' => $view->joined_at?->toIso8601String(),
                 'session_started_at' => $view->session_started_at?->toIso8601String(),
             ],
+            'roomEnded' => false,
+            'endedMessage' => null,
         ]);
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function buildWebinarPayload(Webinar $webinar): array
+    {
+        return [
+            'id' => $webinar->id,
+            'title' => $webinar->title,
+            'host_name' => $webinar->host_name,
+            'description' => $webinar->description,
+            'video_source' => $webinar->video_source,
+            'video_url' => $webinar->video_url,
+            'video_duration_seconds' => $webinar->video_duration_seconds,
+            'min_viewers' => $webinar->min_viewers,
+            'max_viewers' => $webinar->max_viewers,
+            'offers' => $webinar->offers->map(fn ($offer) => [
+                'id' => $offer->id,
+                'title' => $offer->title,
+                'description' => $offer->description,
+                'trigger_second' => $offer->trigger_second,
+                'button_text' => $offer->button_text,
+                'button_url' => $offer->button_url,
+                'display_mode' => $offer->display_mode,
+            ]),
+            'scheduled_messages' => $webinar->scheduledMessages->map(fn ($message) => [
+                'id' => $message->id,
+                'trigger_second' => $message->trigger_second,
+                'sender_name' => $message->sender_name,
+                'message' => $message->message,
+            ]),
+        ];
     }
 }
