@@ -4,8 +4,11 @@ namespace App\Http\Controllers;
 
 use App\Models\AnalyticsEvent;
 use App\Models\Webinar;
+use App\Models\WebinarOffer;
 use App\Models\WebinarRegistrant;
 use App\Models\WebinarView;
+use Illuminate\Http\JsonResponse;
+use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
 use Inertia\Inertia;
 use Inertia\Response;
@@ -122,6 +125,39 @@ class WebinarRoomController extends Controller
             ],
             'roomEnded' => false,
             'endedMessage' => null,
+        ]);
+    }
+
+    public function trackOfferClick(Request $request, string $token, WebinarOffer $offer): JsonResponse
+    {
+        $registrant = WebinarRegistrant::query()
+            ->where('access_token', $token)
+            ->firstOrFail();
+
+        abort_unless($registrant->webinar_id === $offer->webinar_id, 404);
+
+        $validated = $request->validate([
+            'source' => ['nullable', 'string', 'max:50'],
+            'elapsed_seconds' => ['nullable', 'integer', 'min:0'],
+        ]);
+
+        AnalyticsEvent::create([
+            'webinar_id' => $registrant->webinar_id,
+            'registrant_id' => $registrant->id,
+            'event_type' => 'offer_cta_clicked',
+            'event_data' => [
+                'offer_id' => $offer->id,
+                'offer_title' => $offer->title,
+                'button_text' => $offer->button_text,
+                'button_url' => $offer->button_url,
+                'source' => $validated['source'] ?? 'unknown',
+                'elapsed_seconds' => $validated['elapsed_seconds'] ?? null,
+            ],
+            'occurred_at' => Carbon::now(),
+        ]);
+
+        return response()->json([
+            'tracked' => true,
         ]);
     }
 

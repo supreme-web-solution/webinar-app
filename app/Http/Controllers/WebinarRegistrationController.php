@@ -2,10 +2,10 @@
 
 namespace App\Http\Controllers;
 
+use App\Jobs\SendWebinarEmailsBatchJob;
 use App\Http\Requests\Webinar\StoreWebinarRegistrantRequest;
 use App\Models\Webinar;
 use App\Models\WebinarRegistrant;
-use App\Services\ResendService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Str;
@@ -56,7 +56,7 @@ class WebinarRegistrationController extends Controller
         ]);
     }
 
-    public function store(StoreWebinarRegistrantRequest $request, Webinar $webinar, ResendService $resendService): RedirectResponse
+    public function store(StoreWebinarRegistrantRequest $request, Webinar $webinar): RedirectResponse
     {
         abort_unless($webinar->is_published, 404);
         if ($webinar->hasEnded()) {
@@ -81,12 +81,12 @@ class WebinarRegistrationController extends Controller
         $registrant->save();
 
         if ($isNewRegistrant && $sendConfirmation) {
-            $resendService->sendWebinarEmail(
-                $webinar,
-                $registrant,
+            SendWebinarEmailsBatchJob::dispatch(
+                $webinar->id,
+                [$registrant->id],
                 $webinar->prefixedTitleLine(),
                 'Thanks for registering. Use the button below to join your webinar anytime.'
-            );
+            )->onQueue('emails');
         }
 
         return redirect()
@@ -94,7 +94,7 @@ class WebinarRegistrationController extends Controller
             ->with('success', 'Registration complete. Welcome to the webinar.');
     }
 
-    public function accessFromJoinLink(StoreWebinarRegistrantRequest $request, Webinar $webinar, ResendService $resendService): RedirectResponse
+    public function accessFromJoinLink(StoreWebinarRegistrantRequest $request, Webinar $webinar): RedirectResponse
     {
         abort_unless($webinar->is_published, 404);
         if ($webinar->hasEnded()) {
@@ -119,12 +119,12 @@ class WebinarRegistrationController extends Controller
         $registrant->save();
 
         if ($isNewRegistrant && $sendConfirmation) {
-            $resendService->sendWebinarEmail(
-                $webinar,
-                $registrant,
+            SendWebinarEmailsBatchJob::dispatch(
+                $webinar->id,
+                [$registrant->id],
                 $webinar->prefixedTitleLine(),
                 'Thanks for registering. Use the button below to join your webinar anytime.'
-            );
+            )->onQueue('emails');
         }
 
         return redirect()->route('webinar.room', ['token' => $registrant->access_token]);

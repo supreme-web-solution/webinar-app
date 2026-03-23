@@ -86,7 +86,7 @@ const buttonUrgencyText = (button: { urgency_mode: 'none' | 'minutes' | 'live'; 
         </div>
 
         <form class="space-y-4 rounded-xl border bg-card p-6 shadow-sm" @submit.prevent="submit">
-            <h2 class="text-xl font-semibold">Reserve Your Spot</h2>
+            <h2 class="text-xl font-semibold">Fill In Your Details To Join The Training</h2>
             <div class="grid gap-2">
                 <Label for="name">Name</Label>
                 <Input id="name" v-model="form.name" required />

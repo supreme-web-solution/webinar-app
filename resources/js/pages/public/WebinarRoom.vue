@@ -72,6 +72,84 @@ let chatPollTimer: ReturnType<typeof setInterval> | null = null;
 const firedMessageIds = new Set<number>();
 const firedOfferIds = new Set<number>();
 
+const escapeHtml = (raw: string): string =>
+    raw
+        .replaceAll('&', '&amp;')
+        .replaceAll('<', '&lt;')
+        .replaceAll('>', '&gt;')
+        .replaceAll('"', '&quot;')
+        .replaceAll("'", '&#39;');
+
+const linkifyMessage = (message: string): string => {
+    const escaped = escapeHtml(message);
+    const urlPattern = /(https?:\/\/[^\s<]+)/g;
+
+    return escaped.replace(urlPattern, (url) => {
+        return `<a href="${url}" target="_blank" rel="noopener noreferrer" class="underline underline-offset-2 break-all">${url}</a>`;
+    });
+};
+
+const extractOfferIdFromMessage = (messageId: string): number | null => {
+    if (!messageId.startsWith('offer-')) {
+        return null;
+    }
+
+    const raw = Number(messageId.replace('offer-', ''));
+    return Number.isFinite(raw) ? raw : null;
+};
+
+const onChatMessageClick = (event: MouseEvent, messageId: string): void => {
+    const target = event.target as HTMLElement | null;
+    if (!target) {
+        return;
+    }
+
+    const anchor = target.closest('a');
+    if (!anchor) {
+        return;
+    }
+
+    const offerId = extractOfferIdFromMessage(messageId);
+    if (!offerId) {
+        return;
+    }
+
+    const offer = props.webinar.offers.find((item) => item.id === offerId);
+    if (!offer) {
+        return;
+    }
+
+    void trackOfferClick(offer, 'chat');
+};
+
+const trackOfferClick = async (offer: Offer, source: 'chat' | 'popup' | 'pinned' | 'offers-panel'): Promise<void> => {
+    if (!props.chatToken) {
+        return;
+    }
+
+    const csrfToken = document
+        .querySelector('meta[name="csrf-token"]')
+        ?.getAttribute('content') ?? '';
+
+    try {
+        await fetch(`/webinar/${props.chatToken}/offers/${offer.id}/click`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRF-TOKEN': csrfToken,
+                Accept: 'application/json',
+            },
+            keepalive: true,
+            body: JSON.stringify({
+                source,
+                elapsed_seconds: elapsedSeconds.value,
+            }),
+        });
+    } catch {
+        // Ignore tracking failures so CTA navigation remains uninterrupted.
+    }
+};
+
 const extractYouTubeVideoId = (rawUrl: string): string | null => {
     const cleaned = rawUrl.trim();
 
@@ -212,7 +290,7 @@ const tickTimeline = (): void => {
             chatMessages.value.push({
                 id: `offer-${offer.id}`,
                 sender: `${props.webinar.host_name} (Offer)`,
-                message: `${offer.title} - ${offer.button_url}`,
+                message: `${offer.title}: ${offer.button_url}`,
                 at: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
             });
         }
@@ -364,8 +442,9 @@ const submitAccess = (): void => {
             // Inertia.reload({ only: ['registrant', 'chatToken'] })
             // Or use router.reload()
             // For now, use Inertia.reload to update SPA state
-            if (typeof window !== 'undefined' && window.Inertia) {
-                window.Inertia.reload({ only: ['registrant', 'chatToken'] });
+            const inertia = (window as Window & { Inertia?: { reload: (options?: { only?: string[] }) => void } }).Inertia;
+            if (inertia) {
+                inertia.reload({ only: ['registrant', 'chatToken'] });
             } else {
                 // fallback: reload page
                 window.location.reload();
@@ -456,7 +535,8 @@ const submitAccess = (): void => {
                     class="mt-3 inline-block rounded-md bg-amber-700 px-4 py-2 text-sm text-white"
                     :href="pinnedOffer.button_url"
                     target="_blank"
-                    rel="noreferrer"
+                    rel="noopener noreferrer"
+                    @click="void trackOfferClick(pinnedOffer, 'pinned')"
                 >
                     {{ pinnedOffer.button_text }}
                 </a>
@@ -506,9 +586,12 @@ const submitAccess = (): void => {
                         </p>
                         <p :class="message.self ? 'text-primary-foreground/70' : 'text-sky-700/70'">{{ message.at }}</p>
                     </div>
-                    <p class="leading-relaxed" :class="message.self ? 'text-primary-foreground' : 'text-sky-950'">
-                        {{ message.message }}
-                    </p>
+                    <p
+                        class="leading-relaxed"
+                        :class="message.self ? 'text-primary-foreground' : 'text-sky-950'"
+                        v-html="linkifyMessage(message.message)"
+                        @click="onChatMessageClick($event, message.id)"
+                    />
                 </div>
             </div>
 
@@ -525,13 +608,14 @@ const submitAccess = (): void => {
                         class="mt-3 inline-block rounded-md bg-amber-700 px-3 py-2 text-xs text-white"
                         :href="offer.button_url"
                         target="_blank"
-                        rel="noreferrer"
+                        rel="noopener noreferrer"
+                        @click="void trackOfferClick(offer, 'offers-panel')"
                     >
                         {{ offer.button_text }}
                     </a>
                 </div>
                 <div v-if="droppedOffers.length === 0" class="rounded-md border border-dashed p-4 text-center text-sm text-muted-foreground">
-                    No offer has dropped yet. Offers will appear here when triggered.
+                    No offer has dropped yet. Offers will appear here.
                 </div>
             </div>
 
@@ -610,7 +694,8 @@ const submitAccess = (): void => {
                     class="rounded-md bg-primary px-3 py-2 text-sm text-primary-foreground"
                     :href="popupOffer.button_url"
                     target="_blank"
-                    rel="noreferrer"
+                    rel="noopener noreferrer"
+                    @click="void trackOfferClick(popupOffer, 'popup')"
                 >
                     {{ popupOffer.button_text }}
                 </a>

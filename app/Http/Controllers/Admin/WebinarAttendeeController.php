@@ -2,26 +2,27 @@
 
 namespace App\Http\Controllers\Admin;
 
+use App\Jobs\SendWebinarEmailsBatchJob;
 use App\Http\Controllers\Controller;
 use App\Models\EmailUnsubscribe;
 use App\Models\Webinar;
 use App\Models\WebinarRegistrant;
-use App\Services\ResendService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Str;
+use Illuminate\Support\Collection;
 use PhpOffice\PhpSpreadsheet\IOFactory;
 
 class WebinarAttendeeController extends Controller
 {
-    public function importCsv(Request $request, Webinar $webinar, ResendService $resendService): RedirectResponse
+    public function importCsv(Request $request, Webinar $webinar): RedirectResponse
     {
         abort_unless($webinar->user_id === Auth::id(), 403);
 
         $validated = $request->validate([
-            'file' => ['required', 'file', 'mimes:csv,txt,xlsx,xls', 'max:5120'],
+            'file' => ['required', 'file', 'mimes:csv,txt,xlsx,xls', 'max:20480'],
         ]);
 
         $uploadedFile = $validated['file'];
@@ -56,7 +57,7 @@ class WebinarAttendeeController extends Controller
         }
 
         $imported = 0;
-        $emailsSent = 0;
+        $registrantIdsForEmail = [];
         $sendConfirmation = (bool) data_get($webinar->email_settings, 'send_confirmation', true);
 
         foreach ($rows as $row) {
@@ -82,22 +83,22 @@ class WebinarAttendeeController extends Controller
             $registrant->save();
 
             if ($sendConfirmation) {
-                $sent = $resendService->sendWebinarEmail(
-                    $webinar,
-                    $registrant,
-                    $webinar->prefixedTitleLine(),
-                    'You have been registered for this webinar. Click below to join when ready.'
-                );
-
-                if ($sent) {
-                    $emailsSent++;
-                }
+                $registrantIdsForEmail[] = $registrant->id;
             }
 
             $imported++;
         }
 
-        return back()->with('success', "File import complete. {$imported} attendee(s) registered, {$emailsSent} email(s) sent.");
+        $emailsQueued = $sendConfirmation
+            ? $this->dispatchEmailBatches(
+                $webinar,
+                collect($registrantIdsForEmail)->unique()->values(),
+                $webinar->prefixedTitleLine(),
+                'You have been registered for this webinar. Click below to join when ready.'
+            )
+            : 0;
+
+        return back()->with('success', "File import complete. {$imported} attendee(s) registered, {$emailsQueued} email(s) queued.");
     }
 
     /**
@@ -136,7 +137,7 @@ class WebinarAttendeeController extends Controller
         return [];
     }
 
-    public function notifyAll(Webinar $webinar, ResendService $resendService): RedirectResponse
+    public function notifyAll(Webinar $webinar): RedirectResponse
     {
         abort_unless($webinar->user_id === Auth::id(), 403);
 
@@ -148,22 +149,15 @@ class WebinarAttendeeController extends Controller
             ->where('is_subscribed', true)
             ->get();
 
-        $emailsSent = 0;
+        $emailsQueued = $this->dispatchEmailBatches(
+            $webinar,
+            $registrants->pluck('id')->values(),
+            'Reminder: '.$webinar->prefixedTitleLine(),
+            'This is a reminder that your webinar is ready. Click below to join now.',
+            'reminder_sent_at'
+        );
 
-        foreach ($registrants as $registrant) {
-            $sent = $resendService->sendWebinarEmail(
-                $webinar,
-                $registrant,
-                'Reminder: '.$webinar->prefixedTitleLine(),
-                'This is a reminder that your webinar is ready. Click below to join now.'
-            );
-
-            if ($sent) {
-                $emailsSent++;
-            }
-        }
-
-        return back()->with('success', "Reminder run complete. {$emailsSent}/{$registrants->count()} email(s) sent.");
+        return back()->with('success', "Reminder run queued. {$emailsQueued}/{$registrants->count()} email(s) queued.");
     }
 
     public function moveToUnsubscribed(Webinar $webinar, WebinarRegistrant $registrant): RedirectResponse
@@ -265,5 +259,37 @@ class WebinarAttendeeController extends Controller
         }
 
         return back()->with('success', $registrants->count().' unsubscribed attendee(s) deleted.');
+    }
+
+    /**
+     * @param Collection<int, int> $registrantIds
+     */
+    private function dispatchEmailBatches(
+        Webinar $webinar,
+        Collection $registrantIds,
+        string $subject,
+        string $intro,
+        ?string $markSentColumn = null
+    ): int {
+        $chunks = $registrantIds
+            ->filter(fn ($id) => is_numeric($id))
+            ->map(fn ($id) => (int) $id)
+            ->unique()
+            ->values()
+            ->chunk(100);
+
+        foreach ($chunks as $index => $chunk) {
+            SendWebinarEmailsBatchJob::dispatch(
+                $webinar->id,
+                $chunk->all(),
+                $subject,
+                $intro,
+                $markSentColumn
+            )
+                ->onQueue('emails')
+                ->delay(now()->addSeconds((int) $index));
+        }
+
+        return $chunks->sum(fn ($chunk) => $chunk->count());
     }
 }

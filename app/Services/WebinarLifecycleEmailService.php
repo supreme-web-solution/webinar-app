@@ -2,9 +2,11 @@
 
 namespace App\Services;
 
+use App\Jobs\SendWebinarEmailsBatchJob;
 use App\Models\Webinar;
 use App\Models\WebinarRegistrant;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Collection;
 
 class WebinarLifecycleEmailService
 {
@@ -20,8 +22,6 @@ class WebinarLifecycleEmailService
             ->whereNotNull('scheduled_at')
             ->get();
 
-        $resendService = app(ResendService::class);
-
         foreach ($webinars as $webinar) {
             $scheduleAt = $webinar->scheduled_at?->copy();
             $endAt = $webinar->scheduledEndAt();
@@ -34,11 +34,11 @@ class WebinarLifecycleEmailService
             $sendFollowUp = (bool) data_get($webinar->email_settings, 'send_follow_up', true);
 
             if ($sendReminder && $now->greaterThanOrEqualTo($scheduleAt->copy()->subHour()) && $now->lessThan($endAt)) {
-                $remindersSent += $this->sendReminderEmails($webinar, $resendService, $now);
+                $remindersSent += $this->queueReminderEmails($webinar);
             }
 
             if ($sendFollowUp && $now->greaterThanOrEqualTo($endAt)) {
-                $followUpsSent += $this->sendFollowUpEmails($webinar, $resendService, $now);
+                $followUpsSent += $this->queueFollowUpEmails($webinar);
             }
         }
 
@@ -48,59 +48,68 @@ class WebinarLifecycleEmailService
         ];
     }
 
-    private function sendReminderEmails(Webinar $webinar, ResendService $resendService, Carbon $now): int
+    private function queueReminderEmails(Webinar $webinar): int
     {
-        $sent = 0;
-        $registrants = WebinarRegistrant::query()
+        $registrantIds = WebinarRegistrant::query()
             ->where('webinar_id', $webinar->id)
             ->where('is_subscribed', true)
             ->whereNull('reminder_sent_at')
-            ->get();
+            ->pluck('id');
 
-        foreach ($registrants as $registrant) {
-            $didSend = $resendService->sendWebinarEmail(
-                $webinar,
-                $registrant,
-                'Reminder: '.$webinar->prefixedTitleLine(),
-                'Your webinar starts soon. Click below to join when you are ready.'
-            );
-
-            if ($didSend) {
-                $registrant->forceFill([
-                    'reminder_sent_at' => $now,
-                ])->save();
-                $sent++;
-            }
-        }
-
-        return $sent;
+        return $this->dispatchBatches(
+            $webinar,
+            $registrantIds,
+            'Reminder: '.$webinar->prefixedTitleLine(),
+            'Your webinar starts soon. Click below to join when you are ready.',
+            'reminder_sent_at'
+        );
     }
 
-    private function sendFollowUpEmails(Webinar $webinar, ResendService $resendService, Carbon $now): int
+    private function queueFollowUpEmails(Webinar $webinar): int
     {
-        $sent = 0;
-        $registrants = WebinarRegistrant::query()
+        $registrantIds = WebinarRegistrant::query()
             ->where('webinar_id', $webinar->id)
             ->where('is_subscribed', true)
             ->whereNull('follow_up_sent_at')
-            ->get();
+            ->pluck('id');
 
-        foreach ($registrants as $registrant) {
-            $didSend = $resendService->sendWebinarEmail(
-                $webinar,
-                $registrant,
-                'Follow-up: '.$webinar->prefixedTitleLine(),
-                'Thanks for attending. Reach out to the host if you need additional resources or replay details.'
-            );
+        return $this->dispatchBatches(
+            $webinar,
+            $registrantIds,
+            'Follow-up: '.$webinar->prefixedTitleLine(),
+            'Thanks for attending. Reach out to the host if you need additional resources or replay details.',
+            'follow_up_sent_at'
+        );
+    }
 
-            if ($didSend) {
-                $registrant->forceFill([
-                    'follow_up_sent_at' => $now,
-                ])->save();
-                $sent++;
-            }
+    /**
+     * @param Collection<int, int> $registrantIds
+     */
+    private function dispatchBatches(
+        Webinar $webinar,
+        Collection $registrantIds,
+        string $subject,
+        string $intro,
+        string $markSentColumn
+    ): int {
+        $chunks = $registrantIds
+            ->map(fn ($id) => (int) $id)
+            ->filter(fn ($id) => $id > 0)
+            ->values()
+            ->chunk(100);
+
+        foreach ($chunks as $index => $chunk) {
+            SendWebinarEmailsBatchJob::dispatch(
+                $webinar->id,
+                $chunk->all(),
+                $subject,
+                $intro,
+                $markSentColumn
+            )
+                ->onQueue('emails')
+                ->delay(now()->addSeconds((int) $index));
         }
 
-        return $sent;
+        return $chunks->sum(fn ($chunk) => $chunk->count());
     }
 }

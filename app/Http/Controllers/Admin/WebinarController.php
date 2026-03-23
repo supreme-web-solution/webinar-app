@@ -199,6 +199,7 @@ class WebinarController extends Controller
                 'views' => $webinar->views()->count(),
                 'chat_messages' => $webinar->chatMessages()->count(),
                 'offers' => $webinar->offers()->count(),
+                'cta_clicks' => $webinar->analyticsEvents()->where('event_type', 'offer_cta_clicked')->count(),
             ],
         ]);
     }

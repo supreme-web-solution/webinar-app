@@ -55,6 +55,7 @@ type Stats = {
     views: number;
     chat_messages: number;
     offers: number;
+    cta_clicks: number;
 };
 
 const props = defineProps<{
@@ -91,7 +92,7 @@ const breadcrumbs: BreadcrumbItem[] = [
                         Update settings, automation, and publishing options.
                     </p>
                 </div>
-                <div class="grid grid-cols-2 gap-2 text-sm md:grid-cols-4">
+                <div class="grid grid-cols-2 gap-2 text-sm md:grid-cols-5">
                     <div class="rounded-md border px-3 py-2">
                         <p class="text-muted-foreground">Registrants</p>
                         <p class="font-semibold">{{ stats.registrants }}</p>
@@ -107,6 +108,10 @@ const breadcrumbs: BreadcrumbItem[] = [
                     <div class="rounded-md border px-3 py-2">
                         <p class="text-muted-foreground">Offers</p>
                         <p class="font-semibold">{{ stats.offers }}</p>
+                    </div>
+                    <div class="rounded-md border px-3 py-2">
+                        <p class="text-muted-foreground">CTA Clicks</p>
+                        <p class="font-semibold">{{ stats.cta_clicks }}</p>
                     </div>
                 </div>
             </div>
