@@ -28,6 +28,10 @@ class WebinarController extends Controller
                 'title' => $webinar->title,
                 'schedule_mode' => $webinar->schedule_mode ?: 'scheduled',
                 'has_ended' => $webinar->hasEnded(),
+                'scheduled_at_label' => $webinar->scheduled_at
+                    ? $webinar->scheduled_at->copy()->timezone($webinar->scheduled_timezone ?: 'UTC')->format('M j, Y · g:i a')
+                    : null,
+                'scheduled_timezone' => $webinar->scheduled_timezone ?: config('app.timezone', 'UTC'),
                 'host_name' => $webinar->host_name,
                 'video_source' => $webinar->video_source,
                 'is_published' => $webinar->is_published,

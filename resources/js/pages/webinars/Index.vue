@@ -10,6 +10,8 @@ type WebinarListItem = {
     title: string;
     schedule_mode: 'auto' | 'scheduled';
     has_ended: boolean;
+    scheduled_at_label: string | null;
+    scheduled_timezone: string;
     host_name: string;
     video_source: string;
     is_published: boolean;
@@ -97,6 +99,17 @@ const copyLink = async (link: string, label: string): Promise<void> => {
                         <tr v-for="webinar in webinars.data" :key="webinar.id" class="border-t">
                             <td class="px-4 py-3">
                                 <p class="font-medium">{{ webinar.title }}</p>
+                                <p class="mt-1 text-xs text-muted-foreground">
+                                    <span
+                                        class="rounded-full px-2 py-0.5"
+                                        :class="webinar.schedule_mode === 'auto' ? 'bg-sky-100 text-sky-700' : 'bg-violet-100 text-violet-700'"
+                                    >
+                                        {{ webinar.schedule_mode === 'auto' ? 'Auto' : 'Scheduled' }}
+                                    </span>
+                                    <span v-if="webinar.schedule_mode === 'scheduled' && webinar.scheduled_at_label" class="ml-2">
+                                        {{ webinar.scheduled_at_label }} ({{ webinar.scheduled_timezone }})
+                                    </span>
+                                </p>
                                 <p class="text-xs text-muted-foreground font-mono">{{ webinar.uuid }}</p>
                             </td>
                             <td class="px-4 py-3 capitalize">{{ webinar.video_source }}</td>
