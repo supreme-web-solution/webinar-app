@@ -287,7 +287,7 @@ class WebinarAttendeeController extends Controller
                 $markSentColumn
             )
                 ->onQueue('emails')
-                ->delay(now()->addSeconds((int) $index));
+                ->delay(now()->addSeconds((int) $index * 5));
         }
 
         return $chunks->sum(fn ($chunk) => $chunk->count());
