@@ -47,7 +47,7 @@ class WebinarChatController extends Controller
             ->latest('last_joined_at')
             ->get();
 
-        $selectedRegistrantId = (int) ($request->integer('registrant_id') ?: ($registrants->first()?->id ?? 0));
+        $selectedRegistrantId = $request->integer('registrant_id');
 
         $messages = collect();
 

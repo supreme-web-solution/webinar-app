@@ -57,6 +57,8 @@ const elapsedSeconds = ref(0);
 const viewerCount = ref(props.webinar.min_viewers);
 const chatInput = ref('');
 const roomPanel = ref<'chat' | 'offers'>('chat');
+const mobileTab = ref<'video' | 'chat'>('video');
+const unreadCount = ref(0);
 const chatMessages = ref<Array<{ id: string; sender: string; message: string; self?: boolean; at?: string }>>([]);
 const pinnedOffer = ref<Offer | null>(null);
 const popupOffer = ref<Offer | null>(null);
@@ -284,7 +286,7 @@ const prettyElapsed = computed(() => {
 });
 
 const pinnedStarterMessage = computed(() => {
-    const name = props.registrant.name?.trim() ? props.registrant.name : 'test user';
+    const name = props.registrant.name?.trim() ? props.registrant.name : 'Guest';
     return `Welcome ${name}! The webinar is starting now.`;
 });
 
@@ -383,6 +385,10 @@ const tickTimeline = (): void => {
                 message: message.message,
                 at: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
             });
+
+            if (mobileTab.value === 'video') {
+                unreadCount.value += 1;
+            }
         }
     }
 
@@ -405,6 +411,10 @@ const tickTimeline = (): void => {
                 message: `${offer.title}: ${offer.button_url}`,
                 at: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
             });
+
+            if (mobileTab.value === 'video') {
+                unreadCount.value += 1;
+            }
         }
     }
 };
@@ -505,6 +515,8 @@ const loadServerChat = async (): Promise<void> => {
         };
 
         if (Array.isArray(payload.messages)) {
+            const prevDbCount = chatMessages.value.filter((m) => m.id.startsWith('db-')).length;
+
             const dbMessages = payload.messages.map((item) => ({
                 id: `db-${item.id}`,
                 sender: item.sender,
@@ -515,10 +527,20 @@ const loadServerChat = async (): Promise<void> => {
 
             const localOnlyMessages = chatMessages.value.filter((item) => !item.id.startsWith('db-'));
             chatMessages.value = [...dbMessages, ...localOnlyMessages];
+
+            const newDbCount = dbMessages.length;
+            if (mobileTab.value === 'video' && newDbCount > prevDbCount) {
+                unreadCount.value += newDbCount - prevDbCount;
+            }
         }
     } catch {
         // Silent fail keeps playback and local UX responsive.
     }
+};
+
+const openChatTab = (): void => {
+    mobileTab.value = 'chat';
+    unreadCount.value = 0;
 };
 
 onMounted(() => {
@@ -549,29 +571,10 @@ const submitAccess = (): void => {
     gateForm.post(props.accessUrl, {
         preserveScroll: true,
         onSuccess: () => {
-            // Hide modal and enable real-time features
-            // accessRequired is a prop, so we need to emit an event or update parent state
-            // For now, reload only SPA state, not full page
-            // If parent controls accessRequired, emit event
-            // Otherwise, reload page via Inertia
-            // Try to update modal state locally
-            // If accessRequired is managed by parent, emit event
-            // If not, fallback to window.location.reload()
-            // But prefer SPA update
-            // Example:
-            // this.$emit('access-granted')
-            // For local state:
-            // accessRequired.value = false
-            // But accessRequired is a prop, so can't set directly
-            // So, reload SPA page without full reload
-            // Inertia.reload({ only: ['registrant', 'chatToken'] })
-            // Or use router.reload()
-            // For now, use Inertia.reload to update SPA state
             const inertia = (window as Window & { Inertia?: { reload: (options?: { only?: string[] }) => void } }).Inertia;
             if (inertia) {
                 inertia.reload({ only: ['registrant', 'chatToken'] });
             } else {
-                // fallback: reload page
                 window.location.reload();
             }
         },
@@ -582,7 +585,13 @@ const submitAccess = (): void => {
 <template>
     <Head :title="webinar.title" />
 
-    <div class="relative mx-auto flex min-h-screen w-full max-w-350 flex-col gap-4 p-4 lg:flex-row lg:items-stretch">
+    <!--
+        Mobile:  flex-col, fills dvh so video tab and chat tab each fill the screen.
+        Desktop: flex-row side-by-side with normal scrolling.
+    -->
+    <div class="relative mx-auto flex h-dvh w-full max-w-350 flex-col overflow-hidden lg:h-auto lg:min-h-screen lg:flex-row lg:items-stretch lg:gap-4 lg:overflow-visible lg:p-4">
+
+        <!-- ── Room ended banner ──────────────────────────────────────── -->
         <div
             v-if="roomEnded"
             class="flex min-h-[60vh] w-full flex-col items-center justify-center rounded-xl border bg-card p-8 text-center shadow-sm"
@@ -592,9 +601,66 @@ const submitAccess = (): void => {
                 {{ endedMessage || 'This webinar has ended. Please contact the host for replay options.' }}
             </p>
         </div>
-        <section v-if="!roomEnded" class="order-1 flex min-w-0 flex-1 flex-col gap-4">
-            <div class="rounded-xl border bg-card p-4 shadow-sm">
-                <div class="mb-3 flex items-center justify-between gap-4">
+
+        <!-- ── MOBILE HEADER + TAB BAR (hidden on lg+) ───────────────── -->
+        <div v-if="!roomEnded" class="shrink-0 border-b bg-card lg:hidden">
+            <!-- Compact info row -->
+            <div class="flex items-center justify-between gap-3 px-4 py-3">
+                <div class="min-w-0">
+                    <h1 class="truncate text-sm font-semibold leading-tight">{{ webinar.title }}</h1>
+                    <p class="text-xs text-muted-foreground">{{ viewerCount }} watching · {{ webinar.host_name }}</p>
+                </div>
+                <div class="flex shrink-0 items-center gap-2 text-xs">
+                    <span v-if="!videoEnded" class="flex items-center gap-1 font-semibold text-rose-600">
+                        <span class="inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-rose-600" />
+                        LIVE
+                    </span>
+                    <span v-else class="font-semibold text-muted-foreground">ENDED</span>
+                    <span class="tabular-nums text-muted-foreground">{{ prettyElapsed }}</span>
+                </div>
+            </div>
+            <!-- Tab switcher -->
+            <div class="flex border-t">
+                <button
+                    type="button"
+                    class="flex flex-1 items-center justify-center gap-1.5 border-b-2 py-2.5 text-sm font-medium transition-colors"
+                    :class="mobileTab === 'video'
+                        ? 'border-primary text-foreground'
+                        : 'border-transparent text-muted-foreground hover:text-foreground'"
+                    @click="mobileTab = 'video'"
+                >
+                    Video
+                </button>
+                <button
+                    type="button"
+                    class="flex flex-1 items-center justify-center gap-1.5 border-b-2 py-2.5 text-sm font-medium transition-colors"
+                    :class="mobileTab === 'chat'
+                        ? 'border-primary text-foreground'
+                        : 'border-transparent text-muted-foreground hover:text-foreground'"
+                    @click="openChatTab"
+                >
+                    Chat
+                    <span
+                        v-if="unreadCount > 0"
+                        class="rounded-full bg-rose-500 px-1.5 py-0.5 text-[10px] leading-none text-white"
+                    >{{ unreadCount }}</span>
+                </button>
+            </div>
+        </div>
+
+        <!-- ── VIDEO SECTION ──────────────────────────────────────────── -->
+        <!--
+            Always kept in DOM (even when on chat tab on mobile) so the iframe
+            keeps playing. CSS class hides it visually on mobile when on chat tab.
+        -->
+        <section
+            v-if="!roomEnded"
+            class="order-1 min-w-0 flex-1 flex-col gap-3 overflow-y-auto p-3 lg:flex lg:gap-4 lg:p-0"
+            :class="mobileTab === 'video' ? 'flex' : 'hidden lg:flex'"
+        >
+            <div class="rounded-xl border bg-card p-3 shadow-sm lg:p-4">
+                <!-- Desktop-only title/info row -->
+                <div class="mb-3 hidden items-center justify-between gap-4 lg:flex">
                     <div>
                         <h1 class="text-xl font-semibold">{{ webinar.title }}</h1>
                         <p class="text-sm text-muted-foreground">Host: {{ webinar.host_name }}</p>
@@ -607,7 +673,9 @@ const submitAccess = (): void => {
                     </div>
                 </div>
 
+                <!-- Video container -->
                 <div class="relative overflow-hidden rounded-lg border bg-black">
+                    <!-- Meeting ended overlay -->
                     <div
                         v-if="videoEnded"
                         class="absolute inset-0 z-30 flex flex-col items-center justify-center bg-gray-900/95"
@@ -623,6 +691,7 @@ const submitAccess = (): void => {
                         </p>
                     </div>
 
+                    <!-- Click-blocker: prevents touching the iframe player controls -->
                     <div v-if="!videoEnded" class="absolute inset-0 z-10" />
 
                     <iframe
@@ -656,6 +725,7 @@ const submitAccess = (): void => {
                     </div>
                 </div>
 
+                <!-- Controls: sound + reactions -->
                 <div v-if="!videoEnded" class="mt-3 flex flex-wrap items-center gap-2">
                     <button
                         type="button"
@@ -672,6 +742,7 @@ const submitAccess = (): void => {
                 </div>
             </div>
 
+            <!-- Pinned offer (below video) -->
             <div v-if="pinnedOffer" class="rounded-xl border border-amber-300 bg-amber-50 p-4">
                 <p class="text-xs font-semibold uppercase tracking-wide text-amber-700">Pinned Offer</p>
                 <h3 class="mt-1 text-lg font-semibold text-amber-900">{{ pinnedOffer.title }}</h3>
@@ -688,12 +759,23 @@ const submitAccess = (): void => {
             </div>
         </section>
 
-        <aside v-if="!roomEnded" class="order-2 flex h-[78vh] w-full flex-col overflow-hidden rounded-xl border bg-card shadow-sm lg:h-auto lg:w-95 lg:min-w-90 lg:max-w-105 lg:self-stretch">
-            <div class="border-b px-4 py-3">
+        <!-- ── CHAT ASIDE ──────────────────────────────────────────────── -->
+        <!--
+            On mobile: fills remaining height when on chat tab.
+            On desktop: fixed-width sidebar, always visible.
+        -->
+        <aside
+            v-if="!roomEnded"
+            class="order-2 flex-col overflow-hidden bg-card shadow-sm lg:w-95 lg:min-w-90 lg:max-w-105 lg:self-stretch lg:rounded-xl lg:border"
+            :class="mobileTab === 'chat' ? 'flex flex-1' : 'hidden lg:flex'"
+        >
+            <!-- Desktop-only header -->
+            <div class="hidden border-b px-4 py-3 lg:block">
                 <h2 class="font-semibold">In-call chat</h2>
                 <p class="text-xs text-muted-foreground">You are {{ registrant.name || 'Guest' }}</p>
             </div>
 
+            <!-- Chat / Offers sub-tabs -->
             <div class="flex items-center gap-2 border-b bg-muted/20 px-3 py-2">
                 <button
                     type="button"
@@ -713,11 +795,13 @@ const submitAccess = (): void => {
                 </button>
             </div>
 
+            <!-- Pinned welcome message -->
             <div class="border-b bg-amber-50 px-4 py-2 text-sm text-amber-900">
                 <p class="font-medium">Pinned message</p>
                 <p>{{ pinnedStarterMessage }}</p>
             </div>
 
+            <!-- Chat messages -->
             <div v-if="roomPanel === 'chat'" class="flex-1 space-y-3 overflow-y-auto bg-muted/30 px-3 py-4">
                 <div
                     v-for="message in chatMessages"
@@ -740,6 +824,7 @@ const submitAccess = (): void => {
                 </div>
             </div>
 
+            <!-- Offers panel -->
             <div v-else class="flex-1 space-y-3 overflow-y-auto bg-muted/30 px-3 py-4">
                 <div
                     v-for="offer in droppedOffers"
@@ -764,6 +849,7 @@ const submitAccess = (): void => {
                 </div>
             </div>
 
+            <!-- Chat input -->
             <form class="border-t bg-background p-3" @submit.prevent="sendChat">
                 <label class="mb-2 block text-xs text-muted-foreground">Send a message to the meeting</label>
                 <div class="flex items-center gap-2">
@@ -783,9 +869,10 @@ const submitAccess = (): void => {
             </form>
         </aside>
 
+        <!-- ── Access gate modal ──────────────────────────────────────── -->
         <div
             v-if="accessRequired && !roomEnded"
-            class="absolute inset-0 z-40 flex items-center justify-center bg-black/40 backdrop-blur-sm"
+            class="absolute inset-0 z-40 flex items-center justify-center bg-black/40 p-4 backdrop-blur-sm"
         >
             <form
                 class="w-full max-w-md rounded-xl border bg-card p-6 shadow-2xl"
@@ -828,9 +915,10 @@ const submitAccess = (): void => {
             </form>
         </div>
 
+        <!-- ── Popup offer ────────────────────────────────────────────── -->
         <div
             v-if="popupOffer && !roomEnded"
-            class="fixed bottom-4 right-4 z-50 max-w-sm rounded-xl border bg-white p-4 shadow-lg"
+            class="fixed bottom-4 right-4 z-50 w-[calc(100vw-2rem)] max-w-sm rounded-xl border bg-white p-4 shadow-lg sm:w-auto"
         >
             <h3 class="font-semibold">{{ popupOffer.title }}</h3>
             <p class="mt-1 text-sm text-muted-foreground">{{ popupOffer.description }}</p>
@@ -844,7 +932,7 @@ const submitAccess = (): void => {
                 >
                     {{ popupOffer.button_text }}
                 </a>
-                <button class="text-xs text-muted-foreground" @click="popupOffer = null">Dismiss</button>
+                <button class="text-xs text-muted-foreground" type="button" @click="popupOffer = null">Dismiss</button>
             </div>
         </div>
     </div>
