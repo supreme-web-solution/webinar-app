@@ -435,10 +435,11 @@ const submitAccess = (): void => {
                 <div class="mt-3 flex flex-wrap items-center gap-2">
                     <button
                         type="button"
-                        class="rounded-md border border-emerald-300 bg-emerald-50 px-3 py-2 text-xs font-medium text-emerald-700"
+                        :disabled="!iframeMuted"
+                        class="cursor-pointer rounded-md border border-emerald-300 bg-emerald-50 px-3 py-2 text-xs font-medium text-emerald-700 disabled:cursor-not-allowed disabled:opacity-60"
                         @click="enableSound"
                     >
-                        Enable Sound
+                        {{ iframeMuted ? 'Enable Sound' : 'Sound Enabled' }}
                     </button>
                     <button type="button" class="rounded-md border px-2 py-1 text-lg" @click="sendReaction('👍')">👍</button>
                     <button type="button" class="rounded-md border px-2 py-1 text-lg" @click="sendReaction('❤️')">❤️</button>
