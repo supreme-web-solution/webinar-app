@@ -250,6 +250,7 @@ const embedUrl = computed(() => {
             'controls=0',
             'disablekb=1',
             'fs=0',
+            'loop=0',
             'iv_load_policy=3',
             'modestbranding=1',
             'rel=0',
@@ -273,6 +274,7 @@ const embedUrl = computed(() => {
             'autoplay=1',
             'muted=1',
             'controls=0',
+            'loop=0',
             'title=0',
             'byline=0',
             'portrait=0',
@@ -382,6 +384,21 @@ const endMeeting = (): void => {
 
     videoEnded.value = true;
     stopAllTimers();
+
+    if (props.webinar.video_source === 'youtube' && iframeRef.value?.contentWindow) {
+        iframeRef.value.contentWindow.postMessage(JSON.stringify({
+            event: 'command', func: 'pauseVideo', args: [],
+        }), '*');
+    }
+
+    if (props.webinar.video_source === 'vimeo' && iframeRef.value?.contentWindow) {
+        iframeRef.value.contentWindow.postMessage(JSON.stringify({ method: 'pause' }), '*');
+    }
+
+    if (props.webinar.video_source === 'direct' && directVideoRef.value) {
+        directVideoRef.value.pause();
+    }
+
     window.setTimeout(redirectAfterEndIfEnabled, 300);
 };
 
@@ -435,6 +452,11 @@ const onDirectVideoEnded = (): void => {
 
 const tryResumePlayback = (): void => {
     if (videoEnded.value || iframeMuted.value) {
+        return;
+    }
+
+    const dur = props.webinar.video_duration_seconds;
+    if (dur && elapsedSeconds.value >= dur - 5) {
         return;
     }
 
