@@ -876,6 +876,7 @@ const submitAccess = (): void => {
                         </button>
                     </div>
 
+                    
                     <iframe
                         v-if="webinar.video_source !== 'direct'"
                         ref="iframeRef"
