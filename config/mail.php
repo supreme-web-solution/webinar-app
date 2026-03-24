@@ -49,6 +49,17 @@ return [
             'local_domain' => env('MAIL_EHLO_DOMAIN', parse_url((string) env('APP_URL', 'http://localhost'), PHP_URL_HOST)),
         ],
 
+        'ses_smtp' => [
+            'transport' => 'smtp',
+            'scheme' => env('SES_SMTP_SCHEME', 'tls'),
+            'host' => env('SES_SMTP_HOST', 'email-smtp.us-east-1.amazonaws.com'),
+            'port' => env('SES_SMTP_PORT', 587),
+            'username' => env('SES_SMTP_USERNAME'),
+            'password' => env('SES_SMTP_PASSWORD'),
+            'timeout' => null,
+            'local_domain' => env('SES_SMTP_EHLO_DOMAIN', parse_url((string) env('APP_URL', 'http://localhost'), PHP_URL_HOST)),
+        ],
+
         'ses' => [
             'transport' => 'ses',
         ],

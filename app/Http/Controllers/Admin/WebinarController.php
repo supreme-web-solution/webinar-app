@@ -96,6 +96,7 @@ class WebinarController extends Controller
         $data = $request->validated();
         $offers = $data['offers'] ?? [];
         unset($data['offers']);
+        $data = $this->normalizeDescriptionPayload($data);
         $data = $this->normalizeTitlePrefixPayload($data);
         $data = $this->normalizeSchedulePayload($data);
         $data = $this->normalizePlaybackSettingsPayload($data);
@@ -214,6 +215,7 @@ class WebinarController extends Controller
         $data = $request->validated();
         $offers = $data['offers'] ?? [];
         unset($data['offers']);
+        $data = $this->normalizeDescriptionPayload($data);
         $data = $this->normalizeTitlePrefixPayload($data);
         $data = $this->normalizeSchedulePayload($data);
         $data = $this->normalizePlaybackSettingsPayload($data);
@@ -369,6 +371,43 @@ class WebinarController extends Controller
         }
 
         $data['scheduled_timezone'] = $timezone;
+
+        return $data;
+    }
+
+    /**
+     * @param array<string, mixed> $data
+     * @return array<string, mixed>
+     */
+    private function normalizeDescriptionPayload(array $data): array
+    {
+        $description = trim((string) ($data['description'] ?? ''));
+        if ($description === '') {
+            $data['description'] = '';
+
+            return $data;
+        }
+
+        $allowedTags = '<p><br><strong><em><b><i><u><ul><ol><li><a>';
+        $sanitized = strip_tags($description, $allowedTags);
+
+        // Keep only safe links and remove unknown attributes from allowed tags.
+        $sanitized = preg_replace_callback('/<a\b[^>]*>/i', static function (array $matches): string {
+            $tag = $matches[0] ?? '';
+            if (! preg_match('/href\s*=\s*["\']([^"\']+)["\']/i', $tag, $hrefMatch)) {
+                return '<a>';
+            }
+
+            $href = trim((string) ($hrefMatch[1] ?? ''));
+            if (! preg_match('/^https?:\/\//i', $href)) {
+                return '<a>';
+            }
+
+            return '<a href="'.e($href).'" target="_blank" rel="noopener noreferrer">';
+        }, $sanitized) ?? '';
+
+        $sanitized = preg_replace('/<(p|br|strong|em|b|i|u|ul|ol|li)\b[^>]*>/i', '<$1>', $sanitized) ?? '';
+        $data['description'] = trim($sanitized);
 
         return $data;
     }

@@ -872,7 +872,7 @@ const submitAccess = (): void => {
                             class="rounded-full border border-white/30 bg-white/95 px-5 py-2.5 text-sm font-semibold text-slate-900 shadow-lg"
                             @click="enableSound"
                         >
-                            Enable Sound
+                        Click Here Enable Sound
                         </button>
                     </div>
 

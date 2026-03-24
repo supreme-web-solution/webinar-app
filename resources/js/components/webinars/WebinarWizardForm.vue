@@ -2,6 +2,7 @@
 import { computed, ref } from 'vue';
 import { router, useForm } from '@inertiajs/vue3';
 import InputError from '@/components/InputError.vue';
+import RichTextEditor from '@/components/webinars/RichTextEditor.vue';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -533,11 +534,10 @@ const submit = (): void => {
                 </div>
                 <div class="grid gap-2">
                     <Label for="description">Description</Label>
-                    <textarea
+                    <RichTextEditor
                         id="description"
                         v-model="form.description"
-                        rows="4"
-                        class="w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm"
+                        placeholder="Use paragraphs and spacing for better email readability."
                     />
                     <InputError :message="form.errors.description" />
                 </div>

@@ -7,6 +7,7 @@ use App\Models\WebinarRegistrant;
 use Illuminate\Http\Client\Response;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Mail;
 
 class ResendService
 {
@@ -15,17 +16,149 @@ class ResendService
      */
     public function sendWebinarEmailBatch(Webinar $webinar, iterable $registrants, string $subject, string $intro): array
     {
+        $list = [];
+        foreach ($registrants as $registrant) {
+            if ($registrant instanceof WebinarRegistrant) {
+                $list[] = $registrant;
+            }
+        }
+
+        if ($list === []) {
+            return [
+                'sent_registrant_ids' => [],
+                'attempted' => 0,
+            ];
+        }
+
+        $primary = $this->resolvePrimaryProvider();
+        $fallback = $this->resolveFallbackProvider();
+
+        Log::info('webinar_email.provider.batch.start', [
+            'webinar_id' => $webinar->id,
+            'provider' => $primary,
+            'fallback_provider' => $fallback,
+            'attempted' => count($list),
+            'subject' => $subject,
+        ]);
+
+        $result = $this->sendBatchUsingProvider($primary, $webinar, $list, $subject, $intro);
+        $attempted = count($list);
+
+        if ($fallback !== null && $fallback !== $primary && count($result['sent_registrant_ids']) < $attempted) {
+            $sentLookup = array_flip($result['sent_registrant_ids']);
+            $remaining = array_values(array_filter(
+                $list,
+                fn (WebinarRegistrant $registrant): bool => !isset($sentLookup[$registrant->id])
+            ));
+
+            if ($remaining !== []) {
+                Log::warning('webinar_email.provider.batch.fallback', [
+                    'webinar_id' => $webinar->id,
+                    'failed_provider' => $primary,
+                    'fallback_provider' => $fallback,
+                    'remaining' => count($remaining),
+                ]);
+
+                $fallbackResult = $this->sendBatchUsingProvider($fallback, $webinar, $remaining, $subject, $intro);
+                $result['sent_registrant_ids'] = array_values(array_unique([
+                    ...$result['sent_registrant_ids'],
+                    ...$fallbackResult['sent_registrant_ids'],
+                ]));
+            }
+        }
+
+        Log::info('webinar_email.provider.batch.completed', [
+            'webinar_id' => $webinar->id,
+            'provider' => $primary,
+            'sent' => count($result['sent_registrant_ids']),
+            'attempted' => $attempted,
+        ]);
+
+        return [
+            'sent_registrant_ids' => $result['sent_registrant_ids'],
+            'attempted' => $attempted,
+        ];
+    }
+
+    public function sendWebinarEmail(Webinar $webinar, WebinarRegistrant $registrant, string $subject, string $intro): bool
+    {
+        $primary = $this->resolvePrimaryProvider();
+        $fallback = $this->resolveFallbackProvider();
+
+        Log::info('webinar_email.provider.single.start', [
+            'provider' => $primary,
+            'fallback_provider' => $fallback,
+            'webinar_id' => $webinar->id,
+            'registrant_id' => $registrant->id,
+            'subject' => $subject,
+        ]);
+
+        $sent = $this->sendSingleUsingProvider($primary, $webinar, $registrant, $subject, $intro);
+        if ($sent) {
+            return true;
+        }
+
+        if ($fallback !== null && $fallback !== $primary) {
+            Log::warning('webinar_email.provider.single.fallback', [
+                'failed_provider' => $primary,
+                'fallback_provider' => $fallback,
+                'webinar_id' => $webinar->id,
+                'registrant_id' => $registrant->id,
+            ]);
+
+            return $this->sendSingleUsingProvider($fallback, $webinar, $registrant, $subject, $intro);
+        }
+
+        return false;
+    }
+
+    /**
+     * @param array<int, WebinarRegistrant> $registrants
+     * @return array{sent_registrant_ids: array<int, int>, attempted: int}
+     */
+    private function sendBatchUsingProvider(
+        string $provider,
+        Webinar $webinar,
+        array $registrants,
+        string $subject,
+        string $intro
+    ): array {
+        return match ($provider) {
+            'ses_smtp', 'smtp' => $this->sendBatchViaSmtp($webinar, $registrants, $subject, $intro),
+            default => $this->sendBatchViaResend($webinar, $registrants, $subject, $intro),
+        };
+    }
+
+    private function sendSingleUsingProvider(
+        string $provider,
+        Webinar $webinar,
+        WebinarRegistrant $registrant,
+        string $subject,
+        string $intro
+    ): bool {
+        return match ($provider) {
+            'ses_smtp', 'smtp' => $this->sendSingleViaSmtp($webinar, $registrant, $subject, $intro),
+            default => $this->sendSingleViaResend($webinar, $registrant, $subject, $intro),
+        };
+    }
+
+    /**
+     * @param array<int, WebinarRegistrant> $registrants
+     * @return array{sent_registrant_ids: array<int, int>, attempted: int}
+     */
+    private function sendBatchViaResend(Webinar $webinar, array $registrants, string $subject, string $intro): array
+    {
         $apiKey = (string) config('services.resend.key');
         $configuredFrom = (string) config('services.resend.from', 'onboarding@resend.dev');
 
         if ($apiKey === '') {
-            Log::warning('RESEND_API_KEY not configured. Skipping webinar batch email send.', [
+            Log::warning('RESEND_API_KEY not configured. Skipping Resend batch email send.', [
                 'webinar_id' => $webinar->id,
             ]);
 
             return [
                 'sent_registrant_ids' => [],
-                'attempted' => 0,
+                'attempted' => count($registrants),
             ];
         }
 
@@ -34,23 +167,12 @@ class ResendService
         $registrantIds = [];
 
         foreach ($registrants as $registrant) {
-            if (!$registrant instanceof WebinarRegistrant) {
-                continue;
-            }
-
             $registrantIds[] = $registrant->id;
             $emails[] = [
                 'from' => $from,
                 'to' => [$registrant->email],
                 'subject' => $subject,
                 'html' => $this->buildWebinarEmailHtml($webinar, $registrant, $intro),
-            ];
-        }
-
-        if ($emails === []) {
-            return [
-                'sent_registrant_ids' => [],
-                'attempted' => 0,
             ];
         }
 
@@ -61,7 +183,7 @@ class ResendService
         ]);
 
         $response = $this->postWithRateLimitRetry($apiKey, 'emails/batch', $emails);
-        if (!$response || $response->failed()) {
+        if (! $response || $response->failed()) {
             Log::warning('Resend batch API request failed.', [
                 'webinar_id' => $webinar->id,
                 'attempted' => count($emails),
@@ -90,13 +212,13 @@ class ResendService
         ];
     }
 
-    public function sendWebinarEmail(Webinar $webinar, WebinarRegistrant $registrant, string $subject, string $intro): bool
+    private function sendSingleViaResend(Webinar $webinar, WebinarRegistrant $registrant, string $subject, string $intro): bool
     {
         $apiKey = (string) config('services.resend.key');
         $configuredFrom = (string) config('services.resend.from', 'onboarding@resend.dev');
 
         if ($apiKey === '') {
-            Log::warning('RESEND_API_KEY not configured. Skipping webinar email send.', [
+            Log::warning('RESEND_API_KEY not configured. Skipping Resend single email send.', [
                 'webinar_id' => $webinar->id,
                 'registrant_id' => $registrant->id,
             ]);
@@ -104,9 +226,7 @@ class ResendService
             return false;
         }
 
-        $joinLink = route('webinar.room', ['token' => $registrant->access_token]);
         $from = $this->resolveDynamicFrom($configuredFrom, $webinar->host_name);
-
         try {
             Log::info('resend.single.requesting', [
                 'webinar_id' => $webinar->id,
@@ -153,13 +273,97 @@ class ResendService
         }
     }
 
+    /**
+     * @param array<int, WebinarRegistrant> $registrants
+     * @return array{sent_registrant_ids: array<int, int>, attempted: int}
+     */
+    private function sendBatchViaSmtp(Webinar $webinar, array $registrants, string $subject, string $intro): array
+    {
+        $sentIds = [];
+        foreach ($registrants as $registrant) {
+            if ($this->sendSingleViaSmtp($webinar, $registrant, $subject, $intro)) {
+                $sentIds[] = $registrant->id;
+            }
+        }
+
+        return [
+            'sent_registrant_ids' => $sentIds,
+            'attempted' => count($registrants),
+        ];
+    }
+
+    private function sendSingleViaSmtp(Webinar $webinar, WebinarRegistrant $registrant, string $subject, string $intro): bool
+    {
+        $mailer = (string) env('SES_SMTP_MAILER', 'ses_smtp');
+        $fromAddress = (string) env('SES_SMTP_FROM_ADDRESS', config('mail.from.address'));
+        $fromName = (string) env('SES_SMTP_FROM_NAME', config('mail.from.name'));
+        $dynamicFromName = trim($webinar->host_name) !== '' ? trim($webinar->host_name).' via '.$fromName : $fromName;
+        $html = $this->buildWebinarEmailHtml($webinar, $registrant, $intro);
+
+        try {
+            Log::info('smtp.single.requesting', [
+                'mailer' => $mailer,
+                'webinar_id' => $webinar->id,
+                'registrant_id' => $registrant->id,
+                'subject' => $subject,
+            ]);
+
+            Mail::mailer($mailer)->send([], [], function ($message) use (
+                $registrant,
+                $subject,
+                $fromAddress,
+                $dynamicFromName,
+                $html
+            ): void {
+                $message->to($registrant->email);
+                $message->subject($subject);
+                $message->from($fromAddress, $dynamicFromName);
+                $message->html($html);
+            });
+
+            Log::info('smtp.single.accepted', [
+                'mailer' => $mailer,
+                'webinar_id' => $webinar->id,
+                'registrant_id' => $registrant->id,
+            ]);
+
+            return true;
+        } catch (\Throwable $exception) {
+            Log::error('smtp.single.failed', [
+                'mailer' => $mailer,
+                'webinar_id' => $webinar->id,
+                'registrant_id' => $registrant->id,
+                'message' => $exception->getMessage(),
+            ]);
+
+            return false;
+        }
+    }
+
+    private function resolvePrimaryProvider(): string
+    {
+        $provider = strtolower(trim((string) env('EMAIL_PROVIDER_PRIMARY', 'resend')));
+
+        return in_array($provider, ['resend', 'ses_smtp', 'smtp'], true) ? $provider : 'resend';
+    }
+
+    private function resolveFallbackProvider(): ?string
+    {
+        $provider = strtolower(trim((string) env('EMAIL_PROVIDER_FALLBACK', 'ses_smtp')));
+        if ($provider === '' || $provider === 'none') {
+            return null;
+        }
+
+        return in_array($provider, ['resend', 'ses_smtp', 'smtp'], true) ? $provider : null;
+    }
+
     private function buildWebinarEmailHtml(Webinar $webinar, WebinarRegistrant $registrant, string $intro): string
     {
         $joinLink = route('webinar.room', ['token' => $registrant->access_token]);
         $unsubscribeLink = route('webinar.unsubscribe', ['token' => $registrant->access_token]);
         $webinarDescription = trim((string) ($webinar->description ?? ''));
         $descriptionHtml = $webinarDescription !== ''
-            ? '<p style="margin: 0 0 12px 0; color: #4b5563; font-size: 14px; line-height: 1.55;">'.e($webinarDescription).'</p>'
+            ? $this->formatDescriptionForEmail($webinarDescription)
             : '';
         $prefixedTitle = e($webinar->prefixedTitleLine());
 
@@ -194,6 +398,30 @@ class ResendService
                 </div>
             </div>
         ";
+    }
+
+    private function formatDescriptionForEmail(string $description): string
+    {
+        $normalized = trim(str_replace(["\r\n", "\r"], "\n", $description));
+        if ($normalized === '') {
+            return '';
+        }
+
+        if (! str_contains($normalized, '<')) {
+            return '<p style="margin: 0 0 12px 0; color: #4b5563; font-size: 14px; line-height: 1.55;">'
+                .nl2br(e($normalized))
+                .'</p>';
+        }
+
+        $html = $normalized;
+        $html = str_ireplace('<p>', '<p style="margin: 0 0 12px 0;">', $html);
+        $html = str_ireplace('<ul>', '<ul style="margin: 0 0 12px 20px; padding: 0;">', $html);
+        $html = str_ireplace('<ol>', '<ol style="margin: 0 0 12px 20px; padding: 0;">', $html);
+        $html = str_ireplace('<li>', '<li style="margin: 0 0 6px 0;">', $html);
+
+        return '<div style="margin: 0 0 12px 0; color: #4b5563; font-size: 14px; line-height: 1.55;">'
+            .$html
+            .'</div>';
     }
 
     private function postWithRateLimitRetry(string $apiKey, string $endpoint, array $payload, int $attempt = 0): ?Response
