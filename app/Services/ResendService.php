@@ -294,9 +294,9 @@ class ResendService
 
     private function sendSingleViaSmtp(Webinar $webinar, WebinarRegistrant $registrant, string $subject, string $intro): bool
     {
-        $mailer = (string) env('SES_SMTP_MAILER', 'ses_smtp');
-        $fromAddress = (string) env('SES_SMTP_FROM_ADDRESS', config('mail.from.address'));
-        $fromName = (string) env('SES_SMTP_FROM_NAME', config('mail.from.name'));
+        $mailer = (string) config('services.email.ses_smtp_mailer', 'ses_smtp');
+        $fromAddress = (string) config('services.email.ses_smtp_from_address', config('mail.from.address'));
+        $fromName = (string) config('services.email.ses_smtp_from_name', config('mail.from.name'));
         $dynamicFromName = trim($webinar->host_name) !== '' ? trim($webinar->host_name).' via '.$fromName : $fromName;
         $html = $this->buildWebinarEmailHtml($webinar, $registrant, $intro);
 
@@ -342,14 +342,14 @@ class ResendService
 
     private function resolvePrimaryProvider(): string
     {
-        $provider = strtolower(trim((string) env('EMAIL_PROVIDER_PRIMARY', 'resend')));
+        $provider = strtolower(trim((string) config('services.email.primary', 'resend')));
 
         return in_array($provider, ['resend', 'ses_smtp', 'smtp'], true) ? $provider : 'resend';
     }
 
     private function resolveFallbackProvider(): ?string
     {
-        $provider = strtolower(trim((string) env('EMAIL_PROVIDER_FALLBACK', 'ses_smtp')));
+        $provider = strtolower(trim((string) config('services.email.fallback', 'ses_smtp')));
         if ($provider === '' || $provider === 'none') {
             return null;
         }

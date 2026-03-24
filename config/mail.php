@@ -56,7 +56,7 @@ return [
             'port' => env('SES_SMTP_PORT', 587),
             'username' => env('SES_SMTP_USERNAME'),
             'password' => env('SES_SMTP_PASSWORD'),
-            'timeout' => null,
+            'timeout' => env('SES_SMTP_TIMEOUT', 10),
             'local_domain' => env('SES_SMTP_EHLO_DOMAIN', parse_url((string) env('APP_URL', 'http://localhost'), PHP_URL_HOST)),
         ],
 

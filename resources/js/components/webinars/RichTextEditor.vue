@@ -24,12 +24,12 @@ const toolbar = [
 <template>
     <div class="rounded-md border">
         <QuillEditor
-            :model-value="modelValue ?? ''"
+            :content="modelValue ?? ''"
             content-type="html"
             theme="snow"
             :toolbar="toolbar"
             :placeholder="placeholder"
-            @update:model-value="(value) => emit('update:modelValue', value ?? '')"
+            @update:content="(value) => emit('update:modelValue', typeof value === 'string' ? value : '')"
         />
     </div>
 </template>
