@@ -11,6 +11,7 @@ use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
 use Illuminate\Support\Collection;
 use PhpOffice\PhpSpreadsheet\IOFactory;
@@ -279,6 +280,7 @@ class WebinarAttendeeController extends Controller
             ->chunk(100);
 
         foreach ($chunks as $index => $chunk) {
+            $delaySeconds = (int) $index * 5;
             SendWebinarEmailsBatchJob::dispatch(
                 $webinar->id,
                 $chunk->all(),
@@ -287,7 +289,18 @@ class WebinarAttendeeController extends Controller
                 $markSentColumn
             )
                 ->onQueue('emails')
-                ->delay(now()->addSeconds((int) $index * 5));
+                ->delay(now()->addSeconds($delaySeconds));
+
+            Log::info('webinar_email_batch.dispatch', [
+                'source' => 'admin_attendee_controller',
+                'webinar_id' => $webinar->id,
+                'batch_index' => $index,
+                'batch_size' => $chunk->count(),
+                'delay_seconds' => $delaySeconds,
+                'mark_sent_column' => $markSentColumn,
+                'queue' => 'emails',
+                'subject' => $subject,
+            ]);
         }
 
         return $chunks->sum(fn ($chunk) => $chunk->count());

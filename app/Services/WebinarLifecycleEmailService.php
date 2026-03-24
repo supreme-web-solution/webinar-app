@@ -7,6 +7,7 @@ use App\Models\Webinar;
 use App\Models\WebinarRegistrant;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\Log;
 
 class WebinarLifecycleEmailService
 {
@@ -99,6 +100,7 @@ class WebinarLifecycleEmailService
             ->chunk(100);
 
         foreach ($chunks as $index => $chunk) {
+            $delaySeconds = (int) $index * 5;
             SendWebinarEmailsBatchJob::dispatch(
                 $webinar->id,
                 $chunk->all(),
@@ -107,7 +109,18 @@ class WebinarLifecycleEmailService
                 $markSentColumn
             )
                 ->onQueue('emails')
-                ->delay(now()->addSeconds((int) $index * 5));
+                ->delay(now()->addSeconds($delaySeconds));
+
+            Log::info('webinar_email_batch.dispatch', [
+                'source' => 'lifecycle_service',
+                'webinar_id' => $webinar->id,
+                'batch_index' => $index,
+                'batch_size' => $chunk->count(),
+                'delay_seconds' => $delaySeconds,
+                'mark_sent_column' => $markSentColumn,
+                'queue' => 'emails',
+                'subject' => $subject,
+            ]);
         }
 
         return $chunks->sum(fn ($chunk) => $chunk->count());

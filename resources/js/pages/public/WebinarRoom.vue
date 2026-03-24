@@ -79,6 +79,7 @@ const chatScrollContainer = ref<HTMLElement | null>(null);
 let timer: ReturnType<typeof setInterval> | null = null;
 let viewersTimer: ReturnType<typeof setInterval> | null = null;
 let chatPollTimer: ReturnType<typeof setInterval> | null = null;
+let playbackKeepAliveTimer: ReturnType<typeof setInterval> | null = null;
 let chatChannelName: string | null = null;
 
 const firedMessageIds = new Set<number>();
@@ -313,6 +314,11 @@ const stopAllTimers = (): void => {
         clearInterval(chatPollTimer);
         chatPollTimer = null;
     }
+
+    if (playbackKeepAliveTimer) {
+        clearInterval(playbackKeepAliveTimer);
+        playbackKeepAliveTimer = null;
+    }
 };
 
 const appendDbMessage = (item: { id: number; sender: string; message: string; self: boolean; at: string }): void => {
@@ -424,6 +430,30 @@ const onIframeMessage = (event: MessageEvent): void => {
 
 const onDirectVideoEnded = (): void => {
     endMeeting();
+};
+
+const tryResumePlayback = (): void => {
+    if (videoEnded.value || iframeMuted.value) {
+        return;
+    }
+
+    if (props.webinar.video_source === 'youtube' && iframeRef.value?.contentWindow) {
+        iframeRef.value.contentWindow.postMessage(JSON.stringify({
+            event: 'command',
+            func: 'playVideo',
+            args: [],
+        }), '*');
+    }
+
+    if (props.webinar.video_source === 'vimeo' && iframeRef.value?.contentWindow) {
+        iframeRef.value.contentWindow.postMessage(JSON.stringify({
+            method: 'play',
+        }), '*');
+    }
+
+    if (props.webinar.video_source === 'direct' && directVideoRef.value) {
+        void directVideoRef.value.play();
+    }
 };
 
 const tickTimeline = (): void => {
@@ -546,6 +576,8 @@ const enableSound = (): void => {
         directVideoRef.value.muted = false;
         void directVideoRef.value.play();
     }
+
+    window.setTimeout(tryResumePlayback, 120);
 };
 
 const sendReaction = (emoji: string): void => {
@@ -633,15 +665,28 @@ const openChatTab = (): void => {
     unreadCount.value = 0;
 };
 
+const openVideoTab = (): void => {
+    mobileTab.value = 'video';
+    window.setTimeout(tryResumePlayback, 100);
+};
+
+const onDocumentVisibilityChange = (): void => {
+    if (document.visibilityState === 'visible') {
+        tryResumePlayback();
+    }
+};
+
 onMounted(() => {
     if (props.roomEnded || props.accessRequired) {
         return;
     }
 
     window.addEventListener('message', onIframeMessage);
+    document.addEventListener('visibilitychange', onDocumentVisibilityChange);
 
     timer = setInterval(tickTimeline, 1000);
     viewersTimer = setInterval(tickViewers, 4000);
+    playbackKeepAliveTimer = setInterval(tryResumePlayback, 12000);
     void loadServerChat();
     void scrollChatToBottom();
 
@@ -654,6 +699,7 @@ onMounted(() => {
 
 onBeforeUnmount(() => {
     window.removeEventListener('message', onIframeMessage);
+    document.removeEventListener('visibilitychange', onDocumentVisibilityChange);
     const echo = getEcho();
     if (echo && chatChannelName) {
         echo.leave(chatChannelName);
@@ -726,7 +772,7 @@ const submitAccess = (): void => {
                     :class="mobileTab === 'video'
                         ? 'border-primary text-foreground'
                         : 'border-transparent text-muted-foreground hover:text-foreground'"
-                    @click="mobileTab = 'video'"
+                    @click="openVideoTab"
                 >
                     Video
                 </button>
@@ -755,7 +801,9 @@ const submitAccess = (): void => {
         <section
             v-if="!roomEnded"
             class="order-1 min-w-0 flex-1 flex-col gap-3 overflow-y-auto p-3 lg:flex lg:gap-4 lg:p-0"
-            :class="mobileTab === 'video' ? 'flex' : 'hidden lg:flex'"
+            :class="mobileTab === 'video'
+                ? 'flex'
+                : 'flex pointer-events-none fixed -left-[10000px] top-0 h-px w-px opacity-0 lg:static lg:pointer-events-auto lg:h-auto lg:w-auto lg:opacity-100'"
         >
             <div class="rounded-xl border bg-card p-3 shadow-sm lg:p-4">
                 <!-- Desktop-only title/info row -->
@@ -791,7 +839,7 @@ const submitAccess = (): void => {
                     </div>
 
                     <!-- Click-blocker: prevents touching the iframe player controls -->
-                    <div v-if="!videoEnded" class="absolute inset-0 z-10" />
+                    <div v-if="!videoEnded && iframeMuted" class="absolute inset-0 z-10" />
 
                     <!-- Center sound CTA overlay -->
                     <div

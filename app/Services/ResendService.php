@@ -54,6 +54,12 @@ class ResendService
             ];
         }
 
+        Log::info('resend.batch.requesting', [
+            'webinar_id' => $webinar->id,
+            'attempted' => count($emails),
+            'subject' => $subject,
+        ]);
+
         $response = $this->postWithRateLimitRetry($apiKey, 'emails/batch', $emails);
         if (!$response || $response->failed()) {
             Log::warning('Resend batch API request failed.', [
@@ -68,6 +74,15 @@ class ResendService
                 'attempted' => count($emails),
             ];
         }
+
+        Log::info('resend.batch.accepted', [
+            'webinar_id' => $webinar->id,
+            'attempted' => count($emails),
+            'status' => $response->status(),
+            'ratelimit_remaining' => $response->header('ratelimit-remaining'),
+            'ratelimit_reset' => $response->header('ratelimit-reset'),
+            'monthly_quota' => $response->header('x-resend-monthly-quota'),
+        ]);
 
         return [
             'sent_registrant_ids' => $registrantIds,
@@ -93,6 +108,12 @@ class ResendService
         $from = $this->resolveDynamicFrom($configuredFrom, $webinar->host_name);
 
         try {
+            Log::info('resend.single.requesting', [
+                'webinar_id' => $webinar->id,
+                'registrant_id' => $registrant->id,
+                'subject' => $subject,
+            ]);
+
             $response = $this->postWithRateLimitRetry($apiKey, 'emails', [
                     'from' => $from,
                     'to' => [$registrant->email],
@@ -110,6 +131,15 @@ class ResendService
 
                 return false;
             }
+
+            Log::info('resend.single.accepted', [
+                'webinar_id' => $webinar->id,
+                'registrant_id' => $registrant->id,
+                'status' => $response->status(),
+                'ratelimit_remaining' => $response->header('ratelimit-remaining'),
+                'ratelimit_reset' => $response->header('ratelimit-reset'),
+                'monthly_quota' => $response->header('x-resend-monthly-quota'),
+            ]);
 
             return true;
         } catch (\Throwable $exception) {
@@ -168,6 +198,11 @@ class ResendService
 
     private function postWithRateLimitRetry(string $apiKey, string $endpoint, array $payload, int $attempt = 0): ?Response
     {
+        Log::debug('resend.http.request', [
+            'endpoint' => $endpoint,
+            'attempt' => $attempt + 1,
+        ]);
+
         $response = Http::withToken($apiKey)
             ->acceptJson()
             ->post("https://api.resend.com/{$endpoint}", $payload);
@@ -176,7 +211,20 @@ class ResendService
             return $response;
         }
 
+        Log::warning('resend.http.rate_limited', [
+            'endpoint' => $endpoint,
+            'attempt' => $attempt + 1,
+            'retry_after' => $response->header('retry-after'),
+            'status' => $response->status(),
+            'body' => $response->body(),
+        ]);
+
         if ($attempt >= 3) {
+            Log::error('resend.http.rate_limit_give_up', [
+                'endpoint' => $endpoint,
+                'attempts' => $attempt + 1,
+            ]);
+
             return $response;
         }
 
