@@ -254,6 +254,7 @@ const embedUrl = computed(() => {
             'modestbranding=1',
             'rel=0',
             'showinfo=0',
+            'cc_load_policy=0',
             'playsinline=1',
             'enablejsapi=1',
             `origin=${encodeURIComponent(origin)}`,
@@ -553,23 +554,16 @@ const enableSound = (): void => {
     iframeMuted.value = false;
 
     if (props.webinar.video_source === 'youtube' && iframeRef.value?.contentWindow) {
-        iframeRef.value.contentWindow.postMessage(JSON.stringify({
-            event: 'command',
-            func: 'unMute',
-            args: [],
-        }), '*');
-        iframeRef.value.contentWindow.postMessage(JSON.stringify({
-            event: 'command',
-            func: 'setVolume',
-            args: [100],
-        }), '*');
+        const win = iframeRef.value.contentWindow;
+        win.postMessage(JSON.stringify({ event: 'command', func: 'unMute', args: [] }), '*');
+        win.postMessage(JSON.stringify({ event: 'command', func: 'setVolume', args: [100] }), '*');
+        win.postMessage(JSON.stringify({ event: 'command', func: 'playVideo', args: [] }), '*');
     }
 
     if (props.webinar.video_source === 'vimeo' && iframeRef.value?.contentWindow) {
-        iframeRef.value.contentWindow.postMessage(JSON.stringify({
-            method: 'setVolume',
-            value: '1',
-        }), '*');
+        const win = iframeRef.value.contentWindow;
+        win.postMessage(JSON.stringify({ method: 'setVolume', value: '1' }), '*');
+        win.postMessage(JSON.stringify({ method: 'play' }), '*');
     }
 
     if (props.webinar.video_source === 'direct' && directVideoRef.value) {
@@ -577,7 +571,8 @@ const enableSound = (): void => {
         void directVideoRef.value.play();
     }
 
-    window.setTimeout(tryResumePlayback, 120);
+    window.setTimeout(tryResumePlayback, 150);
+    window.setTimeout(tryResumePlayback, 1500);
 };
 
 const sendReaction = (emoji: string): void => {
@@ -663,6 +658,7 @@ const startRealtimeChat = (): boolean => {
 const openChatTab = (): void => {
     mobileTab.value = 'chat';
     unreadCount.value = 0;
+    window.setTimeout(tryResumePlayback, 200);
 };
 
 const openVideoTab = (): void => {
@@ -838,8 +834,8 @@ const submitAccess = (): void => {
                         </p>
                     </div>
 
-                    <!-- Click-blocker: prevents touching the iframe player controls -->
-                    <div v-if="!videoEnded && iframeMuted" class="absolute inset-0 z-10" />
+                    <!-- Click-blocker: always covers iframe to hide YouTube/Vimeo UI on hover -->
+                    <div v-if="!videoEnded" class="absolute inset-0 z-10" />
 
                     <!-- Center sound CTA overlay -->
                     <div
@@ -860,7 +856,10 @@ const submitAccess = (): void => {
                         ref="iframeRef"
                         :src="embedUrl"
                         class="aspect-video w-full"
-                        allow="autoplay; encrypted-media"
+                        allow="autoplay; encrypted-media; picture-in-picture"
+                        allowfullscreen
+                        playsinline
+                        frameborder="0"
                         @load="onIframeLoad"
                     />
                     <video
