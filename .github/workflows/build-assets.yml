@@ -23,21 +23,21 @@ jobs:
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v6
+        uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
-          node-version: '22'
+          node-version: '20'
           cache: 'npm'
 
       - name: Install dependencies
         run: npm ci
 
       - name: Build frontend assets
-        run: npm run build
+        run: NODE_ENV=production npm run build
 
       - name: Commit built assets
         run: |
@@ -46,4 +46,5 @@ jobs:
           git add -f public/build
           git diff --cached --quiet && exit 0
           git commit -m "chore(ci): build frontend assets [skip ci]"
+          git pull --rebase
           git push
