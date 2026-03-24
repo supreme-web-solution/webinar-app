@@ -29,6 +29,8 @@ type WebinarFormData = {
     };
     playback_settings: {
         show_fake_viewers: boolean;
+        redirect_enabled: boolean;
+        redirect_url: string;
     };
     registration_settings: {
         buttons: Array<{
@@ -900,6 +902,38 @@ const submit = (): void => {
                 <p class="text-sm text-muted-foreground">
                     Configure timed offers. Example: set delay to 600 seconds and the offer is sent at 10:00 in attendee chat.
                 </p>
+                <div class="grid gap-3 rounded-md border p-3">
+                    <div class="flex items-center gap-3">
+                        <button
+                            id="redirect_enabled"
+                            type="button"
+                            role="switch"
+                            :aria-checked="form.playback_settings.redirect_enabled"
+                            class="relative inline-flex h-5 w-9 items-center rounded-full transition"
+                            :class="form.playback_settings.redirect_enabled ? 'bg-primary' : 'bg-muted'"
+                            @click="form.playback_settings.redirect_enabled = !form.playback_settings.redirect_enabled"
+                        >
+                            <span
+                                class="inline-block h-4 w-4 transform rounded-full bg-white transition"
+                                :class="form.playback_settings.redirect_enabled ? 'translate-x-4' : 'translate-x-1'"
+                            />
+                        </button>
+                        <Label for="redirect_enabled">Enable redirect after webinar video ends</Label>
+                    </div>
+                    <div v-if="form.playback_settings.redirect_enabled" class="grid gap-2">
+                        <Label for="redirect_url">{{ markRequired('Redirect URL') }}</Label>
+                        <Input
+                            id="redirect_url"
+                            v-model="form.playback_settings.redirect_url"
+                            placeholder="https://your-offer-page.com"
+                            type="url"
+                        />
+                        <p class="text-xs text-muted-foreground">
+                            If enabled, attendees are redirected to this URL immediately after the webinar ends.
+                        </p>
+                        <InputError :message="form.errors['playback_settings.redirect_url']" />
+                    </div>
+                </div>
                 <div class="space-y-4">
                     <div
                         v-for="(offer, index) in form.offers"

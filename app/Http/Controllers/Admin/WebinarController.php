@@ -75,6 +75,8 @@ class WebinarController extends Controller
                 ],
                 'playback_settings' => [
                     'show_fake_viewers' => true,
+                    'redirect_enabled' => false,
+                    'redirect_url' => '',
                 ],
                 'registration_settings' => $this->defaultRegistrationSettings(),
                 'offers' => [],
@@ -96,6 +98,7 @@ class WebinarController extends Controller
         unset($data['offers']);
         $data = $this->normalizeTitlePrefixPayload($data);
         $data = $this->normalizeSchedulePayload($data);
+        $data = $this->normalizePlaybackSettingsPayload($data);
         $data = $this->normalizeRegistrationSettingsPayload($data);
         $data['user_id'] = Auth::id();
 
@@ -140,9 +143,11 @@ class WebinarController extends Controller
                     'send_reminder' => true,
                     'send_follow_up' => true,
                 ],
-                'playback_settings' => $webinar->playback_settings ?? [
+                'playback_settings' => array_merge([
                     'show_fake_viewers' => true,
-                ],
+                    'redirect_enabled' => false,
+                    'redirect_url' => '',
+                ], is_array($webinar->playback_settings) ? $webinar->playback_settings : []),
                 'registration_settings' => $webinar->registration_settings ?? $this->defaultRegistrationSettings(),
                 'offers' => $webinar->offers()
                     ->orderBy('trigger_second')
@@ -211,6 +216,7 @@ class WebinarController extends Controller
         unset($data['offers']);
         $data = $this->normalizeTitlePrefixPayload($data);
         $data = $this->normalizeSchedulePayload($data);
+        $data = $this->normalizePlaybackSettingsPayload($data);
         $data = $this->normalizeRegistrationSettingsPayload($data);
 
         if (($data['is_published'] ?? false) && $webinar->published_at === null) {
@@ -363,6 +369,28 @@ class WebinarController extends Controller
         }
 
         $data['scheduled_timezone'] = $timezone;
+
+        return $data;
+    }
+
+    /**
+     * @param array<string, mixed> $data
+     * @return array<string, mixed>
+     */
+    private function normalizePlaybackSettingsPayload(array $data): array
+    {
+        $settings = is_array($data['playback_settings'] ?? null)
+            ? $data['playback_settings']
+            : [];
+
+        $redirectEnabled = (bool) ($settings['redirect_enabled'] ?? false);
+        $redirectUrl = trim((string) ($settings['redirect_url'] ?? ''));
+
+        $data['playback_settings'] = [
+            'show_fake_viewers' => (bool) ($settings['show_fake_viewers'] ?? true),
+            'redirect_enabled' => $redirectEnabled,
+            'redirect_url' => $redirectEnabled ? $redirectUrl : '',
+        ];
 
         return $data;
     }

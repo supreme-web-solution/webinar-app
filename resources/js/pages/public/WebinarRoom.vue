@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { Head, useForm } from '@inertiajs/vue3';
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
+import { getEcho } from '@/lib/echo';
 
 type Offer = {
     id: number;
@@ -29,6 +30,11 @@ type WebinarRoomPayload = {
     video_duration_seconds: number | null;
     min_viewers: number;
     max_viewers: number;
+    playback_settings?: {
+        show_fake_viewers?: boolean;
+        redirect_enabled?: boolean;
+        redirect_url?: string;
+    };
     offers: Offer[];
     scheduled_messages: ScheduledMessage[];
 };
@@ -72,6 +78,7 @@ const reactionBubbles = ref<Array<{ id: string; emoji: string; left: number }>>(
 let timer: ReturnType<typeof setInterval> | null = null;
 let viewersTimer: ReturnType<typeof setInterval> | null = null;
 let chatPollTimer: ReturnType<typeof setInterval> | null = null;
+let chatChannelName: string | null = null;
 
 const firedMessageIds = new Set<number>();
 const firedOfferIds = new Set<number>();
@@ -307,6 +314,47 @@ const stopAllTimers = (): void => {
     }
 };
 
+const appendDbMessage = (item: { id: number; sender: string; message: string; self: boolean; at: string }): void => {
+    const newId = `db-${item.id}`;
+    if (chatMessages.value.some((message) => message.id === newId)) {
+        return;
+    }
+
+    chatMessages.value.push({
+        id: newId,
+        sender: item.sender,
+        message: item.message,
+        self: item.self,
+        at: item.at,
+    });
+
+    if (!item.self && mobileTab.value === 'video') {
+        unreadCount.value += 1;
+    }
+};
+
+const redirectAfterEndIfEnabled = (): void => {
+    if (!props.webinar.playback_settings?.redirect_enabled) {
+        return;
+    }
+
+    const rawUrl = props.webinar.playback_settings.redirect_url?.trim() ?? '';
+    if (rawUrl === '') {
+        return;
+    }
+
+    try {
+        const parsed = new URL(rawUrl, window.location.origin);
+        if (!['http:', 'https:'].includes(parsed.protocol)) {
+            return;
+        }
+
+        window.location.href = parsed.toString();
+    } catch {
+        // Ignore invalid redirect URLs so room can safely finish.
+    }
+};
+
 const endMeeting = (): void => {
     if (videoEnded.value) {
         return;
@@ -314,6 +362,7 @@ const endMeeting = (): void => {
 
     videoEnded.value = true;
     stopAllTimers();
+    window.setTimeout(redirectAfterEndIfEnabled, 300);
 };
 
 const onIframeLoad = (): void => {
@@ -538,6 +587,30 @@ const loadServerChat = async (): Promise<void> => {
     }
 };
 
+const startRealtimeChat = (): boolean => {
+    if (!props.chatToken) {
+        return false;
+    }
+
+    const echo = getEcho();
+    if (!echo) {
+        return false;
+    }
+
+    chatChannelName = `webinar.chat.${props.chatToken}`;
+    echo.channel(chatChannelName).listen('.chat.message.sent', (payload: {
+        id: number;
+        sender: string;
+        message: string;
+        self: boolean;
+        at: string;
+    }) => {
+        appendDbMessage(payload);
+    });
+
+    return true;
+};
+
 const openChatTab = (): void => {
     mobileTab.value = 'chat';
     unreadCount.value = 0;
@@ -553,13 +626,21 @@ onMounted(() => {
     timer = setInterval(tickTimeline, 1000);
     viewersTimer = setInterval(tickViewers, 4000);
     void loadServerChat();
-    chatPollTimer = setInterval(() => {
-        void loadServerChat();
-    }, 3000);
+
+    if (!startRealtimeChat()) {
+        chatPollTimer = setInterval(() => {
+            void loadServerChat();
+        }, 10000);
+    }
 });
 
 onBeforeUnmount(() => {
     window.removeEventListener('message', onIframeMessage);
+    const echo = getEcho();
+    if (echo && chatChannelName) {
+        echo.leave(chatChannelName);
+    }
+    chatChannelName = null;
     stopAllTimers();
 });
 
@@ -694,6 +775,20 @@ const submitAccess = (): void => {
                     <!-- Click-blocker: prevents touching the iframe player controls -->
                     <div v-if="!videoEnded" class="absolute inset-0 z-10" />
 
+                    <!-- Center sound CTA overlay -->
+                    <div
+                        v-if="!videoEnded && iframeMuted"
+                        class="absolute inset-0 z-25 flex items-center justify-center bg-black/35 p-4"
+                    >
+                        <button
+                            type="button"
+                            class="rounded-full border border-white/30 bg-white/95 px-5 py-2.5 text-sm font-semibold text-slate-900 shadow-lg"
+                            @click="enableSound"
+                        >
+                            Enable Sound
+                        </button>
+                    </div>
+
                     <iframe
                         v-if="webinar.video_source !== 'direct'"
                         ref="iframeRef"
@@ -725,16 +820,8 @@ const submitAccess = (): void => {
                     </div>
                 </div>
 
-                <!-- Controls: sound + reactions -->
+                <!-- Controls: reactions -->
                 <div v-if="!videoEnded" class="mt-3 flex flex-wrap items-center gap-2">
-                    <button
-                        type="button"
-                        :disabled="!iframeMuted"
-                        class="cursor-pointer rounded-md border border-emerald-300 bg-emerald-50 px-3 py-2 text-xs font-medium text-emerald-700 disabled:cursor-not-allowed disabled:opacity-60"
-                        @click="enableSound"
-                    >
-                        {{ iframeMuted ? 'Enable Sound' : 'Sound Enabled' }}
-                    </button>
                     <button type="button" class="rounded-md border px-2 py-1 text-lg" @click="sendReaction('👍')">👍</button>
                     <button type="button" class="rounded-md border px-2 py-1 text-lg" @click="sendReaction('❤️')">❤️</button>
                     <button type="button" class="rounded-md border px-2 py-1 text-lg" @click="sendReaction('🔥')">🔥</button>

@@ -10,6 +10,7 @@ use App\Models\WebinarView;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\Cache;
 use Inertia\Inertia;
 use Inertia\Response;
 
@@ -18,15 +19,11 @@ class WebinarRoomController extends Controller
     public function showPublic(Webinar $webinar): Response
     {
         abort_unless($webinar->is_published, 404);
+        $payload = $this->cachedWebinarPayload($webinar->id);
 
-        $webinar->load([
-            'offers' => fn ($query) => $query->where('is_active', true)->orderBy('trigger_second'),
-            'scheduledMessages' => fn ($query) => $query->where('is_active', true)->orderBy('trigger_second'),
-        ]);
-
-        if ($webinar->hasEnded()) {
+        if ($webinar->fresh()->hasEnded()) {
             return Inertia::render('public/WebinarRoom', [
-                'webinar' => $this->buildWebinarPayload($webinar),
+                'webinar' => $payload,
                 'registrant' => [
                     'name' => '',
                     'email' => '',
@@ -41,7 +38,7 @@ class WebinarRoomController extends Controller
         }
 
         return Inertia::render('public/WebinarRoom', [
-            'webinar' => $this->buildWebinarPayload($webinar),
+            'webinar' => $payload,
             'registrant' => [
                 'name' => '',
                 'email' => '',
@@ -66,10 +63,11 @@ class WebinarRoomController extends Controller
             ->firstOrFail();
 
         $webinar = $registrant->webinar;
+        $payload = $this->cachedWebinarPayload($webinar->id);
 
-        if ($webinar->hasEnded()) {
+        if ($webinar->fresh()->hasEnded()) {
             return Inertia::render('public/WebinarRoom', [
-                'webinar' => $this->buildWebinarPayload($webinar),
+                'webinar' => $payload,
                 'registrant' => [
                     'name' => $registrant->name,
                     'email' => $registrant->email,
@@ -110,7 +108,7 @@ class WebinarRoomController extends Controller
         ]);
 
         return Inertia::render('public/WebinarRoom', [
-            'webinar' => $this->buildWebinarPayload($webinar),
+            'webinar' => $payload,
             'registrant' => [
                 'name' => $registrant->name,
                 'email' => $registrant->email,
@@ -164,6 +162,27 @@ class WebinarRoomController extends Controller
     /**
      * @return array<string, mixed>
      */
+    private function cachedWebinarPayload(int $webinarId): array
+    {
+        return Cache::remember(
+            "webinar:payload:{$webinarId}",
+            now()->addSeconds(20),
+            function () use ($webinarId): array {
+                $webinar = Webinar::query()
+                    ->with([
+                        'offers' => fn ($query) => $query->where('is_active', true)->orderBy('trigger_second'),
+                        'scheduledMessages' => fn ($query) => $query->where('is_active', true)->orderBy('trigger_second'),
+                    ])
+                    ->findOrFail($webinarId);
+
+                return $this->buildWebinarPayload($webinar);
+            }
+        );
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
     private function buildWebinarPayload(Webinar $webinar): array
     {
         return [
@@ -176,6 +195,11 @@ class WebinarRoomController extends Controller
             'video_duration_seconds' => $webinar->video_duration_seconds,
             'min_viewers' => $webinar->min_viewers,
             'max_viewers' => $webinar->max_viewers,
+            'playback_settings' => [
+                'show_fake_viewers' => (bool) data_get($webinar->playback_settings, 'show_fake_viewers', true),
+                'redirect_enabled' => (bool) data_get($webinar->playback_settings, 'redirect_enabled', false),
+                'redirect_url' => (string) data_get($webinar->playback_settings, 'redirect_url', ''),
+            ],
             'offers' => $webinar->offers->map(fn ($offer) => [
                 'id' => $offer->id,
                 'title' => $offer->title,

@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\Admin;
 
+use App\Events\WebinarChatMessageSent;
 use App\Http\Controllers\Controller;
 use App\Models\ChatMessage;
 use App\Models\Webinar;
@@ -10,6 +11,7 @@ use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Cache;
 use Inertia\Inertia;
 use Inertia\Response;
 
@@ -92,7 +94,7 @@ class WebinarChatController extends Controller
             'message' => ['required', 'string', 'max:2000'],
         ]);
 
-        ChatMessage::create([
+        $message = ChatMessage::create([
             'webinar_id' => $webinar->id,
             'registrant_id' => $registrant->id,
             'sender_type' => 'host',
@@ -101,6 +103,9 @@ class WebinarChatController extends Controller
             'is_automated' => false,
             'sent_at' => Carbon::now(),
         ]);
+
+        Cache::forget("webinar:chat:{$registrant->access_token}");
+        broadcast(new WebinarChatMessageSent($registrant->access_token, $message))->toOthers();
 
         return redirect()
             ->route('admin.webinars.chat.show', ['webinar' => $webinar->id, 'registrant_id' => $registrant->id]);

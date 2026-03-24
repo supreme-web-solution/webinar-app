@@ -27,6 +27,8 @@ type Defaults = {
     };
     playback_settings: {
         show_fake_viewers: boolean;
+        redirect_enabled: boolean;
+        redirect_url: string;
     };
     registration_settings: {
         buttons: Array<{
