@@ -230,7 +230,6 @@ const copyLink = async (link: string, label: string): Promise<void> => {
                     </CardContent>
                 </Card>
             </div>
-
             <!-- Recent webinars -->
             <Card class="border shadow-sm">
                 <CardHeader class="flex flex-col gap-1 border-b pb-4 sm:flex-row sm:items-center sm:justify-between">
