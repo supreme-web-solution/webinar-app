@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { Head, useForm } from '@inertiajs/vue3';
-import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
+import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue';
 import { getEcho } from '@/lib/echo';
 
 type Offer = {
@@ -74,6 +74,7 @@ const videoEnded = ref(false);
 const iframeRef = ref<HTMLIFrameElement | null>(null);
 const directVideoRef = ref<HTMLVideoElement | null>(null);
 const reactionBubbles = ref<Array<{ id: string; emoji: string; left: number }>>([]);
+const chatScrollContainer = ref<HTMLElement | null>(null);
 
 let timer: ReturnType<typeof setInterval> | null = null;
 let viewersTimer: ReturnType<typeof setInterval> | null = null;
@@ -331,6 +332,18 @@ const appendDbMessage = (item: { id: number; sender: string; message: string; se
     if (!item.self && mobileTab.value === 'video') {
         unreadCount.value += 1;
     }
+
+    void scrollChatToBottom();
+};
+
+const scrollChatToBottom = async (): Promise<void> => {
+    await nextTick();
+    const el = chatScrollContainer.value;
+    if (!el) {
+        return;
+    }
+
+    el.scrollTop = el.scrollHeight;
 };
 
 const redirectAfterEndIfEnabled = (): void => {
@@ -434,6 +447,7 @@ const tickTimeline = (): void => {
                 message: message.message,
                 at: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
             });
+            void scrollChatToBottom();
 
             if (mobileTab.value === 'video') {
                 unreadCount.value += 1;
@@ -460,6 +474,7 @@ const tickTimeline = (): void => {
                 message: `${offer.title}: ${offer.button_url}`,
                 at: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
             });
+            void scrollChatToBottom();
 
             if (mobileTab.value === 'video') {
                 unreadCount.value += 1;
@@ -500,6 +515,7 @@ const sendChat = (): void => {
     }).finally(() => {
         chatInput.value = '';
         void loadServerChat();
+        void scrollChatToBottom();
     });
 };
 
@@ -576,6 +592,7 @@ const loadServerChat = async (): Promise<void> => {
 
             const localOnlyMessages = chatMessages.value.filter((item) => !item.id.startsWith('db-'));
             chatMessages.value = [...dbMessages, ...localOnlyMessages];
+            void scrollChatToBottom();
 
             const newDbCount = dbMessages.length;
             if (mobileTab.value === 'video' && newDbCount > prevDbCount) {
@@ -626,6 +643,7 @@ onMounted(() => {
     timer = setInterval(tickTimeline, 1000);
     viewersTimer = setInterval(tickViewers, 4000);
     void loadServerChat();
+    void scrollChatToBottom();
 
     if (!startRealtimeChat()) {
         chatPollTimer = setInterval(() => {
@@ -670,7 +688,7 @@ const submitAccess = (): void => {
         Mobile:  flex-col, fills dvh so video tab and chat tab each fill the screen.
         Desktop: flex-row side-by-side with normal scrolling.
     -->
-    <div class="relative mx-auto flex h-dvh w-full max-w-350 flex-col overflow-hidden lg:h-auto lg:min-h-screen lg:flex-row lg:items-stretch lg:gap-4 lg:overflow-visible lg:p-4">
+    <div class="relative mx-auto flex h-dvh w-full max-w-350 flex-col overflow-hidden lg:h-[calc(100dvh-2rem)] lg:flex-row lg:items-stretch lg:gap-4 lg:overflow-hidden lg:p-4">
 
         <!-- ── Room ended banner ──────────────────────────────────────── -->
         <div
@@ -853,7 +871,7 @@ const submitAccess = (): void => {
         -->
         <aside
             v-if="!roomEnded"
-            class="order-2 flex-col overflow-hidden bg-card shadow-sm lg:w-95 lg:min-w-90 lg:max-w-105 lg:self-stretch lg:rounded-xl lg:border"
+            class="order-2 flex-col overflow-hidden bg-card shadow-sm lg:h-full lg:w-95 lg:min-w-90 lg:max-w-105 lg:self-stretch lg:rounded-xl lg:border"
             :class="mobileTab === 'chat' ? 'flex flex-1' : 'hidden lg:flex'"
         >
             <!-- Desktop-only header -->
@@ -889,7 +907,11 @@ const submitAccess = (): void => {
             </div>
 
             <!-- Chat messages -->
-            <div v-if="roomPanel === 'chat'" class="flex-1 space-y-3 overflow-y-auto bg-muted/30 px-3 py-4">
+            <div
+                v-if="roomPanel === 'chat'"
+                ref="chatScrollContainer"
+                class="flex-1 space-y-3 overflow-y-auto bg-muted/30 px-3 py-4"
+            >
                 <div
                     v-for="message in chatMessages"
                     :key="message.id"
