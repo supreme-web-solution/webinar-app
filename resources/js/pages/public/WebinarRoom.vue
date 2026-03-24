@@ -482,11 +482,14 @@ const tryResumePlayback = (): void => {
 const tickTimeline = (): void => {
     elapsedSeconds.value += 1;
 
-    if (
-        !videoEnded.value
-        && props.webinar.video_duration_seconds
-        && elapsedSeconds.value >= props.webinar.video_duration_seconds
-    ) {
+    const dur = props.webinar.video_duration_seconds;
+
+    if (dur && !videoEnded.value && elapsedSeconds.value >= dur - 3 && playbackKeepAliveTimer) {
+        clearInterval(playbackKeepAliveTimer);
+        playbackKeepAliveTimer = null;
+    }
+
+    if (!videoEnded.value && dur && elapsedSeconds.value >= dur) {
         endMeeting();
         return;
     }
@@ -689,7 +692,7 @@ const openVideoTab = (): void => {
 };
 
 const onDocumentVisibilityChange = (): void => {
-    if (document.visibilityState === 'visible') {
+    if (document.visibilityState === 'visible' && !videoEnded.value) {
         tryResumePlayback();
     }
 };

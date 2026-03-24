@@ -91,6 +91,18 @@ const submitLabel = computed(() =>
     props.mode === 'create' ? 'Create Webinar' : 'Save Changes',
 );
 
+const durationHours = ref(Math.floor((props.initialValues.video_duration_seconds ?? 0) / 3600));
+const durationMinutes = ref(Math.floor(((props.initialValues.video_duration_seconds ?? 0) % 3600) / 60));
+const durationSecondsField = ref((props.initialValues.video_duration_seconds ?? 0) % 60);
+
+const syncDurationToForm = (): void => {
+    const h = Math.max(0, durationHours.value || 0);
+    const m = Math.max(0, durationMinutes.value || 0);
+    const s = Math.max(0, durationSecondsField.value || 0);
+    const total = h * 3600 + m * 60 + s;
+    form.video_duration_seconds = total > 0 ? total : null;
+};
+
 const publicRegisterLink = computed(() =>
     form.uuid ? `/register/${form.uuid}` : '/register/{webinar-uuid}',
 );
@@ -610,16 +622,50 @@ const submit = (): void => {
                     <InputError :message="form.errors.video_url" />
                 </div>
                 <div class="grid gap-2">
-                    <Label for="video_duration_seconds">Video Duration (seconds)</Label>
-                    <Input
-                        id="video_duration_seconds"
-                        type="number"
-                        min="1"
-                        :model-value="form.video_duration_seconds ?? ''"
-                        @update:model-value="(value) => {
-                            form.video_duration_seconds = value === '' ? null : Number(value);
-                        }"
-                    />
+                    <Label>Video Duration</Label>
+                    <div class="flex items-end gap-2">
+                        <div class="grid gap-1">
+                            <Label for="duration_hours" class="text-xs text-muted-foreground">Hours</Label>
+                            <Input
+                                id="duration_hours"
+                                type="number"
+                                min="0"
+                                max="23"
+                                class="w-20"
+                                :model-value="durationHours"
+                                @update:model-value="(v) => { durationHours = Number(v) || 0; syncDurationToForm(); }"
+                            />
+                        </div>
+                        <span class="pb-2 text-muted-foreground">:</span>
+                        <div class="grid gap-1">
+                            <Label for="duration_minutes" class="text-xs text-muted-foreground">Minutes</Label>
+                            <Input
+                                id="duration_minutes"
+                                type="number"
+                                min="0"
+                                max="59"
+                                class="w-20"
+                                :model-value="durationMinutes"
+                                @update:model-value="(v) => { durationMinutes = Number(v) || 0; syncDurationToForm(); }"
+                            />
+                        </div>
+                        <span class="pb-2 text-muted-foreground">:</span>
+                        <div class="grid gap-1">
+                            <Label for="duration_seconds" class="text-xs text-muted-foreground">Seconds</Label>
+                            <Input
+                                id="duration_seconds"
+                                type="number"
+                                min="0"
+                                max="59"
+                                class="w-20"
+                                :model-value="durationSecondsField"
+                                @update:model-value="(v) => { durationSecondsField = Number(v) || 0; syncDurationToForm(); }"
+                            />
+                        </div>
+                    </div>
+                    <p class="text-xs text-muted-foreground">
+                        Total: {{ form.video_duration_seconds ?? 0 }} seconds — this controls when the webinar ends.
+                    </p>
                     <InputError :message="form.errors.video_duration_seconds" />
                 </div>
             </div>
