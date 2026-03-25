@@ -294,7 +294,7 @@ class ResendService
 
     private function sendSingleViaSmtp(Webinar $webinar, WebinarRegistrant $registrant, string $subject, string $intro): bool
     {
-        $mailer = (string) config('services.email.ses_smtp_mailer', 'ses_smtp');
+        $mailer = (string) config('services.email.ses_smtp_mailer', 'ses');
         $fromAddress = (string) config('services.email.ses_smtp_from_address', config('mail.from.address'));
         $fromName = (string) config('services.email.ses_smtp_from_name', config('mail.from.name'));
         $dynamicFromName = trim($webinar->host_name) !== '' ? trim($webinar->host_name).' via '.$fromName : $fromName;

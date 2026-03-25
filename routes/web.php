@@ -37,6 +37,7 @@ Route::post('/register/{webinar:uuid}', [WebinarRegistrationController::class, '
 Route::get('/webinar/live/{webinar:uuid}', [WebinarRoomController::class, 'showPublic'])->name('webinar.room.public');
 Route::post('/webinar/live/{webinar:uuid}/access', [WebinarRegistrationController::class, 'accessFromJoinLink'])->name('webinar.room.access');
 Route::get('/webinar/{token}', [WebinarRoomController::class, 'show'])->name('webinar.room');
+Route::post('/webinar/{token}/watch', [WebinarRoomController::class, 'trackWatchMilestone'])->name('webinar.watch.track');
 Route::post('/webinar/{token}/offers/{offer}/click', [WebinarRoomController::class, 'trackOfferClick'])->name('webinar.offer.click');
 Route::get('/webinar/{token}/chat', [WebinarChatController::class, 'index'])->name('webinar.chat.index');
 Route::post('/webinar/{token}/chat', [WebinarChatController::class, 'store'])->name('webinar.chat.store');

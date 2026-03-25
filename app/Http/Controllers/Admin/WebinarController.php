@@ -203,6 +203,8 @@ class WebinarController extends Controller
             'stats' => [
                 'registrants' => $webinar->registrants()->count(),
                 'views' => $webinar->views()->count(),
+                'views_60_seconds' => $webinar->views()->where('watch_duration_seconds', '>=', 60)->count(),
+                'views_watched_to_end' => $webinar->views()->whereNotNull('left_at')->count(),
                 'chat_messages' => $webinar->chatMessages()->count(),
                 'offers' => $webinar->offers()->count(),
                 'cta_clicks' => $webinar->analyticsEvents()->where('event_type', 'offer_cta_clicked')->count(),

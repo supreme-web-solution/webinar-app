@@ -81,20 +81,24 @@ const buttonUrgencyText = (button: { urgency_mode: 'none' | 'minutes' | 'live'; 
         <div class="space-y-4">
             <p class="text-xs font-semibold uppercase tracking-wide text-primary">Watch This Live Training</p>
             <h1 class="text-3xl font-bold">{{ webinar.title }}</h1>
-            <p class="text-sm text-muted-foreground">Hosted by {{ webinar.host_name }}</p>
-            <p class="text-sm text-muted-foreground">{{ webinar.description }}</p>
+            <p class="text-sm text-muted-foreground font-semibold">Hosted by {{ webinar.host_name }}</p>
+            <div
+                v-if="webinar.description"
+                class="text-sm !text-gray-800"
+                v-html="webinar.description"
+            ></div>
         </div>
 
         <form class="space-y-4 rounded-xl border bg-card p-6 shadow-sm" @submit.prevent="submit">
             <h2 class="text-xl font-semibold">Fill In Your Details To Join The Webinar</h2>
             <div class="grid gap-2">
                 <Label for="name">Name</Label>
-                <Input id="name" v-model="form.name" required />
+                <Input id="name" v-model="form.name" placeholder="Your full name" required />
                 <InputError :message="form.errors.name" />
             </div>
             <div class="grid gap-2">
                 <Label for="email">Email</Label>
-                <Input id="email" v-model="form.email" type="email" required />
+                <Input id="email" v-model="form.email" type="email" placeholder="you@example.com" required />
                 <InputError :message="form.errors.email" />
             </div>
             <div class="space-y-2">

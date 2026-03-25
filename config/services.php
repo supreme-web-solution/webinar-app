@@ -32,7 +32,7 @@ return [
     'email' => [
         'primary' => env('EMAIL_PROVIDER_PRIMARY', 'resend'),
         'fallback' => env('EMAIL_PROVIDER_FALLBACK', 'ses_smtp'),
-        'ses_smtp_mailer' => env('SES_SMTP_MAILER', 'ses_smtp'),
+        'ses_smtp_mailer' => env('SES_SMTP_MAILER', 'ses'),
         'ses_smtp_from_address' => env('SES_SMTP_FROM_ADDRESS', env('MAIL_FROM_ADDRESS', 'hello@example.com')),
         'ses_smtp_from_name' => env('SES_SMTP_FROM_NAME', env('MAIL_FROM_NAME', env('APP_NAME', 'Laravel'))),
     ],

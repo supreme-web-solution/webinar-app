@@ -55,6 +55,8 @@ type WebinarPayload = {
 type Stats = {
     registrants: number;
     views: number;
+    views_60_seconds: number;
+    views_watched_to_end: number;
     chat_messages: number;
     offers: number;
     cta_clicks: number;
@@ -102,6 +104,14 @@ const breadcrumbs: BreadcrumbItem[] = [
                     <div class="rounded-md border px-3 py-2">
                         <p class="text-muted-foreground">Views</p>
                         <p class="font-semibold">{{ stats.views }}</p>
+                    </div>
+                    <div class="rounded-md border px-3 py-2">
+                        <p class="text-muted-foreground">Watched 60s+</p>
+                        <p class="font-semibold">{{ stats.views_60_seconds }}</p>
+                    </div>
+                    <div class="rounded-md border px-3 py-2">
+                        <p class="text-muted-foreground">Watched to End</p>
+                        <p class="font-semibold">{{ stats.views_watched_to_end }}</p>
                     </div>
                     <div class="rounded-md border px-3 py-2">
                         <p class="text-muted-foreground">Messages</p>

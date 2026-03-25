@@ -71,6 +71,8 @@ const popupOffer = ref<Offer | null>(null);
 const droppedOffers = ref<Offer[]>([]);
 const iframeMuted = ref(true);
 const videoEnded = ref(false);
+const tracked60Seconds = ref(false);
+const trackedToEnd = ref(false);
 const iframeRef = ref<HTMLIFrameElement | null>(null);
 const directVideoRef = ref<HTMLVideoElement | null>(null);
 const reactionBubbles = ref<Array<{ id: string; emoji: string; left: number }>>([]);
@@ -160,6 +162,37 @@ const trackOfferClick = async (offer: Offer, source: 'chat' | 'popup' | 'pinned'
         });
     } catch {
         // Ignore tracking failures so CTA navigation remains uninterrupted.
+    }
+};
+
+const trackWatchMilestone = async (
+    milestone: 'watched_60_seconds' | 'watched_to_end',
+    watchDurationSeconds?: number,
+): Promise<void> => {
+    if (!props.chatToken) {
+        return;
+    }
+
+    const csrfToken = document
+        .querySelector('meta[name="csrf-token"]')
+        ?.getAttribute('content') ?? '';
+
+    try {
+        await fetch(`/webinar/${props.chatToken}/watch`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRF-TOKEN': csrfToken,
+                Accept: 'application/json',
+            },
+            keepalive: true,
+            body: JSON.stringify({
+                milestone,
+                watch_duration_seconds: watchDurationSeconds ?? elapsedSeconds.value,
+            }),
+        });
+    } catch {
+        // Tracking should never block playback.
     }
 };
 
@@ -385,6 +418,11 @@ const endMeeting = (): void => {
     videoEnded.value = true;
     stopAllTimers();
 
+    if (!trackedToEnd.value) {
+        trackedToEnd.value = true;
+        void trackWatchMilestone('watched_to_end', elapsedSeconds.value);
+    }
+
     if (props.webinar.video_source === 'youtube' && iframeRef.value?.contentWindow) {
         iframeRef.value.contentWindow.postMessage(JSON.stringify({
             event: 'command', func: 'pauseVideo', args: [],
@@ -481,6 +519,11 @@ const tryResumePlayback = (): void => {
 
 const tickTimeline = (): void => {
     elapsedSeconds.value += 1;
+
+    if (!tracked60Seconds.value && elapsedSeconds.value >= 60 && props.chatToken) {
+        tracked60Seconds.value = true;
+        void trackWatchMilestone('watched_60_seconds', 60);
+    }
 
     const dur = props.webinar.video_duration_seconds;
 
@@ -872,7 +915,7 @@ const submitAccess = (): void => {
                             class="rounded-full border border-white/30 bg-white/95 px-5 py-2.5 text-sm font-semibold text-slate-900 shadow-lg"
                             @click="enableSound"
                         >
-                        Click Here Enable Sound
+                        Click Here To Enable Sound
                         </button>
                     </div>
 

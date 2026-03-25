@@ -159,6 +159,106 @@ class WebinarRoomController extends Controller
         ]);
     }
 
+    public function trackWatchMilestone(Request $request, string $token): JsonResponse
+    {
+        $registrant = WebinarRegistrant::query()
+            ->where('access_token', $token)
+            ->firstOrFail();
+
+        $validated = $request->validate([
+            'milestone' => ['required', 'string', 'in:watched_60_seconds,watched_to_end'],
+            'watch_duration_seconds' => ['nullable', 'integer', 'min:0'],
+        ]);
+
+        $view = WebinarView::query()
+            ->where('registrant_id', $registrant->id)
+            ->where('webinar_id', $registrant->webinar_id)
+            ->whereNull('left_at')
+            ->latest('id')
+            ->first();
+
+        if (! $view) {
+            return response()->json([
+                'tracked' => false,
+                'reason' => 'no_active_view',
+            ], 404);
+        }
+
+        $now = Carbon::now();
+
+        return match ($validated['milestone']) {
+            'watched_60_seconds' => (function () use ($view, $registrant, $now) {
+                $targetSeconds = 60;
+
+                // Update duration so admin stats can use `watch_duration_seconds >= 60`.
+                if ($view->watch_duration_seconds < $targetSeconds) {
+                    $view->watch_duration_seconds = $targetSeconds;
+                    $view->save();
+                }
+
+                $alreadyTracked = AnalyticsEvent::query()
+                    ->where('view_id', $view->id)
+                    ->where('event_type', 'webinar_watched_60_seconds')
+                    ->exists();
+
+                if (! $alreadyTracked) {
+                    AnalyticsEvent::create([
+                        'webinar_id' => $registrant->webinar_id,
+                        'registrant_id' => $registrant->id,
+                        'view_id' => $view->id,
+                        'event_type' => 'webinar_watched_60_seconds',
+                        'event_data' => [
+                            'milestone_seconds' => $targetSeconds,
+                            'watch_duration_seconds' => $targetSeconds,
+                            'source' => 'public_room',
+                        ],
+                        'occurred_at' => $now,
+                    ]);
+                }
+
+                return response()->json(['tracked' => true]);
+            })(),
+
+            'watched_to_end' => (function () use ($view, $registrant, $validated, $now) {
+                // Only finalize once.
+                if ($view->left_at === null) {
+                    $duration = $validated['watch_duration_seconds'] ?? null;
+                    if ($duration === null || $duration <= 0) {
+                        $duration = $view->session_started_at?->diffInSeconds($now) ?? 0;
+                    }
+
+                    if ($duration > 0 && $view->watch_duration_seconds < $duration) {
+                        $view->watch_duration_seconds = $duration;
+                    }
+
+                    $view->left_at = $now;
+                    $view->save();
+                }
+
+                $alreadyTracked = AnalyticsEvent::query()
+                    ->where('view_id', $view->id)
+                    ->where('event_type', 'webinar_watched_to_end')
+                    ->exists();
+
+                if (! $alreadyTracked) {
+                    AnalyticsEvent::create([
+                        'webinar_id' => $registrant->webinar_id,
+                        'registrant_id' => $registrant->id,
+                        'view_id' => $view->id,
+                        'event_type' => 'webinar_watched_to_end',
+                        'event_data' => [
+                            'watch_duration_seconds' => $view->watch_duration_seconds,
+                            'source' => 'public_room',
+                        ],
+                        'occurred_at' => $now,
+                    ]);
+                }
+
+                return response()->json(['tracked' => true]);
+            })(),
+        };
+    }
+
     /**
      * @return array<string, mixed>
      */

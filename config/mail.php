@@ -50,7 +50,7 @@ return [
         ],
 
         'ses_smtp' => [
-            'transport' => 'smtp',
+            'transport' => env('SES_SMTP_TRANSPORT', 'ses'),
             'scheme' => env('SES_SMTP_SCHEME', 'tls'),
             'host' => env('SES_SMTP_HOST', 'email-smtp.us-east-1.amazonaws.com'),
             'port' => env('SES_SMTP_PORT', 587),
