@@ -54,7 +54,9 @@ type Defaults = {
 defineProps<{
     defaults: Defaults;
     attendees: {
+        subscribed_total: number;
         subscribed: Array<{ id: number; name: string; email: string; registered_at?: string | null; unsubscribe_url?: string }>;
+        unsubscribed_total: number;
         unsubscribed: Array<{ id: number; name: string; email: string; unsubscribed_at?: string | null; delete_url?: string }>;
     };
     attendeeImportUrl: string | null;

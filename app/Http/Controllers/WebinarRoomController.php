@@ -21,7 +21,7 @@ class WebinarRoomController extends Controller
         abort_unless($webinar->is_published, 404);
         $payload = $this->cachedWebinarPayload($webinar->id);
 
-        if ($webinar->fresh()->hasEnded()) {
+        if (($payload['room_ended'] ?? false) === true) {
             return Inertia::render('public/WebinarRoom', [
                 'webinar' => $payload,
                 'registrant' => [
@@ -55,15 +55,18 @@ class WebinarRoomController extends Controller
     public function show(string $token): Response
     {
         $registrant = WebinarRegistrant::query()
-            ->with([
-                'webinar.offers' => fn ($query) => $query->where('is_active', true)->orderBy('trigger_second'),
-                'webinar.scheduledMessages' => fn ($query) => $query->where('is_active', true)->orderBy('trigger_second'),
+            ->select([
+                'id',
+                'webinar_id',
+                'name',
+                'email',
+                'access_token',
+                'is_subscribed',
             ])
             ->where('access_token', $token)
             ->firstOrFail();
 
-        $webinar = $registrant->webinar;
-        $payload = $this->cachedWebinarPayload($webinar->id);
+        $payload = $this->cachedWebinarPayload($registrant->webinar_id);
 
         // If the registrant has globally unsubscribed for this creator account,
         // block re-entry to the room as well as any further emails.
@@ -74,7 +77,7 @@ class WebinarRoomController extends Controller
             ]);
         }
 
-        if ($webinar->fresh()->hasEnded()) {
+        if (($payload['room_ended'] ?? false) === true) {
             return Inertia::render('public/WebinarRoom', [
                 'webinar' => $payload,
                 'registrant' => [
@@ -90,25 +93,26 @@ class WebinarRoomController extends Controller
             ]);
         }
 
-        $registrant->update([
-            'last_joined_at' => Carbon::now(),
-        ]);
+        $now = Carbon::now();
 
         // Avoid duplicate "views" rows when the page reloads/redirects
         // by reusing the active view for this registrant.
         $view = WebinarView::query()
-            ->where('webinar_id', $webinar->id)
+            ->where('webinar_id', $registrant->webinar_id)
             ->where('registrant_id', $registrant->id)
             ->whereNull('left_at')
             ->latest('id')
             ->first();
 
+        $isNewView = false;
+
         if (! $view) {
+            $isNewView = true;
             $view = WebinarView::create([
-                'webinar_id' => $webinar->id,
+                'webinar_id' => $registrant->webinar_id,
                 'registrant_id' => $registrant->id,
-                'joined_at' => Carbon::now(),
-                'session_started_at' => Carbon::now(),
+                'joined_at' => $now,
+                'session_started_at' => $now,
                 'timeline_offset_seconds' => 0,
                 'watch_duration_seconds' => 0,
                 'ip_address' => request()->ip(),
@@ -116,21 +120,22 @@ class WebinarRoomController extends Controller
             ]);
         }
 
-        $alreadyTrackedJoin = AnalyticsEvent::query()
-            ->where('view_id', $view->id)
-            ->where('event_type', 'webinar_joined')
-            ->exists();
+        // Only write join analytics + "last_joined_at" once per active view.
+        // This prevents repeated writes when the frontend reloads the room.
+        if ($isNewView) {
+            $registrant->update([
+                'last_joined_at' => $now,
+            ]);
 
-        if (! $alreadyTrackedJoin) {
             AnalyticsEvent::create([
-                'webinar_id' => $webinar->id,
+                'webinar_id' => $registrant->webinar_id,
                 'registrant_id' => $registrant->id,
                 'view_id' => $view->id,
                 'event_type' => 'webinar_joined',
                 'event_data' => [
                     'source' => 'public_room',
                 ],
-                'occurred_at' => Carbon::now(),
+                'occurred_at' => $now,
             ]);
         }
 
@@ -156,6 +161,7 @@ class WebinarRoomController extends Controller
     public function trackOfferClick(Request $request, string $token, WebinarOffer $offer): JsonResponse
     {
         $registrant = WebinarRegistrant::query()
+            ->select(['id', 'webinar_id'])
             ->where('access_token', $token)
             ->firstOrFail();
 
@@ -189,6 +195,7 @@ class WebinarRoomController extends Controller
     public function trackWatchMilestone(Request $request, string $token): JsonResponse
     {
         $registrant = WebinarRegistrant::query()
+            ->select(['id', 'webinar_id'])
             ->where('access_token', $token)
             ->firstOrFail();
 
@@ -322,6 +329,7 @@ class WebinarRoomController extends Controller
             'video_duration_seconds' => $webinar->video_duration_seconds,
             'min_viewers' => $webinar->min_viewers,
             'max_viewers' => $webinar->max_viewers,
+            'room_ended' => $webinar->hasEnded(),
             'playback_settings' => [
                 'show_fake_viewers' => (bool) data_get($webinar->playback_settings, 'show_fake_viewers', true),
                 'redirect_enabled' => (bool) data_get($webinar->playback_settings, 'redirect_enabled', false),

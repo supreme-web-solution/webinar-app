@@ -60,7 +60,9 @@ const props = defineProps<{
     method: 'post' | 'put';
     initialValues: WebinarFormData;
     attendees: {
+        subscribed_total: number;
         subscribed: Array<{ id: number; name: string; email: string; registered_at?: string | null; unsubscribe_url?: string }>;
+        unsubscribed_total: number;
         unsubscribed: Array<{ id: number; name: string; email: string; unsubscribed_at?: string | null; delete_url?: string }>;
     };
     attendeeImportUrl: string | null;
@@ -789,7 +791,7 @@ const submit = (): void => {
                             :class="attendeePanel === 'subscribed' ? 'border-primary bg-primary text-primary-foreground' : 'border-border bg-background'"
                             @click="attendeePanel = 'subscribed'"
                         >
-                            Registered ({{ attendees.subscribed.length }})
+                            Registered ({{ attendees.subscribed_total }})
                         </button>
                         <button
                             type="button"
@@ -797,14 +799,18 @@ const submit = (): void => {
                             :class="attendeePanel === 'unsubscribed' ? 'border-primary bg-primary text-primary-foreground' : 'border-border bg-background'"
                             @click="attendeePanel = 'unsubscribed'"
                         >
-                            Unsubscribed ({{ attendees.unsubscribed.length }})
+                            Unsubscribed ({{ attendees.unsubscribed_total }})
                         </button>
                     </div>
 
                     <div v-if="attendeePanel === 'subscribed'" class="overflow-hidden rounded-md border">
                         <div class="flex flex-wrap items-center gap-2 border-b bg-muted/20 px-3 py-2">
                             <Button type="button" variant="outline" class="h-8 px-2 text-xs" @click="toggleAllSubscribed">
-                                {{ selectedSubscribedIds.length === attendees.subscribed.length && attendees.subscribed.length > 0 ? 'Uncheck All' : 'Check All' }}
+                                {{
+                                    selectedSubscribedIds.length === attendees.subscribed.length && attendees.subscribed.length > 0
+                                        ? 'Uncheck All (shown)'
+                                        : 'Check All (shown)'
+                                }}
                             </Button>
                             <Button type="button" variant="outline" class="h-8 px-2 text-xs" @click="moveBulkToUnsubscribed">
                                 Move Selected to Unsubscribed
@@ -815,7 +821,7 @@ const submit = (): void => {
                                 class="h-8 px-2 text-xs"
                                 @click="exportAttendeesCsv(attendees.subscribed, 'registered-attendees.csv')"
                             >
-                                Export Emails
+                                Export Emails (shown)
                             </Button>
                         </div>
                         <table class="w-full text-sm">
@@ -862,7 +868,11 @@ const submit = (): void => {
                     <div v-else class="overflow-hidden rounded-md border">
                         <div class="flex flex-wrap items-center gap-2 border-b bg-muted/20 px-3 py-2">
                             <Button type="button" variant="outline" class="h-8 px-2 text-xs" @click="toggleAllUnsubscribed">
-                                {{ selectedUnsubscribedIds.length === attendees.unsubscribed.length && attendees.unsubscribed.length > 0 ? 'Uncheck All' : 'Check All' }}
+                                {{
+                                    selectedUnsubscribedIds.length === attendees.unsubscribed.length && attendees.unsubscribed.length > 0
+                                        ? 'Uncheck All (shown)'
+                                        : 'Check All (shown)'
+                                }}
                             </Button>
                             <Button type="button" variant="outline" class="h-8 px-2 text-xs" @click="deleteBulkUnsubscribed">
                                 Delete Selected
@@ -873,7 +883,7 @@ const submit = (): void => {
                                 class="h-8 px-2 text-xs"
                                 @click="exportAttendeesCsv(attendees.unsubscribed, 'unsubscribed-attendees.csv')"
                             >
-                                Export Emails
+                                Export Emails (shown)
                             </Button>
                         </div>
                         <table class="w-full text-sm">

@@ -82,7 +82,9 @@ class WebinarController extends Controller
                 'offers' => [],
             ],
             'attendees' => [
+                'subscribed_total' => 0,
                 'subscribed' => [],
+                'unsubscribed_total' => 0,
                 'unsubscribed' => [],
             ],
             'attendeeImportUrl' => null,
@@ -118,6 +120,12 @@ class WebinarController extends Controller
     public function edit(Webinar $webinar): Response
     {
         abort_unless($webinar->user_id === Auth::id(), 403);
+
+        // Rendering all attendees (tens of thousands) into the Inertia payload
+        // causes serious UI lag. We send a small "preview" list + total counts.
+        $attendeesPreviewLimit = 200;
+        $subscribedTotal = $webinar->registrants()->where('is_subscribed', true)->count();
+        $unsubscribedTotal = $webinar->registrants()->where('is_subscribed', false)->count();
 
         return Inertia::render('webinars/Edit', [
             'webinar' => [
@@ -164,9 +172,11 @@ class WebinarController extends Controller
                     ]),
             ],
             'attendees' => [
+                'subscribed_total' => $subscribedTotal,
                 'subscribed' => $webinar->registrants()
                     ->where('is_subscribed', true)
                     ->orderByDesc('registered_at')
+                    ->limit($attendeesPreviewLimit)
                     ->get()
                     ->map(fn ($registrant) => [
                         'id' => $registrant->id,
@@ -178,10 +188,12 @@ class WebinarController extends Controller
                             'registrant' => $registrant->id,
                         ]),
                     ]),
+                'unsubscribed_total' => $unsubscribedTotal,
                 'unsubscribed' => $webinar->registrants()
                     ->with('unsubscribeLog')
                     ->where('is_subscribed', false)
                     ->orderByDesc('updated_at')
+                    ->limit($attendeesPreviewLimit)
                     ->get()
                     ->map(fn ($registrant) => [
                         'id' => $registrant->id,

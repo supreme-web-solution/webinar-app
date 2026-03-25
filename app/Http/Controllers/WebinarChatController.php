@@ -22,6 +22,10 @@ class WebinarChatController extends Controller
             "webinar:chat:{$registrant->access_token}",
             now()->addSeconds(8),
             function () use ($registrant) {
+                // Under burst traffic, returning the entire chat history per viewer
+                // creates huge DB load. We only need the most recent messages for UX.
+                $limit = 50;
+
                 return ChatMessage::query()
                     ->where('webinar_id', $registrant->webinar_id)
                     ->where(function ($query) use ($registrant): void {
@@ -31,9 +35,10 @@ class WebinarChatController extends Controller
                                     ->where('sender_type', 'system');
                             });
                     })
-                    ->orderBy('sent_at')
-                    ->orderBy('id')
+                    ->orderByDesc('id')
+                    ->limit($limit)
                     ->get()
+                    ->reverse()
                     ->map(fn (ChatMessage $message) => [
                         'id' => $message->id,
                         'sender' => $message->sender_name ?? 'System',
