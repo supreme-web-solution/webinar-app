@@ -85,27 +85,45 @@ class WebinarRoomController extends Controller
             'last_joined_at' => Carbon::now(),
         ]);
 
-        $view = WebinarView::create([
-            'webinar_id' => $webinar->id,
-            'registrant_id' => $registrant->id,
-            'joined_at' => Carbon::now(),
-            'session_started_at' => Carbon::now(),
-            'timeline_offset_seconds' => 0,
-            'watch_duration_seconds' => 0,
-            'ip_address' => request()->ip(),
-            'user_agent' => request()->userAgent(),
-        ]);
+        // Avoid duplicate "views" rows when the page reloads/redirects
+        // by reusing the active view for this registrant.
+        $view = WebinarView::query()
+            ->where('webinar_id', $webinar->id)
+            ->where('registrant_id', $registrant->id)
+            ->whereNull('left_at')
+            ->latest('id')
+            ->first();
 
-        AnalyticsEvent::create([
-            'webinar_id' => $webinar->id,
-            'registrant_id' => $registrant->id,
-            'view_id' => $view->id,
-            'event_type' => 'webinar_joined',
-            'event_data' => [
-                'source' => 'public_room',
-            ],
-            'occurred_at' => Carbon::now(),
-        ]);
+        if (! $view) {
+            $view = WebinarView::create([
+                'webinar_id' => $webinar->id,
+                'registrant_id' => $registrant->id,
+                'joined_at' => Carbon::now(),
+                'session_started_at' => Carbon::now(),
+                'timeline_offset_seconds' => 0,
+                'watch_duration_seconds' => 0,
+                'ip_address' => request()->ip(),
+                'user_agent' => request()->userAgent(),
+            ]);
+        }
+
+        $alreadyTrackedJoin = AnalyticsEvent::query()
+            ->where('view_id', $view->id)
+            ->where('event_type', 'webinar_joined')
+            ->exists();
+
+        if (! $alreadyTrackedJoin) {
+            AnalyticsEvent::create([
+                'webinar_id' => $webinar->id,
+                'registrant_id' => $registrant->id,
+                'view_id' => $view->id,
+                'event_type' => 'webinar_joined',
+                'event_data' => [
+                    'source' => 'public_room',
+                ],
+                'occurred_at' => Carbon::now(),
+            ]);
+        }
 
         return Inertia::render('public/WebinarRoom', [
             'webinar' => $payload,
