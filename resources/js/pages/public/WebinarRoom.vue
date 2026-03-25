@@ -83,6 +83,7 @@ let viewersTimer: ReturnType<typeof setInterval> | null = null;
 let chatPollTimer: ReturnType<typeof setInterval> | null = null;
 let playbackKeepAliveTimer: ReturnType<typeof setInterval> | null = null;
 let chatChannelName: string | null = null;
+let hasLoadedChat = false;
 
 const firedMessageIds = new Set<number>();
 const firedOfferIds = new Set<number>();
@@ -727,6 +728,13 @@ const openChatTab = (): void => {
     mobileTab.value = 'chat';
     unreadCount.value = 0;
     window.setTimeout(tryResumePlayback, 200);
+
+    // Load history only when the user actually opens the chat tab.
+    // This prevents one DB-backed request per viewer at join time.
+    if (!hasLoadedChat) {
+        hasLoadedChat = true;
+        void loadServerChat();
+    }
 };
 
 const openVideoTab = (): void => {
@@ -751,13 +759,18 @@ onMounted(() => {
     timer = setInterval(tickTimeline, 1000);
     viewersTimer = setInterval(tickViewers, 4000);
     playbackKeepAliveTimer = setInterval(tryResumePlayback, 12000);
-    void loadServerChat();
-    void scrollChatToBottom();
-
-    if (!startRealtimeChat()) {
+    
+    const realtimeStarted = startRealtimeChat();
+    if (!realtimeStarted) {
+        // Longer + jittered polling so a burst doesn't synchronize DB hits.
+        const pollIntervalMs = 15000 + Math.floor(Math.random() * 5000);
         chatPollTimer = setInterval(() => {
             void loadServerChat();
-        }, 10000);
+        }, pollIntervalMs);
+
+        // Initial fetch when websockets fail.
+        hasLoadedChat = true;
+        void loadServerChat();
     }
 });
 

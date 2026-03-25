@@ -57,25 +57,15 @@ class WebinarAttendeeController extends Controller
             $indexMap['email'] = 0;
         }
 
-        $imported = 0;
-        $registrantIdsForEmail = [];
         $sendConfirmation = (bool) data_get($webinar->email_settings, 'send_confirmation', true);
+        $now = Carbon::now();
 
+        // Build a unique email -> name map first.
+        // This allows us to avoid per-row "exists()" queries during imports (20k rows can time out).
+        $emailToName = [];
         foreach ($rows as $row) {
             $email = trim((string) ($row[$indexMap['email']] ?? ''));
             if ($email === '' || !filter_var($email, FILTER_VALIDATE_EMAIL)) {
-                continue;
-            }
-
-            // Global unsubscribe per creator account:
-            // if this email unsubscribed once, skip them for all webinars.
-            $globallyUnsubscribed = WebinarRegistrant::query()
-                ->where('email', $email)
-                ->where('is_subscribed', false)
-                ->whereHas('webinar', fn ($q) => $q->where('user_id', $webinar->user_id))
-                ->exists();
-
-            if ($globallyUnsubscribed) {
                 continue;
             }
 
@@ -84,30 +74,77 @@ class WebinarAttendeeController extends Controller
                 $name = Str::of($email)->before('@')->replace(['.', '_', '-'], ' ')->title()->value();
             }
 
-            $registrant = WebinarRegistrant::firstOrNew([
-                'webinar_id' => $webinar->id,
-                'email' => $email,
-            ]);
+            // Keep the last seen name for duplicate emails in the same file.
+            $emailToName[$email] = $name;
+        }
 
-            $registrant->name = $name;
-            $registrant->registered_at = $registrant->registered_at ?? Carbon::now();
-            $registrant->is_subscribed = true;
-            $registrant->access_token = $registrant->access_token ?: Str::random(40);
-            $registrant->save();
+        $emails = array_keys($emailToName);
+        if ($emails === []) {
+            return back()->withErrors(['file' => 'Uploaded file contained no valid emails.']);
+        }
 
-            if ($sendConfirmation) {
-                $registrantIdsForEmail[] = $registrant->id;
+        // Global unsubscribe per creator account:
+        // if this email unsubscribed once, skip them for all webinars.
+        $globallyUnsubscribedEmails = WebinarRegistrant::query()
+            ->whereIn('email', $emails)
+            ->where('is_subscribed', false)
+            ->whereHas('webinar', fn ($q) => $q->where('user_id', $webinar->user_id))
+            ->pluck('email')
+            ->values()
+            ->all();
+
+        $globallyUnsubscribedLookup = array_flip($globallyUnsubscribedEmails);
+
+        // Prefetch existing webinar registrants so we can preserve access_token + registered_at.
+        $existingRegistrants = WebinarRegistrant::query()
+            ->where('webinar_id', $webinar->id)
+            ->whereIn('email', $emails)
+            ->get(['email', 'access_token', 'registered_at', 'id'])
+            ->keyBy('email');
+
+        $upsertRows = [];
+        $allowedEmails = [];
+        foreach ($emailToName as $email => $name) {
+            if (isset($globallyUnsubscribedLookup[$email])) {
+                continue;
             }
 
-            $imported++;
+            $allowedEmails[] = $email;
+
+            $existing = $existingRegistrants->get($email);
+
+            $upsertRows[] = [
+                'webinar_id' => $webinar->id,
+                'email' => $email,
+                'name' => $name,
+                'registered_at' => $existing?->registered_at ?? $now,
+                'is_subscribed' => true,
+                'access_token' => $existing?->access_token ?: Str::random(40),
+            ];
+        }
+
+        $imported = count($upsertRows);
+
+        if ($upsertRows !== []) {
+            foreach (array_chunk($upsertRows, 500) as $chunk) {
+                WebinarRegistrant::query()->upsert(
+                    $chunk,
+                    ['webinar_id', 'email'],
+                    ['name', 'registered_at', 'is_subscribed', 'access_token'],
+                );
+            }
         }
 
         $emailsQueued = $sendConfirmation
             ? $this->dispatchEmailBatches(
                 $webinar,
-                collect($registrantIdsForEmail)->unique()->values(),
+                WebinarRegistrant::query()
+                    ->where('webinar_id', $webinar->id)
+                    ->whereIn('email', $allowedEmails)
+                    ->pluck('id')
+                    ->values(),
                 $webinar->prefixedTitleLine(),
-                'You have been registered for this webinar. Click below to join the webinar.'
+                'You have been registered for this webinar. Click below to join the webinar.',
             )
             : 0;
 
