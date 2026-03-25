@@ -69,6 +69,18 @@ class WebinarRegistrationController extends Controller
         $validated = $request->validated();
         $sendConfirmation = (bool) data_get($webinar->email_settings, 'send_confirmation', true);
 
+        $globallyUnsubscribed = WebinarRegistrant::query()
+            ->where('email', $validated['email'])
+            ->where('is_subscribed', false)
+            ->whereHas('webinar', fn ($q) => $q->where('user_id', $webinar->user_id))
+            ->exists();
+
+        if ($globallyUnsubscribed) {
+            return back()->withErrors([
+                'email' => 'You have unsubscribed from webinar emails for this account.',
+            ]);
+        }
+
         $registrant = WebinarRegistrant::firstOrNew([
             'webinar_id' => $webinar->id,
             'email' => $validated['email'],
@@ -116,6 +128,18 @@ class WebinarRegistrationController extends Controller
 
         $validated = $request->validated();
         $sendConfirmation = (bool) data_get($webinar->email_settings, 'send_confirmation', true);
+
+        $globallyUnsubscribed = WebinarRegistrant::query()
+            ->where('email', $validated['email'])
+            ->where('is_subscribed', false)
+            ->whereHas('webinar', fn ($q) => $q->where('user_id', $webinar->user_id))
+            ->exists();
+
+        if ($globallyUnsubscribed) {
+            return back()->withErrors([
+                'email' => 'You have unsubscribed from webinar emails for this account.',
+            ]);
+        }
 
         $registrant = WebinarRegistrant::firstOrNew([
             'webinar_id' => $webinar->id,

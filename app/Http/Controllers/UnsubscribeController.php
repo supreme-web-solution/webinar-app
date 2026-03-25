@@ -17,9 +17,22 @@ class UnsubscribeController extends Controller
             ->where('access_token', $token)
             ->firstOrFail();
 
+        // Global unsubscribe per creator account:
+        // once a registrant unsubscribes, prevent them from joining/receiving emails
+        // for all webinars created by the same user.
+        $creatorUserId = $registrant->webinar->user_id;
+        $email = $registrant->email;
+
         $registrant->update([
             'is_subscribed' => false,
         ]);
+
+        WebinarRegistrant::query()
+            ->where('email', $email)
+            ->whereHas('webinar', fn ($q) => $q->where('user_id', $creatorUserId))
+            ->update([
+                'is_subscribed' => false,
+            ]);
 
         EmailUnsubscribe::updateOrCreate(
             ['registrant_id' => $registrant->id],

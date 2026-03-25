@@ -67,6 +67,18 @@ class WebinarAttendeeController extends Controller
                 continue;
             }
 
+            // Global unsubscribe per creator account:
+            // if this email unsubscribed once, skip them for all webinars.
+            $globallyUnsubscribed = WebinarRegistrant::query()
+                ->where('email', $email)
+                ->where('is_subscribed', false)
+                ->whereHas('webinar', fn ($q) => $q->where('user_id', $webinar->user_id))
+                ->exists();
+
+            if ($globallyUnsubscribed) {
+                continue;
+            }
+
             $name = trim((string) ($indexMap['name'] !== false ? ($row[$indexMap['name']] ?? '') : ''));
             if ($name === '') {
                 $name = Str::of($email)->before('@')->replace(['.', '_', '-'], ' ')->title()->value();

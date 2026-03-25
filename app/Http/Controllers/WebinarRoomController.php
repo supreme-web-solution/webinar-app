@@ -65,6 +65,15 @@ class WebinarRoomController extends Controller
         $webinar = $registrant->webinar;
         $payload = $this->cachedWebinarPayload($webinar->id);
 
+        // If the registrant has globally unsubscribed for this creator account,
+        // block re-entry to the room as well as any further emails.
+        if ($registrant->is_subscribed !== true) {
+            return Inertia::render('public/UnsubscribeResult', [
+                'webinarTitle' => $webinar->title,
+                'email' => $registrant->email,
+            ]);
+        }
+
         if ($webinar->fresh()->hasEnded()) {
             return Inertia::render('public/WebinarRoom', [
                 'webinar' => $payload,
