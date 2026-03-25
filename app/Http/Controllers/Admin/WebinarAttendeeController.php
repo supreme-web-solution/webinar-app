@@ -321,15 +321,19 @@ class WebinarAttendeeController extends Controller
         string $intro,
         ?string $markSentColumn = null
     ): int {
+        $batchSize = max(1, (int) env('WEBINAR_EMAIL_BATCH_SIZE', 100));
+        $baseDelaySeconds = max(0, (int) env('WEBINAR_EMAIL_BATCH_DELAY_BASE_SECONDS', 0));
+        $delayIncrementSeconds = max(0, (int) env('WEBINAR_EMAIL_BATCH_DELAY_INCREMENT_SECONDS', 5));
+
         $chunks = $registrantIds
             ->filter(fn ($id) => is_numeric($id))
             ->map(fn ($id) => (int) $id)
             ->unique()
             ->values()
-            ->chunk(100);
+            ->chunk($batchSize);
 
         foreach ($chunks as $index => $chunk) {
-            $delaySeconds = (int) $index * 5;
+            $delaySeconds = $baseDelaySeconds + ((int) $index * $delayIncrementSeconds);
             SendWebinarEmailsBatchJob::dispatch(
                 $webinar->id,
                 $chunk->all(),

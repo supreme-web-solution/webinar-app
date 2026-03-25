@@ -7,9 +7,11 @@ use App\Http\Requests\Webinar\StoreWebinarRequest;
 use App\Http\Requests\Webinar\UpdateWebinarRequest;
 use App\Models\Webinar;
 use App\Models\WebinarOffer;
+use App\Models\EmailUnsubscribe;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\DB;
 use Inertia\Inertia;
 use Inertia\Response;
 
@@ -243,6 +245,27 @@ class WebinarController extends Controller
         $this->syncOffers($webinar, $offers);
 
         return back()->with('success', 'Webinar updated successfully.');
+    }
+
+    public function destroy(Webinar $webinar): RedirectResponse
+    {
+        abort_unless($webinar->user_id === Auth::id(), 403);
+
+        DB::transaction(function () use ($webinar): void {
+            // Some tables do not cascade on webinar delete (ex: email_unsubscribes has
+            // webinar_id nullable + nullOnDelete), so we explicitly clear them.
+            EmailUnsubscribe::query()
+                ->where('webinar_id', $webinar->id)
+                ->delete();
+
+            // Other related rows (registrants, views, offers, scheduled messages, chats, analytics)
+            // are defined with cascading FKs in the migration.
+            $webinar->delete();
+        });
+
+        return redirect()
+            ->route('admin.webinars.index')
+            ->with('success', 'Webinar deleted (including attendees, chats, and tracking).');
     }
 
     /**

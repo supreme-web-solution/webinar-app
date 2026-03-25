@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Head, Link } from '@inertiajs/vue3';
+import { Head, Link, router } from '@inertiajs/vue3';
 import { ref } from 'vue';
 import AppLayout from '@/layouts/AppLayout.vue';
 import type { BreadcrumbItem } from '@/types';
@@ -53,6 +53,15 @@ const copyLink = async (link: string, label: string): Promise<void> => {
     } catch {
         showToast(`Unable to copy ${label.toLowerCase()}.`);
     }
+};
+
+const deleteWebinar = (webinarId: number, title: string): void => {
+    const ok = window.confirm(`Delete webinar "${title}" and all its data (attendees, chats, tracking)?`);
+    if (!ok) {
+        return;
+    }
+
+    router.delete(`/admin/webinars/${webinarId}`);
 };
 </script>
 
@@ -165,6 +174,13 @@ const copyLink = async (link: string, label: string): Promise<void> => {
                                     >
                                         Notify All
                                     </Link>
+                                    <button
+                                        type="button"
+                                        class="text-destructive underline underline-offset-4"
+                                        @click="deleteWebinar(webinar.id, webinar.title)"
+                                    >
+                                        Delete
+                                    </button>
                                 </div>
                             </td>
                         </tr>

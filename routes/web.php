@@ -19,7 +19,8 @@ Route::middleware(['auth', 'verified'])->group(function () {
     Route::get('dashboard', DashboardController::class)->name('dashboard');
 
     Route::prefix('admin')->name('admin.')->group(function () {
-        Route::resource('webinars', WebinarController::class)->except(['show', 'destroy']);
+        // Keep show disabled, but enable destroy so hosts can remove a webinar + all related data.
+        Route::resource('webinars', WebinarController::class)->except(['show']);
         Route::post('webinars/{webinar}/attendees/import', [WebinarAttendeeController::class, 'importCsv'])->name('webinars.attendees.import');
         Route::post('webinars/{webinar}/attendees/{registrant}/unsubscribe', [WebinarAttendeeController::class, 'moveToUnsubscribed'])->name('webinars.attendees.unsubscribe');
         Route::post('webinars/{webinar}/attendees/unsubscribe-bulk', [WebinarAttendeeController::class, 'moveManyToUnsubscribed'])->name('webinars.attendees.unsubscribe.bulk');
