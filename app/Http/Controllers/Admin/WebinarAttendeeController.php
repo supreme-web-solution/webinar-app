@@ -64,7 +64,7 @@ class WebinarAttendeeController extends Controller
         // This allows us to avoid per-row "exists()" queries during imports (20k rows can time out).
         $emailToName = [];
         foreach ($rows as $row) {
-            $email = trim((string) ($row[$indexMap['email']] ?? ''));
+            $email = Str::lower(trim((string) ($row[$indexMap['email']] ?? '')));
             if ($email === '' || !filter_var($email, FILTER_VALIDATE_EMAIL)) {
                 continue;
             }
@@ -85,22 +85,37 @@ class WebinarAttendeeController extends Controller
 
         // Global unsubscribe per creator account:
         // if this email unsubscribed once, skip them for all webinars.
-        $globallyUnsubscribedEmails = WebinarRegistrant::query()
-            ->whereIn('email', $emails)
-            ->where('is_subscribed', false)
-            ->whereHas('webinar', fn ($q) => $q->where('user_id', $webinar->user_id))
-            ->pluck('email')
+        $globallyUnsubscribedEmails = collect();
+        foreach (array_chunk($emails, 500) as $emailChunk) {
+            $globallyUnsubscribedEmails = $globallyUnsubscribedEmails->merge(
+                WebinarRegistrant::query()
+                    ->whereIn('email', $emailChunk)
+                    ->where('is_subscribed', false)
+                    ->whereHas('webinar', fn ($q) => $q->where('webinars.user_id', $webinar->user_id))
+                    ->pluck('email')
+                    ->all()
+            );
+        }
+
+        $globallyUnsubscribedEmails = $globallyUnsubscribedEmails
+            ->unique()
             ->values()
             ->all();
 
         $globallyUnsubscribedLookup = array_flip($globallyUnsubscribedEmails);
 
         // Prefetch existing webinar registrants so we can preserve access_token + registered_at.
-        $existingRegistrants = WebinarRegistrant::query()
-            ->where('webinar_id', $webinar->id)
-            ->whereIn('email', $emails)
-            ->get(['email', 'access_token', 'registered_at', 'id'])
-            ->keyBy('email');
+        $existingRegistrants = collect();
+        foreach (array_chunk($emails, 500) as $emailChunk) {
+            $existingRegistrants = $existingRegistrants->merge(
+                WebinarRegistrant::query()
+                    ->where('webinar_id', $webinar->id)
+                    ->whereIn('email', $emailChunk)
+                    ->get(['email', 'access_token', 'registered_at', 'id'])
+            );
+        }
+
+        $existingRegistrants = $existingRegistrants->keyBy('email');
 
         $upsertRows = [];
         $allowedEmails = [];
@@ -135,14 +150,22 @@ class WebinarAttendeeController extends Controller
             }
         }
 
+        $allowedRegistrantIds = collect();
+        if ($allowedEmails !== []) {
+            foreach (array_chunk($allowedEmails, 500) as $emailChunk) {
+                $allowedRegistrantIds = $allowedRegistrantIds->merge(
+                    WebinarRegistrant::query()
+                        ->where('webinar_id', $webinar->id)
+                        ->whereIn('email', $emailChunk)
+                        ->pluck('id')
+                );
+            }
+        }
+
         $emailsQueued = $sendConfirmation
             ? $this->dispatchEmailBatches(
                 $webinar,
-                WebinarRegistrant::query()
-                    ->where('webinar_id', $webinar->id)
-                    ->whereIn('email', $allowedEmails)
-                    ->pluck('id')
-                    ->values(),
+                $allowedRegistrantIds->unique()->values(),
                 $webinar->prefixedTitleLine(),
                 'You have been registered for this webinar. Click below to join the webinar.',
             )
