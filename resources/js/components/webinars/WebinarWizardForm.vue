@@ -33,6 +33,11 @@ type WebinarFormData = {
         show_fake_viewers: boolean;
         redirect_enabled: boolean;
         redirect_url: string;
+        exit_popup_enabled: boolean;
+        exit_popup_heading: string;
+        exit_popup_body: string;
+        exit_popup_cta_text: string;
+        exit_popup_cta_url: string;
     };
     registration_settings: {
         buttons: Array<{
@@ -120,6 +125,17 @@ const confirmToastMessage = ref<string | null>(null);
 const confirmAction = ref<null | (() => void)>(null);
 
 const markRequired = (label: string): string => `${label} *`;
+const EXIT_POPUP_BODY_MAX_CHARS = 280;
+
+const getPlainTextFromHtml = (value: string): string =>
+    value
+        .replace(/<[^>]*>/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim();
+
+const exitPopupBodyTextCount = computed(() =>
+    getPlainTextFromHtml(form.playback_settings.exit_popup_body || '').length,
+);
 
 const requiredChecks: Array<{ key: keyof WebinarFormData; label: string; step: number }> = [
     { key: 'title', label: 'Webinar Title', step: 0 },
@@ -439,6 +455,25 @@ const submit = (): void => {
         activeStep.value = missingFields[0].step;
         showToast(`Required fields still missing: ${missingFields.map((item) => item.label).join(', ')}`);
         return;
+    }
+
+    if (form.playback_settings.exit_popup_enabled) {
+        const heading = form.playback_settings.exit_popup_heading.trim();
+        const bodyPlain = getPlainTextFromHtml(form.playback_settings.exit_popup_body || '');
+        const ctaText = form.playback_settings.exit_popup_cta_text.trim();
+        const ctaUrl = form.playback_settings.exit_popup_cta_url.trim();
+
+        if (!heading || !bodyPlain || !ctaText || !ctaUrl) {
+            activeStep.value = 5;
+            showToast('Fill all exit popup fields before saving.');
+            return;
+        }
+
+        if (bodyPlain.length > EXIT_POPUP_BODY_MAX_CHARS) {
+            activeStep.value = 5;
+            showToast(`Exit popup message is too long. Keep it under ${EXIT_POPUP_BODY_MAX_CHARS} characters.`);
+            return;
+        }
     }
 
     if (props.method === 'put') {
@@ -1118,6 +1153,79 @@ const stepMeta: Array<{ icon: string; color: string }> = [
                         <InputError :message="form.errors['playback_settings.redirect_url']" />
                     </div>
                 </div>
+
+                <!-- Exit Intent Popup -->
+                <div class="grid gap-3 rounded-md border p-3">
+                    <div class="flex items-start gap-3">
+                        <button
+                            id="exit_popup_enabled"
+                            type="button"
+                            role="switch"
+                            :aria-checked="form.playback_settings.exit_popup_enabled"
+                            class="relative mt-0.5 inline-flex h-5 w-9 shrink-0 items-center rounded-full transition"
+                            :class="form.playback_settings.exit_popup_enabled ? 'bg-primary' : 'bg-muted'"
+                            @click="form.playback_settings.exit_popup_enabled = !form.playback_settings.exit_popup_enabled"
+                        >
+                            <span
+                                class="inline-block h-4 w-4 transform rounded-full bg-white transition"
+                                :class="form.playback_settings.exit_popup_enabled ? 'translate-x-4' : 'translate-x-1'"
+                            />
+                        </button>
+                        <div>
+                            <Label for="exit_popup_enabled" class="text-sm font-medium leading-none">Enable exit-intent popup</Label>
+                            <p class="mt-1 text-xs text-muted-foreground">Show a modal with a CTA when a viewer tries to leave the webinar page.</p>
+                        </div>
+                    </div>
+
+                    <div v-if="form.playback_settings.exit_popup_enabled" class="mt-1 grid gap-4 border-t border-border/50 pt-4">
+                        <div class="grid gap-2">
+                            <Label for="exit_popup_heading">Popup Heading</Label>
+                            <Input
+                                id="exit_popup_heading"
+                                v-model="form.playback_settings.exit_popup_heading"
+                                placeholder="Wait — don't miss out!"
+                                maxlength="100"
+                            />
+                            <p class="text-xs text-muted-foreground">The bold headline shown at the top of the exit popup.</p>
+                            <InputError :message="form.errors['playback_settings.exit_popup_heading']" />
+                        </div>
+                        <div class="grid gap-2">
+                            <Label for="exit_popup_body">Popup Message</Label>
+                            <RichTextEditor
+                                v-model="form.playback_settings.exit_popup_body"
+                                placeholder="You're about to miss the best part. Grab this offer before it's gone…"
+                            />
+                            <div class="flex items-center justify-between text-xs text-muted-foreground">
+                                <p>Supporting text shown below the heading.</p>
+                                <p :class="exitPopupBodyTextCount > EXIT_POPUP_BODY_MAX_CHARS ? 'text-destructive font-semibold' : ''">
+                                    {{ exitPopupBodyTextCount }} / {{ EXIT_POPUP_BODY_MAX_CHARS }}
+                                </p>
+                            </div>
+                            <InputError :message="form.errors['playback_settings.exit_popup_body']" />
+                        </div>
+                        <div class="grid gap-2">
+                            <Label for="exit_popup_cta_text">Button Label *</Label>
+                            <Input
+                                id="exit_popup_cta_text"
+                                v-model="form.playback_settings.exit_popup_cta_text"
+                                placeholder="Get the Offer"
+                                maxlength="50"
+                            />
+                            <InputError :message="form.errors['playback_settings.exit_popup_cta_text']" />
+                        </div>
+                        <div class="grid gap-2">
+                            <Label for="exit_popup_cta_url">{{ markRequired('Button URL') }}</Label>
+                            <Input
+                                id="exit_popup_cta_url"
+                                v-model="form.playback_settings.exit_popup_cta_url"
+                                placeholder="https://your-offer-page.com"
+                                type="url"
+                            />
+                            <InputError :message="form.errors['playback_settings.exit_popup_cta_url']" />
+                        </div>
+                    </div>
+                </div>
+
                 <div class="space-y-4">
                     <div
                         v-for="(offer, index) in form.offers"

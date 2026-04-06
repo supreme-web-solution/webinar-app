@@ -334,6 +334,11 @@ class WebinarRoomController extends Controller
                 'show_fake_viewers' => (bool) data_get($webinar->playback_settings, 'show_fake_viewers', true),
                 'redirect_enabled' => (bool) data_get($webinar->playback_settings, 'redirect_enabled', false),
                 'redirect_url' => (string) data_get($webinar->playback_settings, 'redirect_url', ''),
+                'exit_popup_enabled' => (bool) data_get($webinar->playback_settings, 'exit_popup_enabled', false),
+                'exit_popup_heading' => (string) data_get($webinar->playback_settings, 'exit_popup_heading', ''),
+                'exit_popup_body' => (string) data_get($webinar->playback_settings, 'exit_popup_body', ''),
+                'exit_popup_cta_text' => (string) data_get($webinar->playback_settings, 'exit_popup_cta_text', ''),
+                'exit_popup_cta_url' => (string) data_get($webinar->playback_settings, 'exit_popup_cta_url', ''),
             ],
             'offers' => $webinar->offers->map(fn ($offer) => [
                 'id' => $offer->id,

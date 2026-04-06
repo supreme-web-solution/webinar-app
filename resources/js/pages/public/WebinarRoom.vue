@@ -35,6 +35,11 @@ type WebinarRoomPayload = {
         show_fake_viewers?: boolean;
         redirect_enabled?: boolean;
         redirect_url?: string;
+        exit_popup_enabled?: boolean;
+        exit_popup_heading?: string;
+        exit_popup_body?: string;
+        exit_popup_cta_text?: string;
+        exit_popup_cta_url?: string;
     };
     offers: Offer[];
     scheduled_messages: ScheduledMessage[];
@@ -78,6 +83,15 @@ const iframeRef = ref<HTMLIFrameElement | null>(null);
 const directVideoRef = ref<HTMLVideoElement | null>(null);
 const reactionBubbles = ref<Array<{ id: string; emoji: string; left: number }>>([]);
 const chatScrollContainer = ref<HTMLElement | null>(null);
+const showExitPopup = ref(false);
+const exitPopupDismissed = ref(false);
+
+const hasExitPopupConfig = computed(() => {
+    const settings = props.webinar.playback_settings;
+    return Boolean(settings?.exit_popup_enabled && settings?.exit_popup_cta_url?.trim());
+});
+
+const refreshIntentStorageKey = computed(() => `webinar-exit-intent-refresh-${props.webinar.id}`);
 
 let timer: ReturnType<typeof setInterval> | null = null;
 let viewersTimer: ReturnType<typeof setInterval> | null = null;
@@ -336,6 +350,39 @@ const pinnedStarterMessage = computed(() => {
     const name = props.registrant.name?.trim() ? props.registrant.name : 'Guest';
     return `Welcome ${name}! The webinar is starting now.`;
 });
+
+const onExitIntent = (event: MouseEvent): void => {
+    if (exitPopupDismissed.value || showExitPopup.value || videoEnded.value || props.roomEnded) {
+        return;
+    }
+
+    if (!hasExitPopupConfig.value) {
+        return;
+    }
+
+    // Trigger only when cursor leaves the page boundary from the top edge.
+    const isLeavingDocument = event.relatedTarget === null;
+    if (isLeavingDocument && event.clientY <= 10) {
+        showExitPopup.value = true;
+    }
+};
+
+const dismissExitPopup = (): void => {
+    showExitPopup.value = false;
+    exitPopupDismissed.value = true;
+};
+
+const onBeforeWindowUnload = (): void => {
+    if (!hasExitPopupConfig.value || props.roomEnded || props.accessRequired || videoEnded.value) {
+        return;
+    }
+
+    try {
+        sessionStorage.setItem(refreshIntentStorageKey.value, '1');
+    } catch {
+        // Ignore storage errors.
+    }
+};
 
 const stopAllTimers = (): void => {
     if (timer) {
@@ -754,8 +801,19 @@ onMounted(() => {
         return;
     }
 
+    try {
+        if (sessionStorage.getItem(refreshIntentStorageKey.value) === '1') {
+            showExitPopup.value = true;
+            sessionStorage.removeItem(refreshIntentStorageKey.value);
+        }
+    } catch {
+        // Ignore storage errors.
+    }
+
     window.addEventListener('message', onIframeMessage);
+    window.addEventListener('beforeunload', onBeforeWindowUnload);
     document.addEventListener('visibilitychange', onDocumentVisibilityChange);
+    document.addEventListener('mouseout', onExitIntent);
 
     timer = setInterval(tickTimeline, 1000);
     viewersTimer = setInterval(tickViewers, 4000);
@@ -777,7 +835,9 @@ onMounted(() => {
 
 onBeforeUnmount(() => {
     window.removeEventListener('message', onIframeMessage);
+    window.removeEventListener('beforeunload', onBeforeWindowUnload);
     document.removeEventListener('visibilitychange', onDocumentVisibilityChange);
+    document.removeEventListener('mouseout', onExitIntent);
     const echo = getEcho();
     if (echo && chatChannelName) {
         echo.leave(chatChannelName);
@@ -1257,6 +1317,72 @@ const submitAccess = (): void => {
                 </button>
             </div>
         </div>
+
+        <!-- ── Exit intent popup ──────────────────────────────────────── -->
+        <Transition
+            enter-active-class="transition duration-200 ease-out"
+            enter-from-class="opacity-0 scale-95"
+            enter-to-class="opacity-100 scale-100"
+            leave-active-class="transition duration-150 ease-in"
+            leave-from-class="opacity-100 scale-100"
+            leave-to-class="opacity-0 scale-95"
+        >
+            <div
+                v-if="showExitPopup"
+                class="fixed inset-0 z-[60] flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm"
+                @click.self="dismissExitPopup"
+            >
+                <div class="relative w-full max-w-md rounded-2xl border border-border/60 bg-card p-6 shadow-2xl">
+                    <!-- Close button -->
+                    <button
+                        type="button"
+                        class="absolute right-4 top-4 text-muted-foreground transition hover:text-foreground"
+                        @click="dismissExitPopup"
+                    >
+                        <Icon icon="solar:close-circle-bold" class="size-5" />
+                    </button>
+
+                    <!-- Icon badge -->
+                    <div class="mb-4 flex h-12 w-12 items-center justify-center rounded-2xl bg-rose-100 text-rose-600 dark:bg-rose-950/50 dark:text-rose-400">
+                        <Icon icon="solar:hand-shake-bold-duotone" class="size-7" />
+                    </div>
+
+                    <!-- Heading -->
+                    <h2 class="text-xl font-bold text-foreground">
+                        {{ webinar.playback_settings?.exit_popup_heading || 'Wait — are you sure?' }}
+                    </h2>
+
+                    <!-- Body text -->
+                    <div
+                        v-if="webinar.playback_settings?.exit_popup_body"
+                        class="prose prose-sm mt-2 max-h-36 overflow-y-auto text-muted-foreground leading-relaxed prose-p:my-1 prose-ul:my-1 prose-ol:my-1 prose-li:my-0.5 dark:prose-invert"
+                        v-html="webinar.playback_settings.exit_popup_body"
+                    />
+
+                    <!-- CTAs -->
+                    <div class="mt-6 flex flex-col gap-3 sm:flex-row sm:items-center">
+                        <a
+                            v-if="webinar.playback_settings?.exit_popup_cta_url"
+                            :href="webinar.playback_settings.exit_popup_cta_url"
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            class="inline-flex flex-1 items-center justify-center gap-2 rounded-xl bg-primary px-4 py-2.5 text-sm font-bold text-primary-foreground shadow-sm transition hover:bg-primary/90"
+                            @click="dismissExitPopup"
+                        >
+                            <Icon icon="solar:arrow-right-up-bold" class="size-4" />
+                            {{ webinar.playback_settings.exit_popup_cta_text || 'Get the Offer' }}
+                        </a>
+                        <button
+                            type="button"
+                            class="flex-1 rounded-xl border border-border px-4 py-2.5 text-sm font-medium text-muted-foreground transition hover:bg-muted sm:flex-none"
+                            @click="dismissExitPopup"
+                        >
+                            Stay &amp; Watch
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </Transition>
     </div>
 </template>
 

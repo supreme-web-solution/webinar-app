@@ -11,6 +11,7 @@ use App\Models\EmailUnsubscribe;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Inertia\Inertia;
 use Inertia\Response;
@@ -79,6 +80,11 @@ class WebinarController extends Controller
                     'show_fake_viewers' => true,
                     'redirect_enabled' => false,
                     'redirect_url' => '',
+                    'exit_popup_enabled' => false,
+                    'exit_popup_heading' => '',
+                    'exit_popup_body' => '',
+                    'exit_popup_cta_text' => '',
+                    'exit_popup_cta_url' => '',
                 ],
                 'registration_settings' => $this->defaultRegistrationSettings(),
                 'offers' => [],
@@ -113,6 +119,7 @@ class WebinarController extends Controller
 
         $webinar = Webinar::create($data);
         $this->syncOffers($webinar, $offers);
+        Cache::forget("webinar:payload:{$webinar->id}");
 
         return redirect()
             ->route('admin.webinars.edit', $webinar)
@@ -158,6 +165,11 @@ class WebinarController extends Controller
                     'show_fake_viewers' => true,
                     'redirect_enabled' => false,
                     'redirect_url' => '',
+                    'exit_popup_enabled' => false,
+                    'exit_popup_heading' => '',
+                    'exit_popup_body' => '',
+                    'exit_popup_cta_text' => '',
+                    'exit_popup_cta_url' => '',
                 ], is_array($webinar->playback_settings) ? $webinar->playback_settings : []),
                 'registration_settings' => $webinar->registration_settings ?? $this->defaultRegistrationSettings(),
                 'offers' => $webinar->offers()
@@ -243,6 +255,7 @@ class WebinarController extends Controller
 
         $webinar->update($data);
         $this->syncOffers($webinar, $offers);
+        Cache::forget("webinar:payload:{$webinar->id}");
 
         return back()->with('success', 'Webinar updated successfully.');
     }
@@ -461,14 +474,71 @@ class WebinarController extends Controller
 
         $redirectEnabled = (bool) ($settings['redirect_enabled'] ?? false);
         $redirectUrl = trim((string) ($settings['redirect_url'] ?? ''));
+        $exitPopupEnabled = (bool) ($settings['exit_popup_enabled'] ?? false);
+        $exitPopupHeading = trim(strip_tags((string) ($settings['exit_popup_heading'] ?? '')));
+        $exitPopupBody = $this->sanitizeExitPopupBody((string) ($settings['exit_popup_body'] ?? ''));
+        $exitPopupCtaText = trim(strip_tags((string) ($settings['exit_popup_cta_text'] ?? '')));
+        $exitPopupCtaUrl = trim((string) ($settings['exit_popup_cta_url'] ?? ''));
+
+        if (function_exists('mb_substr')) {
+            $exitPopupHeading = mb_substr($exitPopupHeading, 0, 100);
+            $exitPopupCtaText = mb_substr($exitPopupCtaText, 0, 50);
+        } else {
+            $exitPopupHeading = substr($exitPopupHeading, 0, 100);
+            $exitPopupCtaText = substr($exitPopupCtaText, 0, 50);
+        }
 
         $data['playback_settings'] = [
             'show_fake_viewers' => (bool) ($settings['show_fake_viewers'] ?? true),
             'redirect_enabled' => $redirectEnabled,
             'redirect_url' => $redirectEnabled ? $redirectUrl : '',
+            'exit_popup_enabled' => $exitPopupEnabled,
+            'exit_popup_heading' => $exitPopupEnabled ? $exitPopupHeading : '',
+            'exit_popup_body' => $exitPopupEnabled ? $exitPopupBody : '',
+            'exit_popup_cta_text' => $exitPopupEnabled ? $exitPopupCtaText : '',
+            'exit_popup_cta_url' => $exitPopupEnabled ? $exitPopupCtaUrl : '',
         ];
 
         return $data;
+    }
+
+    private function sanitizeExitPopupBody(string $body): string
+    {
+        $body = trim($body);
+        if ($body === '') {
+            return '';
+        }
+
+        $allowedTags = '<p><br><strong><em><b><i><u><ul><ol><li><a>';
+        $sanitized = strip_tags($body, $allowedTags);
+
+        $sanitized = preg_replace_callback('/<a\b[^>]*>/i', static function (array $matches): string {
+            $tag = $matches[0] ?? '';
+            if (! preg_match('/href\s*=\s*["\']([^"\']+)["\']/i', $tag, $hrefMatch)) {
+                return '<a>';
+            }
+
+            $href = trim((string) ($hrefMatch[1] ?? ''));
+            if (! preg_match('/^https?:\/\//i', $href)) {
+                return '<a>';
+            }
+
+            return '<a href="'.e($href).'" target="_blank" rel="noopener noreferrer">';
+        }, $sanitized) ?? '';
+
+        $sanitized = preg_replace('/<(p|br|strong|em|b|i|u|ul|ol|li)\b[^>]*>/i', '<$1>', $sanitized) ?? '';
+
+        $plain = trim(preg_replace('/\s+/u', ' ', strip_tags($sanitized)) ?? '');
+        $maxChars = 280;
+        if (function_exists('mb_strlen') && function_exists('mb_substr')) {
+            if (mb_strlen($plain) > $maxChars) {
+                return e(mb_substr($plain, 0, $maxChars));
+            }
+        } elseif (strlen($plain) > $maxChars) {
+            return e(substr($plain, 0, $maxChars));
+        }
+
+        return trim($sanitized);
     }
 
     /**
