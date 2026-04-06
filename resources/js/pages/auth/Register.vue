@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { Form, Head } from '@inertiajs/vue3';
+import { Icon } from '@iconify/vue';
 import InputError from '@/components/InputError.vue';
 import PasswordInput from '@/components/PasswordInput.vue';
 import TextLink from '@/components/TextLink.vue';
@@ -14,8 +15,8 @@ import { store } from '@/routes/register';
 
 <template>
     <AuthBase
-        title="Create an account"
-        description="Enter your details below to create your account"
+        title="Create your account"
+        description="Start hosting webinars in minutes — it's free"
     >
         <Head title="Register" />
 
@@ -23,11 +24,16 @@ import { store } from '@/routes/register';
             v-bind="store.form()"
             :reset-on-success="['password', 'password_confirmation']"
             v-slot="{ errors, processing }"
-            class="flex flex-col gap-6"
+            class="space-y-4"
         >
-            <div class="grid gap-6">
-                <div class="grid gap-2">
-                    <Label for="name">Name</Label>
+            <!-- Full name -->
+            <div class="space-y-1.5">
+                <Label for="name" class="text-sm font-medium">Full name</Label>
+                <div class="relative">
+                    <Icon
+                        icon="solar:user-linear"
+                        class="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground size-4"
+                    />
                     <Input
                         id="name"
                         type="text"
@@ -36,13 +42,21 @@ import { store } from '@/routes/register';
                         :tabindex="1"
                         autocomplete="name"
                         name="name"
-                        placeholder="Full name"
+                        placeholder="Jane Smith"
+                        class="pl-9 h-10 bg-white dark:bg-muted/30 border-border/60 focus-visible:ring-primary/30"
                     />
-                    <InputError :message="errors.name" />
                 </div>
+                <InputError :message="errors.name" />
+            </div>
 
-                <div class="grid gap-2">
-                    <Label for="email">Email address</Label>
+            <!-- Work email -->
+            <div class="space-y-1.5">
+                <Label for="email" class="text-sm font-medium">Work email</Label>
+                <div class="relative">
+                    <Icon
+                        icon="solar:letter-linear"
+                        class="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground size-4"
+                    />
                     <Input
                         id="email"
                         type="email"
@@ -50,58 +64,79 @@ import { store } from '@/routes/register';
                         :tabindex="2"
                         autocomplete="email"
                         name="email"
-                        placeholder="email@example.com"
+                        placeholder="you@company.com"
+                        class="pl-9 h-10 bg-white dark:bg-muted/30 border-border/60 focus-visible:ring-primary/30"
                     />
-                    <InputError :message="errors.email" />
                 </div>
+                <InputError :message="errors.email" />
+            </div>
 
-                <div class="grid gap-2">
-                    <Label for="password">Password</Label>
+            <!-- Password -->
+            <div class="space-y-1.5">
+                <Label for="password" class="text-sm font-medium">Password</Label>
+                <div class="relative">
+                    <Icon
+                        icon="solar:lock-password-linear"
+                        class="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground size-4 z-10"
+                    />
                     <PasswordInput
                         id="password"
                         required
                         :tabindex="3"
                         autocomplete="new-password"
                         name="password"
-                        placeholder="Password"
+                        placeholder="Min. 8 characters"
+                        class="pl-9 h-10 bg-white dark:bg-muted/30 border-border/60 focus-visible:ring-primary/30"
                     />
-                    <InputError :message="errors.password" />
                 </div>
+                <InputError :message="errors.password" />
+            </div>
 
-                <div class="grid gap-2">
-                    <Label for="password_confirmation">Confirm password</Label>
+            <!-- Confirm password -->
+            <div class="space-y-1.5">
+                <Label for="password_confirmation" class="text-sm font-medium">Confirm password</Label>
+                <div class="relative">
+                    <Icon
+                        icon="solar:lock-check-linear"
+                        class="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground size-4 z-10"
+                    />
                     <PasswordInput
                         id="password_confirmation"
                         required
                         :tabindex="4"
                         autocomplete="new-password"
                         name="password_confirmation"
-                        placeholder="Confirm password"
+                        placeholder="Repeat password"
+                        class="pl-9 h-10 bg-white dark:bg-muted/30 border-border/60 focus-visible:ring-primary/30"
                     />
-                    <InputError :message="errors.password_confirmation" />
                 </div>
-
-                <Button
-                    type="submit"
-                    class="mt-2 w-full"
-                    tabindex="5"
-                    :disabled="processing"
-                    data-test="register-user-button"
-                >
-                    <Spinner v-if="processing" />
-                    Create account
-                </Button>
+                <InputError :message="errors.password_confirmation" />
             </div>
 
-            <div class="text-center text-sm text-muted-foreground">
+            <!-- Submit -->
+            <Button
+                type="submit"
+                class="w-full h-10 gap-2 font-semibold shadow-sm mt-2"
+                :tabindex="5"
+                :disabled="processing"
+                data-test="register-user-button"
+            >
+                <Spinner v-if="processing" class="size-4" />
+                <Icon v-else icon="solar:user-plus-linear" class="size-4" />
+                Create account
+            </Button>
+
+            <!-- Login link -->
+            <p class="text-center text-sm text-muted-foreground">
                 Already have an account?
                 <TextLink
                     :href="login()"
-                    class="underline underline-offset-4"
+                    class="font-semibold text-primary hover:text-primary/80 transition-colors"
                     :tabindex="6"
-                    >Log in</TextLink
                 >
-            </div>
+                    Sign in
+                </TextLink>
+            </p>
         </Form>
     </AuthBase>
 </template>

@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { Head, useForm } from '@inertiajs/vue3';
 import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue';
+import { Icon } from '@iconify/vue';
 import { getEcho } from '@/lib/echo';
 
 type Offer = {
@@ -816,51 +817,56 @@ const submitAccess = (): void => {
         <!-- ── Room ended banner ──────────────────────────────────────── -->
         <div
             v-if="roomEnded"
-            class="flex min-h-[60vh] w-full flex-col items-center justify-center rounded-xl border bg-card p-8 text-center shadow-sm"
+            class="flex min-h-[60vh] w-full flex-col items-center justify-center rounded-2xl border border-border/60 bg-card p-8 text-center shadow-sm"
         >
-            <h1 class="text-2xl font-semibold">Webinar ended</h1>
+            <div class="flex h-16 w-16 items-center justify-center rounded-2xl bg-muted text-muted-foreground mb-5">
+                <Icon icon="solar:monitor-camera-bold-duotone" class="size-8" />
+            </div>
+            <h1 class="text-2xl font-bold tracking-tight text-foreground">Webinar Ended</h1>
             <p class="mt-2 max-w-xl text-sm text-muted-foreground">
                 {{ endedMessage || 'This webinar has ended. Please contact the host for replay options.' }}
             </p>
         </div>
 
         <!-- ── MOBILE HEADER + TAB BAR (hidden on lg+) ───────────────── -->
-        <div v-if="!roomEnded" class="shrink-0 border-b bg-card lg:hidden">
+        <div v-if="!roomEnded" class="shrink-0 border-b border-border/50 bg-card lg:hidden">
             <!-- Compact info row -->
             <div class="flex items-center justify-between gap-3 px-4 py-3">
                 <div class="min-w-0">
-                    <h1 class="truncate text-sm font-semibold leading-tight">{{ webinar.title }}</h1>
+                    <h1 class="truncate text-sm font-bold leading-tight text-foreground">{{ webinar.title }}</h1>
                     <p class="text-xs text-muted-foreground">{{ viewerCount }} watching · {{ webinar.host_name }}</p>
                 </div>
                 <div class="flex shrink-0 items-center gap-2 text-xs">
-                    <span v-if="!videoEnded" class="flex items-center gap-1 font-semibold text-rose-600">
-                        <span class="inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-rose-600" />
+                    <span v-if="!videoEnded" class="flex items-center gap-1 rounded-full bg-rose-100 px-2.5 py-0.5 font-bold text-rose-600 dark:bg-rose-950/50 dark:text-rose-400">
+                        <span class="inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-rose-500" />
                         LIVE
                     </span>
-                    <span v-else class="font-semibold text-muted-foreground">ENDED</span>
-                    <span class="tabular-nums text-muted-foreground">{{ prettyElapsed }}</span>
+                    <span v-else class="rounded-full bg-muted px-2.5 py-0.5 font-semibold text-muted-foreground">ENDED</span>
+                    <span class="tabular-nums font-mono text-muted-foreground">{{ prettyElapsed }}</span>
                 </div>
             </div>
             <!-- Tab switcher -->
-            <div class="flex border-t">
+            <div class="flex border-t border-border/50">
                 <button
                     type="button"
-                    class="flex flex-1 items-center justify-center gap-1.5 border-b-2 py-2.5 text-sm font-medium transition-colors"
+                    class="flex flex-1 items-center justify-center gap-1.5 border-b-2 py-2.5 text-sm font-semibold transition-colors"
                     :class="mobileTab === 'video'
-                        ? 'border-primary text-foreground'
+                        ? 'border-primary text-primary'
                         : 'border-transparent text-muted-foreground hover:text-foreground'"
                     @click="openVideoTab"
                 >
+                    <Icon icon="solar:play-stream-bold-duotone" class="size-4" />
                     Video
                 </button>
                 <button
                     type="button"
-                    class="flex flex-1 items-center justify-center gap-1.5 border-b-2 py-2.5 text-sm font-medium transition-colors"
+                    class="flex flex-1 items-center justify-center gap-1.5 border-b-2 py-2.5 text-sm font-semibold transition-colors"
                     :class="mobileTab === 'chat'
-                        ? 'border-primary text-foreground'
+                        ? 'border-primary text-primary'
                         : 'border-transparent text-muted-foreground hover:text-foreground'"
                     @click="openChatTab"
                 >
+                    <Icon icon="solar:chat-round-dots-bold-duotone" class="size-4" />
                     Chat
                     <span
                         v-if="unreadCount > 0"
@@ -882,18 +888,32 @@ const submitAccess = (): void => {
                 ? 'flex'
                 : 'flex pointer-events-none fixed -left-[10000px] top-0 h-px w-px opacity-0 lg:static lg:pointer-events-auto lg:h-auto lg:w-auto lg:opacity-100'"
         >
-            <div class="rounded-xl border bg-card p-3 shadow-sm lg:p-4">
+            <div class="rounded-2xl border border-border/60 bg-card p-3 shadow-sm lg:p-4">
                 <!-- Desktop-only title/info row -->
                 <div class="mb-3 hidden items-center justify-between gap-4 lg:flex">
-                    <div>
-                        <h1 class="text-xl font-semibold">{{ webinar.title }}</h1>
-                        <p class="text-sm text-muted-foreground">Host: {{ webinar.host_name }}</p>
+                    <div class="flex items-center gap-3 min-w-0">
+                        <div class="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-indigo-100 text-indigo-600 dark:bg-indigo-950/60 dark:text-indigo-400">
+                            <Icon icon="solar:monitor-camera-bold-duotone" class="size-5" />
+                        </div>
+                        <div class="min-w-0">
+                            <h1 class="truncate text-lg font-bold leading-tight text-foreground">{{ webinar.title }}</h1>
+                            <p class="text-xs text-muted-foreground flex items-center gap-1">
+                                <Icon icon="solar:user-bold" class="size-3" />
+                                {{ webinar.host_name }}
+                            </p>
+                        </div>
                     </div>
-                    <div class="text-right text-xs sm:text-sm">
-                        <p v-if="!videoEnded" class="font-semibold text-rose-600">LIVE</p>
-                        <p v-else class="font-semibold text-muted-foreground">ENDED</p>
-                        <p class="text-muted-foreground">{{ viewerCount }} in meeting</p>
-                        <p class="text-muted-foreground">{{ prettyElapsed }}</p>
+                    <div class="flex shrink-0 flex-col items-end gap-1 text-xs">
+                        <span v-if="!videoEnded" class="flex items-center gap-1.5 rounded-full bg-rose-100 px-2.5 py-1 font-bold text-rose-600 dark:bg-rose-950/50 dark:text-rose-400">
+                            <span class="h-1.5 w-1.5 animate-pulse rounded-full bg-rose-500" />
+                            LIVE
+                        </span>
+                        <span v-else class="rounded-full bg-muted px-2.5 py-1 font-semibold text-muted-foreground">ENDED</span>
+                        <span class="flex items-center gap-1 text-muted-foreground">
+                            <Icon icon="solar:users-group-rounded-bold" class="size-3" />
+                            {{ viewerCount }} watching
+                        </span>
+                        <span class="font-mono tabular-nums text-muted-foreground">{{ prettyElapsed }}</span>
                     </div>
                 </div>
 
@@ -902,16 +922,14 @@ const submitAccess = (): void => {
                     <!-- Meeting ended overlay -->
                     <div
                         v-if="videoEnded"
-                        class="absolute inset-0 z-30 flex flex-col items-center justify-center bg-gray-900/95"
+                        class="absolute inset-0 z-30 flex flex-col items-center justify-center bg-gray-950/95"
                     >
-                        <div class="flex h-14 w-14 items-center justify-center rounded-full bg-white/10">
-                            <svg class="h-7 w-7 text-white/80" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5">
-                                <path stroke-linecap="round" stroke-linejoin="round" d="M15.75 10.5l4.72-4.72a.75.75 0 011.28.53v11.38a.75.75 0 01-1.28.53l-4.72-4.72M4.5 18.75h9a2.25 2.25 0 002.25-2.25v-9a2.25 2.25 0 00-2.25-2.25h-9A2.25 2.25 0 002.25 7.5v9a2.25 2.25 0 002.25 2.25z" />
-                            </svg>
+                        <div class="flex h-16 w-16 items-center justify-center rounded-2xl bg-white/10 text-white/80">
+                            <Icon icon="solar:monitor-camera-bold-duotone" class="size-8" />
                         </div>
-                        <h2 class="mt-4 text-xl font-semibold text-white">Meeting Ended</h2>
-                        <p class="mt-2 max-w-xs text-center text-sm text-white/60">
-                            This webinar session has concluded. Thank you for attending.
+                        <h2 class="mt-4 text-xl font-bold text-white">Webinar Ended</h2>
+                        <p class="mt-2 max-w-xs text-center text-sm text-white/50">
+                            This session has concluded. Thank you for attending.
                         </p>
                     </div>
 
@@ -921,14 +939,15 @@ const submitAccess = (): void => {
                     <!-- Center sound CTA overlay -->
                     <div
                         v-if="!videoEnded && iframeMuted"
-                        class="absolute inset-0 z-25 flex items-center justify-center bg-black/35 p-4"
+                        class="absolute inset-0 z-25 flex items-center justify-center bg-black/50 p-4"
                     >
                         <button
                             type="button"
-                            class="rounded-full border border-white/30 bg-white/95 px-5 py-2.5 text-sm font-semibold text-slate-900 shadow-lg"
+                            class="flex items-center gap-2.5 rounded-2xl border border-white/20 bg-white px-6 py-3 text-sm font-bold text-slate-900 shadow-2xl transition hover:bg-white/90"
                             @click="enableSound"
                         >
-                        Click Here To Enable Sound
+                            <Icon icon="solar:volume-loud-bold-duotone" class="size-5 text-indigo-600" />
+                            Click to Enable Sound
                         </button>
                     </div>
 
@@ -977,19 +996,27 @@ const submitAccess = (): void => {
             </div>
 
             <!-- Pinned offer (below video) -->
-            <div v-if="pinnedOffer" class="rounded-xl border border-amber-300 bg-amber-50 p-4">
-                <p class="text-xs font-semibold uppercase tracking-wide text-amber-700">Pinned Offer</p>
-                <h3 class="mt-1 text-lg font-semibold text-amber-900">{{ pinnedOffer.title }}</h3>
-                <p class="mt-1 text-sm text-amber-800">{{ pinnedOffer.description }}</p>
-                <a
-                    class="mt-3 inline-block rounded-md bg-amber-700 px-4 py-2 text-sm text-white"
-                    :href="pinnedOffer.button_url"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    @click="void trackOfferClick(pinnedOffer, 'pinned')"
-                >
-                    {{ pinnedOffer.button_text }}
-                </a>
+            <div v-if="pinnedOffer" class="rounded-2xl border border-amber-200 bg-amber-50 p-4 shadow-sm dark:border-amber-800/40 dark:bg-amber-950/30">
+                <div class="flex items-start gap-3">
+                    <div class="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-amber-200 text-amber-700 dark:bg-amber-900/60 dark:text-amber-400">
+                        <Icon icon="solar:tag-price-bold-duotone" class="size-5" />
+                    </div>
+                    <div class="min-w-0 flex-1">
+                        <p class="text-[11px] font-bold uppercase tracking-wider text-amber-600 dark:text-amber-400">Pinned Offer</p>
+                        <h3 class="mt-0.5 text-sm font-bold text-amber-900 dark:text-amber-200">{{ pinnedOffer.title }}</h3>
+                        <p v-if="pinnedOffer.description" class="mt-1 text-xs text-amber-800 dark:text-amber-300">{{ pinnedOffer.description }}</p>
+                        <a
+                            class="mt-3 inline-flex items-center gap-1.5 rounded-xl bg-amber-600 px-4 py-2 text-xs font-bold text-white shadow-sm transition hover:bg-amber-700"
+                            :href="pinnedOffer.button_url"
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            @click="void trackOfferClick(pinnedOffer, 'pinned')"
+                        >
+                            <Icon icon="solar:arrow-right-up-bold" class="size-3" />
+                            {{ pinnedOffer.button_text }}
+                        </a>
+                    </div>
+                </div>
             </div>
         </section>
 
@@ -1000,108 +1027,139 @@ const submitAccess = (): void => {
         -->
         <aside
             v-if="!roomEnded"
-            class="order-2 flex-col overflow-hidden bg-card shadow-sm lg:h-full lg:w-95 lg:min-w-90 lg:max-w-105 lg:self-stretch lg:rounded-xl lg:border"
+            class="order-2 flex-col overflow-hidden bg-card shadow-sm lg:h-full lg:w-95 lg:min-w-90 lg:max-w-105 lg:self-stretch lg:rounded-2xl lg:border lg:border-border/60"
             :class="mobileTab === 'chat' ? 'flex flex-1' : 'hidden lg:flex'"
         >
             <!-- Desktop-only header -->
-            <div class="hidden border-b px-4 py-3 lg:block">
-                <h2 class="font-semibold">In-call chat</h2>
-                <p class="text-xs text-muted-foreground">You are {{ registrant.name || 'Guest' }}</p>
+            <div class="hidden border-b border-border/50 bg-card px-4 py-3.5 lg:block">
+                <div class="flex items-center gap-2.5">
+                    <div class="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-violet-100 text-violet-600 dark:bg-violet-950/60 dark:text-violet-400">
+                        <Icon icon="solar:chat-round-dots-bold-duotone" class="size-4" />
+                    </div>
+                    <div>
+                        <p class="text-sm font-semibold text-foreground leading-tight">In-call chat</p>
+                        <p class="text-[11px] text-muted-foreground">{{ registrant.name || 'Guest' }}</p>
+                    </div>
+                    <span v-if="!videoEnded" class="ml-auto flex items-center gap-1 rounded-full bg-rose-100 px-2 py-0.5 text-[11px] font-bold text-rose-600 dark:bg-rose-950/50 dark:text-rose-400">
+                        <span class="h-1.5 w-1.5 animate-pulse rounded-full bg-rose-500" />
+                        LIVE
+                    </span>
+                </div>
             </div>
 
             <!-- Chat / Offers sub-tabs -->
-            <div class="flex items-center gap-2 border-b bg-muted/20 px-3 py-2">
+            <div class="flex items-center gap-2 border-b border-border/50 bg-muted/20 px-3 py-2.5">
                 <button
                     type="button"
-                    class="rounded-md border px-3 py-1 text-xs"
-                    :class="roomPanel === 'chat' ? 'border-primary bg-primary text-primary-foreground' : 'border-border bg-background'"
+                    class="flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold transition-colors"
+                    :class="roomPanel === 'chat' ? 'bg-primary text-primary-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground hover:bg-muted'"
                     @click="roomPanel = 'chat'"
                 >
+                    <Icon icon="solar:chat-round-dots-bold" class="size-3.5" />
                     Chat
                 </button>
                 <button
                     type="button"
-                    class="rounded-md border px-3 py-1 text-xs"
-                    :class="roomPanel === 'offers' ? 'border-primary bg-primary text-primary-foreground' : 'border-border bg-background'"
+                    class="flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold transition-colors"
+                    :class="roomPanel === 'offers' ? 'bg-primary text-primary-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground hover:bg-muted'"
                     @click="roomPanel = 'offers'"
                 >
-                    Offers ({{ droppedOffers.length }})
+                    <Icon icon="solar:tag-price-bold" class="size-3.5" />
+                    Offers
+                    <span
+                        v-if="droppedOffers.length > 0"
+                        class="rounded-full bg-amber-500 px-1.5 py-0.5 text-[10px] leading-none text-white"
+                    >{{ droppedOffers.length }}</span>
                 </button>
             </div>
 
             <!-- Pinned welcome message -->
-            <div class="border-b bg-amber-50 px-4 py-2 text-sm text-amber-900">
-                <p class="font-medium">Pinned message</p>
-                <p>{{ pinnedStarterMessage }}</p>
+            <div class="flex items-start gap-2 border-b border-amber-200/60 bg-amber-50/80 px-3 py-2.5 dark:border-amber-800/30 dark:bg-amber-950/20">
+                <Icon icon="solar:pin-bold" class="mt-0.5 size-3.5 shrink-0 text-amber-600" />
+                <p class="text-xs text-amber-900 dark:text-amber-300"><span class="font-semibold">Pinned:</span> {{ pinnedStarterMessage }}</p>
             </div>
 
             <!-- Chat messages -->
             <div
                 v-if="roomPanel === 'chat'"
                 ref="chatScrollContainer"
-                class="flex-1 space-y-3 overflow-y-auto bg-muted/30 px-3 py-4"
+                class="flex-1 space-y-3 overflow-y-auto bg-muted/10 px-3 py-4"
             >
                 <div
                     v-for="message in chatMessages"
                     :key="message.id"
-                    class="max-w-[85%] rounded-md border px-3 py-2 text-sm"
-                    :class="message.self ? 'ml-auto border-primary/20 bg-primary text-primary-foreground' : 'mr-auto border-sky-200 bg-sky-50 text-sky-950'"
+                    class="flex"
+                    :class="message.self ? 'justify-end' : 'justify-start'"
                 >
-                    <div class="mb-1 flex items-center justify-between gap-2 text-xs">
-                        <p class="font-semibold" :class="message.self ? 'text-primary-foreground/90' : 'text-sky-800'">
-                            {{ message.sender }}
-                        </p>
-                        <p :class="message.self ? 'text-primary-foreground/70' : 'text-sky-700/70'">{{ message.at }}</p>
+                    <div
+                        class="max-w-[85%] rounded-2xl px-3.5 py-2.5 text-sm shadow-sm"
+                        :class="message.self
+                            ? 'rounded-tr-none bg-primary text-primary-foreground'
+                            : 'rounded-tl-none bg-background text-foreground border border-border/60'"
+                    >
+                        <div class="mb-1 flex items-center justify-between gap-2 text-[11px]">
+                            <p class="font-bold" :class="message.self ? 'opacity-80' : 'text-muted-foreground'">{{ message.sender }}</p>
+                            <p class="opacity-50">{{ message.at }}</p>
+                        </div>
+                        <p
+                            class="leading-relaxed"
+                            v-html="linkifyMessage(message.message)"
+                            @click="onChatMessageClick($event, message.id)"
+                        />
                     </div>
-                    <p
-                        class="leading-relaxed"
-                        :class="message.self ? 'text-primary-foreground' : 'text-sky-950'"
-                        v-html="linkifyMessage(message.message)"
-                        @click="onChatMessageClick($event, message.id)"
-                    />
                 </div>
             </div>
 
             <!-- Offers panel -->
-            <div v-else class="flex-1 space-y-3 overflow-y-auto bg-muted/30 px-3 py-4">
+            <div v-else class="flex-1 space-y-3 overflow-y-auto bg-muted/10 px-3 py-4">
                 <div
                     v-for="offer in droppedOffers"
                     :key="offer.id"
-                    class="rounded-lg border border-amber-200 bg-amber-50 p-3"
+                    class="rounded-2xl border border-amber-200 bg-amber-50 p-3.5 shadow-sm dark:border-amber-800/40 dark:bg-amber-950/30"
                 >
-                    <p class="text-xs font-semibold uppercase tracking-wide text-amber-700">Dropped Offer</p>
-                    <h3 class="mt-1 text-sm font-semibold text-amber-900">{{ offer.title }}</h3>
-                    <p v-if="offer.description" class="mt-1 text-xs text-amber-800">{{ offer.description }}</p>
-                    <a
-                        class="mt-3 inline-block rounded-md bg-amber-700 px-3 py-2 text-xs text-white"
-                        :href="offer.button_url"
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        @click="void trackOfferClick(offer, 'offers-panel')"
-                    >
-                        {{ offer.button_text }}
-                    </a>
+                    <div class="flex items-start gap-2.5">
+                        <div class="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-amber-200 text-amber-700">
+                            <Icon icon="solar:tag-price-bold-duotone" class="size-4" />
+                        </div>
+                        <div class="min-w-0 flex-1">
+                            <p class="text-[10px] font-bold uppercase tracking-wider text-amber-600">Offer</p>
+                            <h3 class="mt-0.5 text-sm font-bold text-amber-900 dark:text-amber-200">{{ offer.title }}</h3>
+                            <p v-if="offer.description" class="mt-1 text-xs text-amber-800 dark:text-amber-300">{{ offer.description }}</p>
+                            <a
+                                class="mt-2.5 inline-flex items-center gap-1.5 rounded-xl bg-amber-600 px-3 py-1.5 text-xs font-bold text-white shadow-sm transition hover:bg-amber-700"
+                                :href="offer.button_url"
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                @click="void trackOfferClick(offer, 'offers-panel')"
+                            >
+                                <Icon icon="solar:arrow-right-up-bold" class="size-3" />
+                                {{ offer.button_text }}
+                            </a>
+                        </div>
+                    </div>
                 </div>
-                <div v-if="droppedOffers.length === 0" class="rounded-md border border-dashed p-4 text-center text-sm text-muted-foreground">
-                    No offer has dropped yet. Offers will appear here.
+                <div v-if="droppedOffers.length === 0" class="flex flex-col items-center justify-center rounded-2xl border border-dashed border-border py-10 text-center">
+                    <Icon icon="solar:tag-price-bold-duotone" class="size-8 text-muted-foreground/30 mb-3" />
+                    <p class="text-sm font-medium text-muted-foreground">No offers yet</p>
+                    <p class="mt-1 text-xs text-muted-foreground/60">Offers will appear here when they drop.</p>
                 </div>
             </div>
 
             <!-- Chat input -->
-            <form class="border-t bg-background p-3" @submit.prevent="sendChat">
-                <label class="mb-2 block text-xs text-muted-foreground">Send a message to the meeting</label>
+            <form class="shrink-0 border-t border-border/50 bg-card px-3 py-3" @submit.prevent="sendChat">
                 <div class="flex items-center gap-2">
                     <input
                         v-model="chatInput"
-                        class="h-10 flex-1 rounded-md border border-input bg-transparent px-3 text-sm"
-                        placeholder="Type your message"
+                        class="h-11 flex-1 rounded-2xl border border-input bg-muted/40 px-4 text-sm placeholder:text-muted-foreground/60 focus:outline-none focus:ring-2 focus:ring-primary/30"
+                        placeholder="Send a message…"
+                        @keydown.enter.exact.prevent="sendChat"
                     />
                     <button
                         type="submit"
-                        :disabled="Boolean(accessRequired)"
-                        class="h-10 rounded-md bg-primary px-4 text-sm text-primary-foreground disabled:opacity-50"
+                        :disabled="Boolean(accessRequired) || !chatInput.trim()"
+                        class="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-primary text-primary-foreground shadow-sm transition hover:bg-primary/90 disabled:opacity-40 disabled:cursor-not-allowed"
                     >
-                        Send
+                        <Icon icon="solar:plain-bold" class="size-4" />
                     </button>
                 </div>
             </form>
@@ -1110,45 +1168,59 @@ const submitAccess = (): void => {
         <!-- ── Access gate modal ──────────────────────────────────────── -->
         <div
             v-if="accessRequired && !roomEnded"
-            class="absolute inset-0 z-40 flex items-center justify-center bg-black/40 p-4 backdrop-blur-sm"
+            class="absolute inset-0 z-40 flex items-center justify-center bg-black/50 p-4 backdrop-blur-sm"
         >
             <form
-                class="w-full max-w-md rounded-xl border bg-card p-6 shadow-2xl"
+                class="w-full max-w-md rounded-2xl border border-border/60 bg-card p-6 shadow-2xl"
                 @submit.prevent="submitAccess"
             >
-                <h2 class="text-xl font-semibold">Join Webinar</h2>
-                <p class="mt-1 text-sm text-muted-foreground">
-                    Enter your name and email to continue. If you registered before, you will be allowed in immediately.
-                </p>
-
-                <div class="mt-4 space-y-3">
-                    <div class="grid gap-2">
-                        <label class="text-sm font-medium">Name *</label>
-                        <input
-                            v-model="gateForm.name"
-                            class="h-10 rounded-md border border-input bg-transparent px-3 text-sm"
-                            placeholder="Your full name"
-                            required
-                        />
+                <div class="mb-5 flex items-start gap-3">
+                    <div class="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-indigo-100 text-indigo-600 dark:bg-indigo-950/60 dark:text-indigo-400">
+                        <Icon icon="solar:monitor-camera-bold-duotone" class="size-6" />
                     </div>
-                    <div class="grid gap-2">
-                        <label class="text-sm font-medium">Email *</label>
-                        <input
-                            v-model="gateForm.email"
-                            type="email"
-                            class="h-10 rounded-md border border-input bg-transparent px-3 text-sm"
-                            placeholder="you@example.com"
-                            required
-                        />
+                    <div>
+                        <h2 class="text-xl font-bold text-foreground">Join Webinar</h2>
+                        <p class="mt-0.5 text-sm text-muted-foreground">
+                            Enter your details to join. Registered attendees get instant access.
+                        </p>
+                    </div>
+                </div>
+
+                <div class="space-y-4">
+                    <div class="grid gap-1.5">
+                        <label class="text-sm font-semibold text-foreground">Full Name <span class="text-rose-500">*</span></label>
+                        <div class="relative">
+                            <Icon icon="solar:user-linear" class="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+                            <input
+                                v-model="gateForm.name"
+                                class="h-11 w-full rounded-xl border border-input bg-background pl-9 pr-4 text-sm focus:outline-none focus:ring-2 focus:ring-primary/30"
+                                placeholder="Your full name"
+                                required
+                            />
+                        </div>
+                    </div>
+                    <div class="grid gap-1.5">
+                        <label class="text-sm font-semibold text-foreground">Email Address <span class="text-rose-500">*</span></label>
+                        <div class="relative">
+                            <Icon icon="solar:letter-linear" class="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+                            <input
+                                v-model="gateForm.email"
+                                type="email"
+                                class="h-11 w-full rounded-xl border border-input bg-background pl-9 pr-4 text-sm focus:outline-none focus:ring-2 focus:ring-primary/30"
+                                placeholder="you@example.com"
+                                required
+                            />
+                        </div>
                     </div>
                 </div>
 
                 <button
                     type="submit"
                     :disabled="gateForm.processing"
-                    class="mt-5 h-10 w-full rounded-md bg-primary px-4 text-sm text-primary-foreground disabled:opacity-50"
+                    class="mt-5 flex h-11 w-full items-center justify-center gap-2 rounded-xl bg-primary px-4 text-sm font-bold text-primary-foreground shadow-sm transition hover:bg-primary/90 disabled:opacity-50"
                 >
-                    Continue to Webinar
+                    <Icon icon="solar:login-2-bold" class="size-4" />
+                    {{ gateForm.processing ? 'Joining…' : 'Continue to Webinar' }}
                 </button>
             </form>
         </div>
@@ -1156,21 +1228,33 @@ const submitAccess = (): void => {
         <!-- ── Popup offer ────────────────────────────────────────────── -->
         <div
             v-if="popupOffer && !roomEnded"
-            class="fixed bottom-4 right-4 z-50 w-[calc(100vw-2rem)] max-w-sm rounded-xl border bg-white p-4 shadow-lg sm:w-auto"
+            class="fixed bottom-4 right-4 z-50 w-[calc(100vw-2rem)] max-w-sm rounded-2xl border border-amber-200 bg-white p-4 shadow-2xl sm:w-auto dark:border-amber-800/40 dark:bg-neutral-900"
         >
-            <h3 class="font-semibold">{{ popupOffer.title }}</h3>
-            <p class="mt-1 text-sm text-muted-foreground">{{ popupOffer.description }}</p>
-            <div class="mt-3 flex items-center gap-2">
-                <a
-                    class="rounded-md bg-primary px-3 py-2 text-sm text-primary-foreground"
-                    :href="popupOffer.button_url"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    @click="void trackOfferClick(popupOffer, 'popup')"
-                >
-                    {{ popupOffer.button_text }}
-                </a>
-                <button class="text-xs text-muted-foreground" type="button" @click="popupOffer = null">Dismiss</button>
+            <div class="flex items-start gap-3">
+                <div class="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-amber-100 text-amber-600">
+                    <Icon icon="solar:tag-price-bold-duotone" class="size-5" />
+                </div>
+                <div class="min-w-0 flex-1">
+                    <p class="text-[10px] font-bold uppercase tracking-wider text-amber-600">Special Offer</p>
+                    <h3 class="mt-0.5 text-sm font-bold text-foreground">{{ popupOffer.title }}</h3>
+                    <p v-if="popupOffer.description" class="mt-1 text-xs text-muted-foreground">{{ popupOffer.description }}</p>
+                    <div class="mt-3 flex items-center gap-2">
+                        <a
+                            class="inline-flex items-center gap-1.5 rounded-xl bg-primary px-3.5 py-1.5 text-xs font-bold text-primary-foreground shadow-sm transition hover:bg-primary/90"
+                            :href="popupOffer.button_url"
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            @click="void trackOfferClick(popupOffer, 'popup')"
+                        >
+                            <Icon icon="solar:arrow-right-up-bold" class="size-3" />
+                            {{ popupOffer.button_text }}
+                        </a>
+                        <button class="text-xs text-muted-foreground hover:text-foreground transition" type="button" @click="popupOffer = null">Dismiss</button>
+                    </div>
+                </div>
+                <button type="button" class="shrink-0 text-muted-foreground hover:text-foreground transition" @click="popupOffer = null">
+                    <Icon icon="solar:close-circle-bold" class="size-4" />
+                </button>
             </div>
         </div>
     </div>

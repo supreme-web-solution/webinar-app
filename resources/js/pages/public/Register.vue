@@ -79,26 +79,22 @@ const buttonUrgencyText = (button: { urgency_mode: 'none' | 'minutes' | 'live'; 
 
     <div class="mx-auto grid min-h-screen max-w-5xl items-center gap-6 p-6 md:grid-cols-2">
         <div class="space-y-4">
-            <p class="text-xs font-semibold uppercase tracking-wide text-primary">Watch This Live Training</p>
+            <p class="text-xs font-semibold uppercase tracking-wide text-primary">On-Demand Webinar</p>
             <h1 class="text-3xl font-bold">{{ webinar.title }}</h1>
-            <p class="text-sm text-muted-foreground font-semibold">Hosted by {{ webinar.host_name }}</p>
-            <div
-                v-if="webinar.description"
-                class="text-sm !text-gray-800"
-                v-html="webinar.description"
-            ></div>
+            <p class="text-sm text-muted-foreground">Hosted by {{ webinar.host_name }}</p>
+            <p class="text-sm text-muted-foreground" v-html="webinar.description"></p>
         </div>
 
         <form class="space-y-4 rounded-xl border bg-card p-6 shadow-sm" @submit.prevent="submit">
-            <h2 class="text-xl font-semibold">Fill In Your Details To Join The Webinar</h2>
+            <h2 class="text-xl font-semibold">Reserve Your Spot</h2>
             <div class="grid gap-2">
                 <Label for="name">Name</Label>
-                <Input id="name" v-model="form.name" placeholder="Your full name" required />
+                <Input id="name" v-model="form.name" required placeholder="Enter your name" />
                 <InputError :message="form.errors.name" />
             </div>
             <div class="grid gap-2">
                 <Label for="email">Email</Label>
-                <Input id="email" v-model="form.email" type="email" placeholder="you@example.com" required />
+                <Input id="email" v-model="form.email" type="email" required placeholder="Enter your email" />
                 <InputError :message="form.errors.email" />
             </div>
             <div class="space-y-2">

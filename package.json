@@ -34,6 +34,7 @@
         "vue-tsc": "^2.2.4"
     },
     "dependencies": {
+        "@iconify/vue": "^5.0.0",
         "@inertiajs/vue3": "^2.3.7",
         "@vueup/vue-quill": "^1.2.0",
         "@vueuse/core": "^12.8.2",

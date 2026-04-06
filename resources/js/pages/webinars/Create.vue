@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { Head } from '@inertiajs/vue3';
+import { Icon } from '@iconify/vue';
 import WebinarWizardForm from '@/components/webinars/WebinarWizardForm.vue';
 import AppLayout from '@/layouts/AppLayout.vue';
 import type { BreadcrumbItem } from '@/types';
@@ -78,12 +79,20 @@ const breadcrumbs: BreadcrumbItem[] = [
     <Head title="Create Webinar" />
 
     <AppLayout :breadcrumbs="breadcrumbs">
-        <div class="flex h-full flex-1 flex-col gap-4 rounded-xl p-4">
-            <div>
-                <h1 class="text-2xl font-semibold">Create Webinar</h1>
-                <p class="text-sm text-muted-foreground">
-                    Use the step tabs to configure your webinar experience.
-                </p>
+        <div class="flex h-full flex-1 flex-col gap-6 p-4 pb-10 md:p-6">
+
+            <!-- Page header -->
+            <div class="flex items-start gap-4">
+                <div class="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-indigo-100 text-indigo-600 dark:bg-indigo-950/60 dark:text-indigo-400 shadow-sm">
+                    <Icon icon="solar:monitor-camera-bold-duotone" class="size-6" />
+                </div>
+                <div>
+                    <p class="text-xs font-medium uppercase tracking-wider text-muted-foreground">Webinars</p>
+                    <h1 class="mt-0.5 text-2xl font-bold tracking-tight text-foreground">Create Webinar</h1>
+                    <p class="mt-0.5 text-sm text-muted-foreground">
+                        Go through each step to fully configure your webinar experience before publishing.
+                    </p>
+                </div>
             </div>
 
             <WebinarWizardForm

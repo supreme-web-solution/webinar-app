@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { Form, Head } from '@inertiajs/vue3';
+import { Icon } from '@iconify/vue';
 import InputError from '@/components/InputError.vue';
 import PasswordInput from '@/components/PasswordInput.vue';
 import TextLink from '@/components/TextLink.vue';
@@ -22,14 +23,14 @@ defineProps<{
 
 <template>
     <AuthBase
-        title="Log in to your account"
-        description="Enter your email and password below to log in"
+        title="Welcome back"
+        description="Sign in to your account to continue"
     >
         <Head title="Log in" />
 
         <div
             v-if="status"
-            class="mb-4 text-center text-sm font-medium text-green-600"
+            class="rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-medium text-emerald-700 dark:border-emerald-800 dark:bg-emerald-950/50 dark:text-emerald-300"
         >
             {{ status }}
         </div>
@@ -38,11 +39,16 @@ defineProps<{
             v-bind="store.form()"
             :reset-on-success="['password']"
             v-slot="{ errors, processing }"
-            class="flex flex-col gap-6"
+            class="space-y-4"
         >
-            <div class="grid gap-6">
-                <div class="grid gap-2">
-                    <Label for="email">Email address</Label>
+            <!-- Email -->
+            <div class="space-y-1.5">
+                <Label for="email" class="text-sm font-medium">Email address</Label>
+                <div class="relative">
+                    <Icon
+                        icon="solar:letter-linear"
+                        class="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground size-4"
+                    />
                     <Input
                         id="email"
                         type="email"
@@ -51,59 +57,85 @@ defineProps<{
                         autofocus
                         :tabindex="1"
                         autocomplete="email"
-                        placeholder="email@example.com"
+                        placeholder="you@example.com"
+                        class="pl-9 h-10 bg-white dark:bg-muted/30 border-border/60 focus-visible:ring-primary/30"
                     />
-                    <InputError :message="errors.email" />
                 </div>
+                <InputError :message="errors.email" />
+            </div>
 
-                <div class="grid gap-2">
-                    <div class="flex items-center justify-between">
-                        <Label for="password">Password</Label>
-                        <TextLink
-                            v-if="canResetPassword"
-                            :href="request()"
-                            class="text-sm"
-                            :tabindex="5"
-                        >
-                            Forgot password?
-                        </TextLink>
-                    </div>
+            <!-- Password -->
+            <div class="space-y-1.5">
+                <div class="flex items-center justify-between">
+                    <Label for="password" class="text-sm font-medium">Password</Label>
+                    <TextLink
+                        v-if="canResetPassword"
+                        :href="request()"
+                        class="text-xs text-muted-foreground hover:text-primary transition-colors"
+                        :tabindex="5"
+                    >
+                        Forgot password?
+                    </TextLink>
+                </div>
+                <div class="relative">
+                    <Icon
+                        icon="solar:lock-password-linear"
+                        class="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground size-4 z-10"
+                    />
                     <PasswordInput
                         id="password"
                         name="password"
                         required
                         :tabindex="2"
                         autocomplete="current-password"
-                        placeholder="Password"
+                        placeholder="**************"
+                        class="pl-9 h-10 bg-white dark:bg-muted/30 border-border/60 focus-visible:ring-primary/30"
                     />
-                    <InputError :message="errors.password" />
                 </div>
-
-                <div class="flex items-center justify-between">
-                    <Label for="remember" class="flex items-center space-x-3">
-                        <Checkbox id="remember" name="remember" :tabindex="3" />
-                        <span>Remember me</span>
-                    </Label>
-                </div>
-
-                <Button
-                    type="submit"
-                    class="mt-4 w-full"
-                    :tabindex="4"
-                    :disabled="processing"
-                    data-test="login-button"
-                >
-                    <Spinner v-if="processing" />
-                    Log in
-                </Button>
+                <InputError :message="errors.password" />
             </div>
 
-            <div
-                class="text-center text-sm text-muted-foreground"
-                v-if="canRegister"
+            <!-- Remember me -->
+            <div class="flex items-center gap-2.5">
+                <Checkbox id="remember" name="remember" :tabindex="3" />
+                <Label for="remember" class="cursor-pointer text-sm font-normal text-muted-foreground">
+                    Keep me signed in for 30 days
+                </Label>
+            </div>
+
+            <!-- Submit -->
+            <Button
+                type="submit"
+                class="w-full h-10 gap-2 font-semibold shadow-sm"
+                :tabindex="4"
+                :disabled="processing"
+                data-test="login-button"
             >
-                Don't have an account?
-                <TextLink :href="register()" :tabindex="5">Sign up</TextLink>
+                <Spinner v-if="processing" class="size-4" />
+                <Icon v-else icon="solar:login-2-linear" class="size-4" />
+                Sign in
+            </Button>
+
+            <!-- Divider -->
+            <div class="relative">
+                <div class="absolute inset-0 flex items-center">
+                    <div class="w-full border-t border-border" />
+                </div>
+                <div class="relative flex justify-center text-xs uppercase">
+                    <span class="bg-background px-2 text-muted-foreground tracking-wider">New here?</span>
+                </div>
+            </div>
+
+            <!-- Register link -->
+            <div v-if="canRegister" class="text-center text-sm">
+                <span class="text-muted-foreground">Don't have an account? </span>
+                <TextLink
+                    :href="register()"
+                    class="font-semibold text-primary hover:text-primary/80 transition-colors"
+                    :tabindex="6"
+                >
+                    Create one free
+                </TextLink>
             </div>
         </Form>
     </AuthBase>

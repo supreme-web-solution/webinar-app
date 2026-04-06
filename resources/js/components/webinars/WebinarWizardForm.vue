@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue';
 import { router, useForm } from '@inertiajs/vue3';
+import { Icon } from '@iconify/vue';
 import InputError from '@/components/InputError.vue';
 import RichTextEditor from '@/components/webinars/RichTextEditor.vue';
 import { Button } from '@/components/ui/button';
@@ -447,65 +448,162 @@ const submit = (): void => {
 
     form.post(props.actionUrl, { preserveScroll: true });
 };
+
+const stepMeta: Array<{ icon: string; color: string }> = [
+    { icon: 'solar:document-text-bold-duotone', color: 'text-indigo-500' },
+    { icon: 'solar:play-stream-bold-duotone', color: 'text-sky-500' },
+    { icon: 'solar:user-check-rounded-bold-duotone', color: 'text-emerald-500' },
+    { icon: 'solar:users-group-rounded-bold-duotone', color: 'text-teal-500' },
+    { icon: 'solar:chat-round-dots-bold-duotone', color: 'text-violet-500' },
+    { icon: 'solar:tag-price-bold-duotone', color: 'text-orange-500' },
+    { icon: 'solar:bell-bing-bold-duotone', color: 'text-rose-500' },
+    { icon: 'solar:chart-2-bold-duotone', color: 'text-amber-500' },
+];
 </script>
 
 <template>
     <div class="space-y-6">
+        <!-- Info toast -->
         <div
             v-if="toastMessage"
-            class="rounded-md border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-800"
+            class="flex items-start gap-3 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800 dark:border-amber-800/50 dark:bg-amber-950/30 dark:text-amber-300"
         >
-            {{ toastMessage }}
+            <Icon icon="solar:info-circle-bold-duotone" class="mt-0.5 size-4 shrink-0 text-amber-500" />
+            <span>{{ toastMessage }}</span>
         </div>
 
+        <!-- Confirm toast -->
         <div
             v-if="confirmToastMessage"
-            class="rounded-md border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-800"
+            class="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 dark:border-rose-800/50 dark:bg-rose-950/30"
         >
-            <p>{{ confirmToastMessage }}</p>
-            <div class="mt-2 flex items-center gap-2">
-                <button
-                    type="button"
-                    class="rounded-md border border-red-300 px-3 py-1 text-xs font-medium"
-                    @click="continueConfirmToast"
-                >
-                    Continue
-                </button>
-                <button
-                    type="button"
-                    class="rounded-md border border-transparent px-3 py-1 text-xs"
-                    @click="cancelConfirmToast"
-                >
-                    Cancel
-                </button>
+            <div class="flex items-start gap-3">
+                <Icon icon="solar:danger-bold-duotone" class="mt-0.5 size-4 shrink-0 text-rose-500" />
+                <div class="flex-1">
+                    <p class="text-sm text-rose-800 dark:text-rose-300">{{ confirmToastMessage }}</p>
+                    <div class="mt-3 flex items-center gap-2">
+                        <button
+                            type="button"
+                            class="inline-flex h-7 items-center rounded-lg bg-rose-600 px-3 text-xs font-semibold text-white hover:bg-rose-700"
+                            @click="continueConfirmToast"
+                        >
+                            Confirm
+                        </button>
+                        <button
+                            type="button"
+                            class="inline-flex h-7 items-center rounded-lg border border-rose-200 bg-white px-3 text-xs font-medium text-rose-700 hover:bg-rose-50 dark:bg-transparent dark:text-rose-300"
+                            @click="cancelConfirmToast"
+                        >
+                            Cancel
+                        </button>
+                    </div>
+                </div>
             </div>
         </div>
 
-        <div class="rounded-lg border border-border bg-card p-4">
-            <p class="text-sm font-medium text-muted-foreground">
-                Webinar Setup Steps
-            </p>
-            <div class="mt-3 flex flex-wrap gap-2">
+        <!-- ── Enterprise Step Indicator ── -->
+        <div class="rounded-2xl border border-border/60 bg-card shadow-sm overflow-hidden">
+            <!-- Step strip -->
+            <div class="flex overflow-x-auto scrollbar-none">
                 <button
                     v-for="(step, index) in steps"
                     :key="step"
                     type="button"
-                    class="rounded-md border px-3 py-1 text-xs transition"
-                    :class="
+                    class="group relative flex min-w-0 flex-1 flex-col items-center gap-2 px-3 py-4 text-center transition-colors"
+                    :class="[
                         index === activeStep
-                            ? 'border-primary bg-primary text-primary-foreground'
-                            : 'border-border bg-background text-foreground hover:bg-muted'
-                    "
+                            ? 'bg-primary/5'
+                            : 'hover:bg-muted/40',
+                        index < activeStep ? 'cursor-pointer' : '',
+                    ]"
                     @click="activeStep = index"
                 >
-                    {{ index + 1 }}. {{ step }}
+                    <!-- connecting line left -->
+                    <div
+                        v-if="index > 0"
+                        class="absolute left-0 top-[29px] h-px w-1/2 -translate-y-1/2"
+                        :class="index <= activeStep ? 'bg-primary/40' : 'bg-border'"
+                    />
+                    <!-- connecting line right -->
+                    <div
+                        v-if="index < steps.length - 1"
+                        class="absolute right-0 top-[29px] h-px w-1/2 -translate-y-1/2"
+                        :class="index < activeStep ? 'bg-primary/40' : 'bg-border'"
+                    />
+                    <!-- step circle -->
+                    <div
+                        class="relative z-10 flex h-9 w-9 shrink-0 items-center justify-center rounded-full border-2 transition-all"
+                        :class="[
+                            index === activeStep
+                                ? 'border-primary bg-primary text-primary-foreground shadow-md shadow-primary/20'
+                                : index < activeStep
+                                    ? 'border-primary bg-primary/10 text-primary'
+                                    : 'border-border bg-background text-muted-foreground',
+                        ]"
+                    >
+                        <Icon
+                            v-if="index < activeStep"
+                            icon="solar:check-circle-bold"
+                            class="size-5 text-primary"
+                        />
+                        <template v-else>
+                            <span
+                                v-if="missingRequiredByStep(index).length > 0 && index > activeStep"
+                                class="absolute -top-0.5 -right-0.5 h-2.5 w-2.5 rounded-full border-2 border-background bg-rose-500"
+                            />
+                            <Icon
+                                :icon="stepMeta[index]?.icon ?? 'solar:document-text-bold-duotone'"
+                                class="size-4"
+                                :class="index === activeStep ? 'text-primary-foreground' : stepMeta[index]?.color"
+                            />
+                        </template>
+                    </div>
+                    <!-- step label -->
+                    <span
+                        class="hidden text-[10px] font-semibold leading-tight tracking-wide xl:block"
+                        :class="index === activeStep ? 'text-primary' : index < activeStep ? 'text-foreground' : 'text-muted-foreground'"
+                    >
+                        {{ step }}
+                    </span>
+                    <span
+                        class="xl:hidden text-[10px] font-semibold text-muted-foreground"
+                        :class="index === activeStep ? '!text-primary' : ''"
+                    >
+                        {{ index + 1 }}
+                    </span>
                 </button>
+            </div>
+            <!-- active step header below strip -->
+            <div class="border-t border-border/50 bg-muted/20 px-5 py-3 flex items-center gap-3">
+                <div
+                    class="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg"
+                    :class="`bg-${stepMeta[activeStep]?.color?.split('-')[1]}-100 dark:bg-${stepMeta[activeStep]?.color?.split('-')[1]}-950/40`"
+                >
+                    <Icon
+                        :icon="stepMeta[activeStep]?.icon ?? 'solar:document-text-bold-duotone'"
+                        class="size-4"
+                        :class="stepMeta[activeStep]?.color"
+                    />
+                </div>
+                <div>
+                    <p class="text-xs text-muted-foreground font-medium">Step {{ activeStep + 1 }} of {{ steps.length }}</p>
+                    <p class="text-sm font-semibold text-foreground leading-tight">{{ steps[activeStep] }}</p>
+                </div>
+                <div class="ml-auto flex items-center gap-1 text-xs text-muted-foreground">
+                    <Icon icon="solar:check-circle-bold" class="size-3.5 text-primary" />
+                    {{ activeStep }} / {{ steps.length }} completed
+                </div>
             </div>
         </div>
 
         <form class="space-y-6" @submit.prevent="submit">
-            <div v-if="activeStep === 0" class="grid gap-4 rounded-lg border p-4">
-                <h3 class="text-lg font-semibold">Basics</h3>
+            <div v-if="activeStep === 0" class="rounded-2xl border border-border/60 bg-card shadow-sm overflow-hidden">
+                <div class="flex items-center gap-3 border-b border-border/50 bg-muted/20 px-5 py-4">
+                    <Icon icon="solar:document-text-bold-duotone" class="size-5 text-indigo-500" />
+                    <h3 class="text-base font-semibold text-foreground">Basics</h3>
+                    <span class="text-xs text-muted-foreground">Configure the core webinar details</span>
+                </div>
+                <div class="grid gap-5 p-5">
                 <div class="grid gap-2 md:grid-cols-2 md:gap-4">
                     <div class="grid gap-2">
                         <Label for="title_prefix">Title prefix</Label>
@@ -599,9 +697,15 @@ const submit = (): void => {
                     </div>
                 </div>
             </div>
+            </div>
 
-            <div v-if="activeStep === 1" class="grid gap-4 rounded-lg border p-4">
-                <h3 class="text-lg font-semibold">Video</h3>
+            <div v-if="activeStep === 1" class="rounded-2xl border border-border/60 bg-card shadow-sm overflow-hidden">
+                <div class="flex items-center gap-3 border-b border-border/50 bg-muted/20 px-5 py-4">
+                    <Icon icon="solar:play-stream-bold-duotone" class="size-5 text-sky-500" />
+                    <h3 class="text-base font-semibold text-foreground">Video</h3>
+                    <span class="text-xs text-muted-foreground">Set your video source and duration</span>
+                </div>
+                <div class="grid gap-5 p-5">
                 <div class="grid gap-2">
                     <Label for="video_source">{{ markRequired('Video Source') }}</Label>
                     <select
@@ -671,9 +775,15 @@ const submit = (): void => {
                     <InputError :message="form.errors.video_duration_seconds" />
                 </div>
             </div>
+            </div>
 
-            <div v-if="activeStep === 2" class="grid gap-4 rounded-lg border p-4">
-                <h3 class="text-lg font-semibold">Registration</h3>
+            <div v-if="activeStep === 2" class="rounded-2xl border border-border/60 bg-card shadow-sm overflow-hidden">
+                <div class="flex items-center gap-3 border-b border-border/50 bg-muted/20 px-5 py-4">
+                    <Icon icon="solar:user-check-rounded-bold-duotone" class="size-5 text-emerald-500" />
+                    <h3 class="text-base font-semibold text-foreground">Registration</h3>
+                    <span class="text-xs text-muted-foreground">Customize your registration page and CTAs</span>
+                </div>
+                <div class="grid gap-5 p-5">
                 <p class="text-sm text-muted-foreground">
                     Public registration link: <span class="font-mono">{{ publicRegisterLink }}</span>
                 </p>
@@ -764,9 +874,15 @@ const submit = (): void => {
                     </div>
                 </div>
             </div>
+            </div>
 
-            <div v-if="activeStep === 3" class="grid gap-4 rounded-lg border p-4">
-                <h3 class="text-lg font-semibold">Attendees</h3>
+            <div v-if="activeStep === 3" class="rounded-2xl border border-border/60 bg-card shadow-sm overflow-hidden">
+                <div class="flex items-center gap-3 border-b border-border/50 bg-muted/20 px-5 py-4">
+                    <Icon icon="solar:users-group-rounded-bold-duotone" class="size-5 text-teal-500" />
+                    <h3 class="text-base font-semibold text-foreground">Attendees</h3>
+                    <span class="text-xs text-muted-foreground">Import and manage registered attendees</span>
+                </div>
+                <div class="grid gap-5 p-5">
                 <p class="text-sm text-muted-foreground">
                     Upload CSV/XLSX/XLS files to register attendees and send invitation emails.
                 </p>
@@ -928,9 +1044,15 @@ const submit = (): void => {
                     </div>
                 </div>
             </div>
+            </div>
 
-            <div v-if="activeStep === 4" class="grid gap-4 rounded-lg border p-4">
-                <h3 class="text-lg font-semibold">Chat and Automation</h3>
+            <div v-if="activeStep === 4" class="rounded-2xl border border-border/60 bg-card shadow-sm overflow-hidden">
+                <div class="flex items-center gap-3 border-b border-border/50 bg-muted/20 px-5 py-4">
+                    <Icon icon="solar:chat-round-dots-bold-duotone" class="size-5 text-violet-500" />
+                    <h3 class="text-base font-semibold text-foreground">Chat and Automation</h3>
+                    <span class="text-xs text-muted-foreground">Configure scheduled messages and viewer settings</span>
+                </div>
+                <div class="grid gap-5 p-5">
                 <p class="text-sm text-muted-foreground">
                     Configure scheduled chat prompts and host responses in the upcoming admin chat module.
                 </p>
@@ -952,9 +1074,15 @@ const submit = (): void => {
                     <Label for="show_fake_viewers">Enable fake live viewer count</Label>
                 </div>
             </div>
+            </div>
 
-            <div v-if="activeStep === 5" class="grid gap-4 rounded-lg border p-4">
-                <h3 class="text-lg font-semibold">Offers</h3>
+            <div v-if="activeStep === 5" class="rounded-2xl border border-border/60 bg-card shadow-sm overflow-hidden">
+                <div class="flex items-center gap-3 border-b border-border/50 bg-muted/20 px-5 py-4">
+                    <Icon icon="solar:tag-price-bold-duotone" class="size-5 text-orange-500" />
+                    <h3 class="text-base font-semibold text-foreground">Offers</h3>
+                    <span class="text-xs text-muted-foreground">Set up timed offers and redirect CTAs</span>
+                </div>
+                <div class="grid gap-5 p-5">
                 <p class="text-sm text-muted-foreground">
                     Configure timed offers. Example: set delay to 600 seconds and the offer is sent at 10:00 in attendee chat.
                 </p>
@@ -1051,9 +1179,15 @@ const submit = (): void => {
                     </Button>
                 </div>
             </div>
+            </div>
 
-            <div v-if="activeStep === 6" class="grid gap-4 rounded-lg border p-4">
-                <h3 class="text-lg font-semibold">Reminder and Notification</h3>
+            <div v-if="activeStep === 6" class="rounded-2xl border border-border/60 bg-card shadow-sm overflow-hidden">
+                <div class="flex items-center gap-3 border-b border-border/50 bg-muted/20 px-5 py-4">
+                    <Icon icon="solar:bell-bing-bold-duotone" class="size-5 text-rose-500" />
+                    <h3 class="text-base font-semibold text-foreground">Reminder and Notification</h3>
+                    <span class="text-xs text-muted-foreground">Control confirmation, reminder, and follow-up emails</span>
+                </div>
+                <div class="grid gap-5 p-5">
                 <p class="text-sm text-muted-foreground">
                     Confirmation sends on registration. Reminders and follow-ups run automatically for scheduled webinars.
                 </p>
@@ -1111,9 +1245,15 @@ const submit = (): void => {
                     </label>
                 </div>
             </div>
+            </div>
 
-            <div v-if="activeStep === 7" class="grid gap-4 rounded-lg border p-4">
-                <h3 class="text-lg font-semibold">Publish and Tracking</h3>
+            <div v-if="activeStep === 7" class="rounded-2xl border border-border/60 bg-card shadow-sm overflow-hidden">
+                <div class="flex items-center gap-3 border-b border-border/50 bg-muted/20 px-5 py-4">
+                    <Icon icon="solar:chart-2-bold-duotone" class="size-5 text-amber-500" />
+                    <h3 class="text-base font-semibold text-foreground">Publish and Tracking</h3>
+                    <span class="text-xs text-muted-foreground">Set viewer counts and publish your webinar</span>
+                </div>
+                <div class="grid gap-5 p-5">
                 <div class="grid gap-2 md:grid-cols-2 md:gap-4">
                     <div class="grid gap-2">
                         <Label for="min_viewers">{{ markRequired('Min Viewers') }}</Label>
@@ -1143,29 +1283,49 @@ const submit = (): void => {
                     <span class="text-sm">Publish webinar immediately</span>
                 </label>
             </div>
+            </div>
 
-            <div class="flex items-center justify-between gap-3">
+            <!-- Step navigation -->
+            <div class="flex items-center justify-between gap-3 rounded-2xl border border-border/60 bg-card px-5 py-4 shadow-sm">
                 <Button
                     type="button"
                     variant="outline"
                     :disabled="activeStep === 0"
+                    class="gap-1.5"
                     @click="previousStep"
                 >
+                    <Icon icon="solar:arrow-left-linear" class="size-4" />
                     Previous
                 </Button>
 
-                <div class="flex items-center gap-3">
+                <div class="flex items-center gap-1.5 text-xs text-muted-foreground">
+                    <span class="hidden sm:inline">Step {{ activeStep + 1 }} of {{ steps.length }}</span>
+                    <div class="flex gap-1 sm:ml-2">
+                        <span
+                            v-for="(_, i) in steps"
+                            :key="i"
+                            class="h-1.5 rounded-full transition-all"
+                            :class="i === activeStep ? 'w-5 bg-primary' : i < activeStep ? 'w-1.5 bg-primary/40' : 'w-1.5 bg-border'"
+                        />
+                    </div>
+                </div>
+
+                <div class="flex items-center gap-2">
                     <Button
                         v-if="activeStep < steps.length - 1"
                         type="button"
+                        class="gap-1.5"
                         @click="nextStep"
                     >
                         Next Step
+                        <Icon icon="solar:arrow-right-linear" class="size-4" />
                     </Button>
                     <Button
                         type="submit"
                         :disabled="form.processing"
+                        class="gap-1.5"
                     >
+                        <Icon icon="solar:check-circle-bold" class="size-4" />
                         {{ submitLabel }}
                     </Button>
                 </div>
