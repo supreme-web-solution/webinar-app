@@ -12,6 +12,6 @@ Artisan::command('inspire', function () {
 Artisan::command('webinars:send-lifecycle-emails', function (WebinarLifecycleEmailService $service) {
     $result = $service->dispatchDueEmails();
     $this->info("Reminders sent: {$result['reminders_sent']}, follow-ups sent: {$result['follow_ups_sent']}");
-})->purpose('Dispatch due reminder and follow-up emails for scheduled webinars');
+})->purpose('Dispatch due reminder emails and segmented profit follow-up emails for scheduled webinars');
 
 Schedule::command('webinars:send-lifecycle-emails')->everyMinute();

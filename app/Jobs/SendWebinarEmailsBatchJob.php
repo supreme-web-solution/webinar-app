@@ -86,7 +86,13 @@ class SendWebinarEmailsBatchJob implements ShouldQueue
         );
 
         if (
-            in_array($this->markSentColumn, ['reminder_sent_at', 'follow_up_sent_at'], true)
+            in_array($this->markSentColumn, [
+                'reminder_sent_at',
+                'follow_up_sent_at',
+                'follow_up_lt_50_sent_at',
+                'follow_up_gte_50_sent_at',
+                'follow_up_completed_no_click_sent_at',
+            ], true)
             && $result['sent_registrant_ids'] !== []
         ) {
             $updated = WebinarRegistrant::query()

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue';
+import { computed, ref, watch } from 'vue';
 import { router, useForm } from '@inertiajs/vue3';
 import { Icon } from '@iconify/vue';
 import InputError from '@/components/InputError.vue';
@@ -39,6 +39,11 @@ type WebinarFormData = {
         exit_popup_cta_text: string;
         exit_popup_cta_url: string;
     };
+    ai_settings: {
+        enabled: boolean;
+        auto_reply_enabled: boolean;
+        assistant_name: string;
+    };
     registration_settings: {
         buttons: Array<{
             label: string;
@@ -76,6 +81,25 @@ const props = defineProps<{
         bulk_unsubscribe_url: string;
         bulk_delete_url: string;
     } | null;
+    aiSourceUrls: {
+        index: string | null;
+        url: string | null;
+        transcript: string | null;
+        file: string | null;
+        bulk_delete: string | null;
+    };
+    aiSources: Array<{
+        id: number;
+        type: string;
+        title: string | null;
+        source_url: string | null;
+        status: string;
+        error_message: string | null;
+        processed_at: string | null;
+        chunk_count: number;
+        chunks_url: string;
+        delete_url: string;
+    }>;
     timezoneOptions: string[];
 }>();
 
@@ -86,6 +110,7 @@ const steps = [
     'Attendees',
     'Chat and Automation',
     'Offers',
+    'AI Assistant',
     'Reminder and Notification',
     'Publish and Tracking',
 ];
@@ -123,9 +148,10 @@ const publicRoomExample = computed(() =>
 const toastMessage = ref<string | null>(null);
 const confirmToastMessage = ref<string | null>(null);
 const confirmAction = ref<null | (() => void)>(null);
+const confirmSection = ref<'ai' | 'attendees' | null>(null);
 
 const markRequired = (label: string): string => `${label} *`;
-const EXIT_POPUP_BODY_MAX_CHARS = 280;
+const EXIT_POPUP_BODY_MAX_CHARS = 200;
 
 const getPlainTextFromHtml = (value: string): string =>
     value
@@ -144,8 +170,8 @@ const requiredChecks: Array<{ key: keyof WebinarFormData; label: string; step: n
     { key: 'scheduled_timezone', label: 'Time Zone', step: 0 },
     { key: 'video_source', label: 'Video Source', step: 1 },
     { key: 'video_url', label: 'Video URL', step: 1 },
-    { key: 'min_viewers', label: 'Min Viewers', step: 7 },
-    { key: 'max_viewers', label: 'Max Viewers', step: 7 },
+    { key: 'min_viewers', label: 'Min Viewers', step: 8 },
+    { key: 'max_viewers', label: 'Max Viewers', step: 8 },
 ];
 
 const isRequiredMissing = (key: keyof WebinarFormData): boolean => {
@@ -183,6 +209,380 @@ const bulkUnsubscribeForm = useForm<{ attendee_ids: number[] }>({
 const bulkDeleteForm = useForm<{ attendee_ids: number[] }>({
     attendee_ids: [],
 });
+
+const aiUrlForm = useForm<{
+    title: string;
+    url: string;
+}>({
+    title: '',
+    url: '',
+});
+
+const aiTranscriptForm = useForm<{
+    title: string;
+    transcript: string;
+}>({
+    title: 'Video Transcript',
+    transcript: '',
+});
+
+const aiFileForm = useForm<{
+    title: string;
+    file: File | null;
+}>({
+    title: '',
+    file: null,
+});
+
+const aiSourceMode = ref<'url' | 'transcript' | 'file'>('url');
+const AI_SOURCE_LIMIT = 3;
+const aiSourcesList = ref(props.aiSources ?? []);
+const aiSourcesMeta = ref({
+    current_page: 1,
+    last_page: 1,
+    per_page: 8,
+    total: aiSourcesList.value.length,
+});
+const aiSourcesLoading = ref(false);
+const selectedAiSourceIds = ref<number[]>([]);
+const aiSourceCount = computed(() => Math.max(aiSourcesMeta.value.total || 0, aiSourcesList.value.length));
+const aiSourceLimitReached = computed(() => aiSourceCount.value >= AI_SOURCE_LIMIT);
+const aiSourceSlotsRemaining = computed(() => Math.max(0, AI_SOURCE_LIMIT - aiSourceCount.value));
+const aiSourceUsagePercent = computed(() => Math.min(100, Math.round((aiSourceCount.value / AI_SOURCE_LIMIT) * 100)));
+
+const previewOpen = ref(false);
+const previewSource = ref<null | {
+    id: number;
+    title: string | null;
+    type: string;
+    chunks_url: string;
+}>(null);
+const previewChunks = ref<Array<{ id: number; chunk_index: number; content: string }>>([]);
+const previewChunksMeta = ref({
+    current_page: 1,
+    last_page: 1,
+    per_page: 12,
+    total: 0,
+});
+const previewChunksLoading = ref(false);
+
+const csrfToken = (): string => {
+    const tokenTag = document.querySelector('meta[name="csrf-token"]') as HTMLMetaElement | null;
+    return tokenTag?.content ?? '';
+};
+
+const extractErrorMessage = async (response: Response, fallback: string): Promise<string> => {
+    try {
+        const payload = await response.json() as { message?: string };
+        return payload.message || fallback;
+    } catch {
+        return fallback;
+    }
+};
+
+const loadAiSources = async (page = 1): Promise<void> => {
+    if (!props.aiSourceUrls.index) {
+        return;
+    }
+
+    aiSourcesLoading.value = true;
+    try {
+        const response = await fetch(`${props.aiSourceUrls.index}?page=${page}&per_page=8`, {
+            headers: { Accept: 'application/json' },
+        });
+
+        if (!response.ok) {
+            return;
+        }
+
+        const payload = await response.json() as {
+            data?: Array<{
+                id: number;
+                type: string;
+                title: string | null;
+                source_url: string | null;
+                status: string;
+                error_message: string | null;
+                processed_at: string | null;
+                chunk_count: number;
+                chunks_url: string;
+                delete_url: string;
+            }>;
+            meta?: {
+                current_page: number;
+                last_page: number;
+                per_page: number;
+                total: number;
+            };
+        };
+
+        aiSourcesList.value = payload.data ?? [];
+        selectedAiSourceIds.value = selectedAiSourceIds.value.filter((id) =>
+            aiSourcesList.value.some((source) => source.id === id),
+        );
+        aiSourcesMeta.value = payload.meta ?? aiSourcesMeta.value;
+    } finally {
+        aiSourcesLoading.value = false;
+    }
+};
+
+const toggleAiSource = (id: number): void => {
+    if (selectedAiSourceIds.value.includes(id)) {
+        selectedAiSourceIds.value = selectedAiSourceIds.value.filter((item) => item !== id);
+        return;
+    }
+
+    selectedAiSourceIds.value = [...selectedAiSourceIds.value, id];
+};
+
+const toggleAllAiSourcesOnPage = (): void => {
+    const currentIds = aiSourcesList.value.map((source) => source.id);
+
+    if (currentIds.length > 0 && currentIds.every((id) => selectedAiSourceIds.value.includes(id))) {
+        selectedAiSourceIds.value = selectedAiSourceIds.value.filter((id) => !currentIds.includes(id));
+        return;
+    }
+
+    const set = new Set(selectedAiSourceIds.value);
+    currentIds.forEach((id) => set.add(id));
+    selectedAiSourceIds.value = Array.from(set);
+};
+
+const refreshAiSourcesAfterDelete = async (): Promise<void> => {
+    const requestedPage = aiSourcesMeta.value.current_page;
+    await loadAiSources(requestedPage);
+
+    if (aiSourcesList.value.length === 0 && requestedPage > 1) {
+        await loadAiSources(requestedPage - 1);
+    }
+};
+
+const deleteAiSource = (source: {
+    id: number;
+    title: string | null;
+    delete_url: string;
+}): void => {
+    showConfirmToast(`Delete source "${source.title || 'Untitled Source'}"? This cannot be undone.`, () => {
+        void (async () => {
+            try {
+                const response = await fetch(source.delete_url, {
+                    method: 'DELETE',
+                    headers: {
+                        Accept: 'application/json',
+                        'Content-Type': 'application/json',
+                        'X-CSRF-TOKEN': csrfToken(),
+                    },
+                });
+
+                if (!response.ok) {
+                    showToast(await extractErrorMessage(response, 'Failed to delete source.'));
+                    return;
+                }
+
+                selectedAiSourceIds.value = selectedAiSourceIds.value.filter((id) => id !== source.id);
+
+                if (previewSource.value?.id === source.id) {
+                    previewOpen.value = false;
+                    previewSource.value = null;
+                    previewChunks.value = [];
+                }
+
+                await refreshAiSourcesAfterDelete();
+                showToast('Source deleted.');
+            } catch {
+                showToast('Failed to delete source.');
+            }
+        })();
+    }, 'ai');
+};
+
+const bulkDeleteAiSources = (): void => {
+    if (!props.aiSourceUrls.bulk_delete) {
+        showToast('Bulk delete endpoint is not configured.');
+        return;
+    }
+
+    if (selectedAiSourceIds.value.length === 0) {
+        showToast('Select at least one source first.');
+        return;
+    }
+
+    const idsToDelete = [...selectedAiSourceIds.value];
+
+    showConfirmToast(`Delete ${idsToDelete.length} selected source(s)? This cannot be undone.`, () => {
+        void (async () => {
+            try {
+                const response = await fetch(props.aiSourceUrls.bulk_delete!, {
+                    method: 'POST',
+                    headers: {
+                        Accept: 'application/json',
+                        'Content-Type': 'application/json',
+                        'X-CSRF-TOKEN': csrfToken(),
+                    },
+                    body: JSON.stringify({ source_ids: idsToDelete }),
+                });
+
+                if (!response.ok) {
+                    showToast(await extractErrorMessage(response, 'Failed to bulk delete sources.'));
+                    return;
+                }
+
+                if (previewSource.value && idsToDelete.includes(previewSource.value.id)) {
+                    previewOpen.value = false;
+                    previewSource.value = null;
+                    previewChunks.value = [];
+                }
+
+                selectedAiSourceIds.value = [];
+                await refreshAiSourcesAfterDelete();
+                showToast('Selected sources deleted.');
+            } catch {
+                showToast('Failed to bulk delete sources.');
+            }
+        })();
+    }, 'ai');
+};
+
+const openSourcePreview = async (source: {
+    id: number;
+    title: string | null;
+    type: string;
+    chunks_url: string;
+}): Promise<void> => {
+    previewSource.value = source;
+    previewOpen.value = true;
+    await loadPreviewChunks(1);
+};
+
+const loadPreviewChunks = async (page = 1): Promise<void> => {
+    if (!previewSource.value) {
+        return;
+    }
+
+    previewChunksLoading.value = true;
+    try {
+        const response = await fetch(`${previewSource.value.chunks_url}?page=${page}&per_page=12`, {
+            headers: { Accept: 'application/json' },
+        });
+
+        if (!response.ok) {
+            return;
+        }
+
+        const payload = await response.json() as {
+            data?: Array<{ id: number; chunk_index: number; content: string }>;
+            meta?: {
+                current_page: number;
+                last_page: number;
+                per_page: number;
+                total: number;
+            };
+        };
+
+        previewChunks.value = payload.data ?? [];
+        previewChunksMeta.value = payload.meta ?? previewChunksMeta.value;
+    } finally {
+        previewChunksLoading.value = false;
+    }
+};
+
+watch(
+    () => activeStep.value,
+    (step) => {
+        if (step === 6 && aiSourcesList.value.length === 0 && props.aiSourceUrls.index) {
+            void loadAiSources(1);
+        }
+    },
+);
+
+const submitAiUrlSource = (): void => {
+    if (aiSourceLimitReached.value) {
+        showToast(`Source limit reached (${AI_SOURCE_LIMIT}). Delete one source to add another.`);
+        return;
+    }
+
+    if (!props.aiSourceUrls.url) {
+        showToast('AI URL source endpoint is not configured.');
+        return;
+    }
+
+    aiUrlForm.post(props.aiSourceUrls.url, {
+        preserveScroll: true,
+        onSuccess: () => {
+            aiUrlForm.reset();
+            showToast('Website source queued for ingestion.');
+            void loadAiSources(1);
+        },
+        onError: () => {
+            if (aiUrlForm.errors.source_limit) {
+                showToast(aiUrlForm.errors.source_limit);
+            }
+        },
+    });
+};
+
+const submitAiTranscriptSource = (): void => {
+    if (aiSourceLimitReached.value) {
+        showToast(`Source limit reached (${AI_SOURCE_LIMIT}). Delete one source to add another.`);
+        return;
+    }
+
+    if (!props.aiSourceUrls.transcript) {
+        showToast('AI transcript endpoint is not configured.');
+        return;
+    }
+
+    aiTranscriptForm.post(props.aiSourceUrls.transcript, {
+        preserveScroll: true,
+        onSuccess: () => {
+            aiTranscriptForm.transcript = '';
+            showToast('Transcript source queued for ingestion.');
+            void loadAiSources(1);
+        },
+        onError: () => {
+            if (aiTranscriptForm.errors.source_limit) {
+                showToast(aiTranscriptForm.errors.source_limit);
+            }
+        },
+    });
+};
+
+const onAiFileSelected = (event: Event): void => {
+    const target = event.target as HTMLInputElement;
+    aiFileForm.file = target.files?.[0] ?? null;
+};
+
+const submitAiFileSource = (): void => {
+    if (aiSourceLimitReached.value) {
+        showToast(`Source limit reached (${AI_SOURCE_LIMIT}). Delete one source to add another.`);
+        return;
+    }
+
+    if (!props.aiSourceUrls.file) {
+        showToast('AI file source endpoint is not configured.');
+        return;
+    }
+
+    if (!aiFileForm.file) {
+        showToast('Select a file before uploading.');
+        return;
+    }
+
+    aiFileForm.post(props.aiSourceUrls.file, {
+        preserveScroll: true,
+        forceFormData: true,
+        onSuccess: () => {
+            aiFileForm.reset();
+            showToast('File source queued for ingestion.');
+            void loadAiSources(1);
+        },
+        onError: () => {
+            if (aiFileForm.errors.source_limit) {
+                showToast(aiFileForm.errors.source_limit);
+            }
+        },
+    });
+};
 
 const onAttendeeCsvSelected = (event: Event): void => {
     const target = event.target as HTMLInputElement;
@@ -228,14 +628,16 @@ const showToast = (message: string): void => {
     }, 4000);
 };
 
-const showConfirmToast = (message: string, action: () => void): void => {
+const showConfirmToast = (message: string, action: () => void, section: 'ai' | 'attendees' | null = null): void => {
     confirmToastMessage.value = message;
     confirmAction.value = action;
+    confirmSection.value = section;
 };
 
 const cancelConfirmToast = (): void => {
     confirmToastMessage.value = null;
     confirmAction.value = null;
+    confirmSection.value = null;
 };
 
 const continueConfirmToast = (): void => {
@@ -289,7 +691,7 @@ const moveSingleToUnsubscribed = (url?: string): void => {
 
     showConfirmToast('Move this attendee to unsubscribed list?', () => {
         router.post(url, {}, { preserveScroll: true });
-    });
+    }, 'attendees');
 };
 
 const deleteSingleUnsubscribed = (url?: string): void => {
@@ -299,7 +701,7 @@ const deleteSingleUnsubscribed = (url?: string): void => {
 
     showConfirmToast('Delete this unsubscribed attendee email permanently?', () => {
         router.delete(url, { preserveScroll: true });
-    });
+    }, 'attendees');
 };
 
 const moveBulkToUnsubscribed = (): void => {
@@ -320,7 +722,7 @@ const moveBulkToUnsubscribed = (): void => {
                 selectedSubscribedIds.value = [];
             },
         });
-    });
+    }, 'attendees');
 };
 
 const deleteBulkUnsubscribed = (): void => {
@@ -341,7 +743,7 @@ const deleteBulkUnsubscribed = (): void => {
                 selectedUnsubscribedIds.value = [];
             },
         });
-    });
+    }, 'attendees');
 };
 
 const exportAttendeesCsv = (
@@ -484,6 +886,18 @@ const submit = (): void => {
     form.post(props.actionUrl, { preserveScroll: true });
 };
 
+const stepHeaderBg: string[] = [
+    'bg-indigo-100 dark:bg-indigo-950/40',
+    'bg-sky-100 dark:bg-sky-950/40',
+    'bg-emerald-100 dark:bg-emerald-950/40',
+    'bg-teal-100 dark:bg-teal-950/40',
+    'bg-violet-100 dark:bg-violet-950/40',
+    'bg-orange-100 dark:bg-orange-950/40',
+    'bg-violet-100 dark:bg-violet-950/40',
+    'bg-rose-100 dark:bg-rose-950/40',
+    'bg-amber-100 dark:bg-amber-950/40',
+];
+
 const stepMeta: Array<{ icon: string; color: string }> = [
     { icon: 'solar:document-text-bold-duotone', color: 'text-indigo-500' },
     { icon: 'solar:play-stream-bold-duotone', color: 'text-sky-500' },
@@ -491,6 +905,7 @@ const stepMeta: Array<{ icon: string; color: string }> = [
     { icon: 'solar:users-group-rounded-bold-duotone', color: 'text-teal-500' },
     { icon: 'solar:chat-round-dots-bold-duotone', color: 'text-violet-500' },
     { icon: 'solar:tag-price-bold-duotone', color: 'text-orange-500' },
+    { icon: 'solar:stars-bold-duotone', color: 'text-violet-500' },
     { icon: 'solar:bell-bing-bold-duotone', color: 'text-rose-500' },
     { icon: 'solar:chart-2-bold-duotone', color: 'text-amber-500' },
 ];
@@ -507,9 +922,9 @@ const stepMeta: Array<{ icon: string; color: string }> = [
             <span>{{ toastMessage }}</span>
         </div>
 
-        <!-- Confirm toast -->
+        <!-- Confirm toast (fallback for steps without inline confirm) -->
         <div
-            v-if="confirmToastMessage"
+            v-if="confirmToastMessage && !confirmSection"
             class="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 dark:border-rose-800/50 dark:bg-rose-950/30"
         >
             <div class="flex items-start gap-3">
@@ -612,7 +1027,7 @@ const stepMeta: Array<{ icon: string; color: string }> = [
             <div class="border-t border-border/50 bg-muted/20 px-5 py-3 flex items-center gap-3">
                 <div
                     class="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg"
-                    :class="`bg-${stepMeta[activeStep]?.color?.split('-')[1]}-100 dark:bg-${stepMeta[activeStep]?.color?.split('-')[1]}-950/40`"
+                    :class="stepHeaderBg[activeStep]"
                 >
                     <Icon
                         :icon="stepMeta[activeStep]?.icon ?? 'solar:document-text-bold-duotone'"
@@ -935,6 +1350,33 @@ const stepMeta: Array<{ icon: string; color: string }> = [
                         </Button>
                     </div>
 
+                    <!-- Inline confirm banner for attendee actions -->
+                    <div
+                        v-if="confirmToastMessage && confirmSection === 'attendees'"
+                        class="flex items-start gap-3 rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 dark:border-rose-800/50 dark:bg-rose-950/30"
+                    >
+                        <Icon icon="solar:danger-bold-duotone" class="mt-0.5 size-4 shrink-0 text-rose-500" />
+                        <div class="flex-1">
+                            <p class="text-sm font-medium text-rose-800 dark:text-rose-300">{{ confirmToastMessage }}</p>
+                            <div class="mt-2 flex items-center gap-2">
+                                <button
+                                    type="button"
+                                    class="inline-flex h-7 items-center rounded-lg bg-rose-600 px-3 text-xs font-semibold text-white hover:bg-rose-700"
+                                    @click="continueConfirmToast"
+                                >
+                                    Confirm
+                                </button>
+                                <button
+                                    type="button"
+                                    class="inline-flex h-7 items-center rounded-lg border border-rose-200 bg-white px-3 text-xs font-medium text-rose-700 hover:bg-rose-50 dark:bg-transparent dark:text-rose-300"
+                                    @click="cancelConfirmToast"
+                                >
+                                    Cancel
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+
                     <div class="flex gap-2">
                         <button
                             type="button"
@@ -1194,6 +1636,7 @@ const stepMeta: Array<{ icon: string; color: string }> = [
                             <RichTextEditor
                                 v-model="form.playback_settings.exit_popup_body"
                                 placeholder="You're about to miss the best part. Grab this offer before it's gone…"
+                                :max-plain-text-length="EXIT_POPUP_BODY_MAX_CHARS"
                             />
                             <div class="flex items-center justify-between text-xs text-muted-foreground">
                                 <p>Supporting text shown below the heading.</p>
@@ -1289,7 +1732,505 @@ const stepMeta: Array<{ icon: string; color: string }> = [
             </div>
             </div>
 
+            <!-- ── Step 6: AI Assistant ── -->
             <div v-if="activeStep === 6" class="rounded-2xl border border-border/60 bg-card shadow-sm overflow-hidden">
+                <!-- Header -->
+                <div class="flex items-center gap-3 border-b border-border/50 bg-gradient-to-r from-violet-50/60 to-violet-50/40 px-5 py-4 dark:from-violet-950/20 dark:to-violet-950/10">
+                    <div class="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-violet-100 dark:bg-violet-950/50">
+                        <Icon icon="solar:stars-bold-duotone" class="size-5 text-violet-600" />
+                    </div>
+                    <div>
+                        <h3 class="text-base font-semibold text-foreground leading-tight">AI Chat Assistant</h3>
+                        <p class="text-xs text-muted-foreground">Train a private knowledge base so an AI can answer attendee questions in real time.</p>
+                    </div>
+                    <!-- Enable toggle in header -->
+                    <div class="ml-auto flex items-center gap-2.5">
+                        <span class="hidden text-xs font-medium text-muted-foreground sm:block">
+                            {{ form.ai_settings.enabled ? 'Enabled' : 'Disabled' }}
+                        </span>
+                        <button
+                            id="ai_enabled"
+                            type="button"
+                            role="switch"
+                            :aria-checked="form.ai_settings.enabled"
+                            class="relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+                            :class="form.ai_settings.enabled ? 'bg-violet-500' : 'bg-muted'"
+                            @click="form.ai_settings.enabled = !form.ai_settings.enabled"
+                        >
+                            <span
+                                class="inline-block h-5 w-5 transform rounded-full bg-white shadow transition-transform"
+                                :class="form.ai_settings.enabled ? 'translate-x-5' : 'translate-x-0.5'"
+                            />
+                        </button>
+                    </div>
+                </div>
+
+                <div class="grid gap-6 p-5">
+
+                    <!-- Disabled state notice -->
+                    <div v-if="!form.ai_settings.enabled" class="flex flex-col items-center gap-3 rounded-xl border border-dashed border-border/60 bg-muted/20 py-10 text-center">
+                        <div class="flex h-12 w-12 items-center justify-center rounded-full bg-muted">
+                            <Icon icon="solar:stars-bold-duotone" class="size-6 text-muted-foreground" />
+                        </div>
+                        <div>
+                            <p class="text-sm font-medium text-foreground">AI Assistant is off</p>
+                            <p class="mt-1 text-xs text-muted-foreground">Enable it above to configure your knowledge base and let the AI answer attendee questions.</p>
+                        </div>
+                    </div>
+
+                    <template v-if="form.ai_settings.enabled">
+
+                        <!-- ── Assistant settings row ── -->
+                        <div class="grid gap-4 rounded-xl border border-violet-100 bg-violet-50/40 p-4 dark:border-violet-900/30 dark:bg-violet-950/10 sm:grid-cols-2">
+                            <div class="grid gap-1.5">
+                                <Label for="ai_assistant_name" class="text-xs font-semibold uppercase tracking-wide text-violet-700 dark:text-violet-400">Assistant Name</Label>
+                                <Input
+                                    id="ai_assistant_name"
+                                    v-model="form.ai_settings.assistant_name"
+                                    placeholder="Webinar AI Helper"
+                                    maxlength="80"
+                                    class="bg-white dark:bg-background"
+                                />
+                                <p class="text-[11px] text-muted-foreground">How the assistant identifies itself in chat.</p>
+                                <InputError :message="form.errors['ai_settings.assistant_name']" />
+                            </div>
+                            <div class="grid gap-1.5">
+                                <Label class="text-xs font-semibold uppercase tracking-wide text-violet-700 dark:text-violet-400">Auto-Reply</Label>
+                                <button
+                                    id="ai_auto_reply"
+                                    type="button"
+                                    role="switch"
+                                    :aria-checked="form.ai_settings.auto_reply_enabled"
+                                    class="flex w-full cursor-pointer items-center gap-3 rounded-lg border bg-white px-4 py-3 text-left transition hover:bg-muted/30 dark:bg-background"
+                                    :class="form.ai_settings.auto_reply_enabled ? 'border-violet-300 dark:border-violet-700' : 'border-border'"
+                                    @click="form.ai_settings.auto_reply_enabled = !form.ai_settings.auto_reply_enabled"
+                                >
+                                    <span
+                                        class="relative inline-flex h-5 w-9 shrink-0 items-center rounded-full transition-colors"
+                                        :class="form.ai_settings.auto_reply_enabled ? 'bg-violet-500' : 'bg-muted'"
+                                    >
+                                        <span
+                                            class="inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform"
+                                            :class="form.ai_settings.auto_reply_enabled ? 'translate-x-4' : 'translate-x-0.5'"
+                                        />
+                                    </span>
+                                    <span class="text-sm text-foreground">Answer attendee questions automatically</span>
+                                </button>
+                                <p class="text-[11px] text-muted-foreground">When on, the AI replies to attendees without host action.</p>
+                            </div>
+                        </div>
+
+                        <!-- ── Knowledge base capacity bar ── -->
+                        <div class="grid gap-2">
+                            <div class="flex items-center justify-between">
+                                <p class="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Knowledge Base Capacity</p>
+                                <span
+                                    class="rounded-full px-2.5 py-0.5 text-[11px] font-bold"
+                                    :class="aiSourceLimitReached ? 'bg-rose-100 text-rose-700' : 'bg-emerald-100 text-emerald-700'"
+                                >
+                                    {{ aiSourceCount }} / {{ AI_SOURCE_LIMIT }} sources
+                                </span>
+                            </div>
+                            <!-- Track with slot pips -->
+                            <div class="flex items-center gap-1.5">
+                                <div
+                                    v-for="slot in AI_SOURCE_LIMIT"
+                                    :key="`slot-${slot}`"
+                                    class="h-2.5 flex-1 rounded-full transition-colors"
+                                    :class="slot <= aiSourceCount
+                                        ? (aiSourceLimitReached ? 'bg-rose-500' : 'bg-violet-500')
+                                        : 'bg-muted'"
+                                />
+                            </div>
+                            <p class="text-[11px]" :class="aiSourceLimitReached ? 'text-rose-600' : 'text-muted-foreground'">
+                                <span v-if="aiSourceLimitReached">
+                                    <Icon icon="solar:danger-bold-duotone" class="mr-1 inline-block size-3.5 align-text-bottom" />
+                                    Limit reached — delete a source below to free up a slot and add new content.
+                                </span>
+                                <span v-else>
+                                    {{ aiSourceSlotsRemaining }} slot{{ aiSourceSlotsRemaining === 1 ? '' : 's' }} remaining. A focused knowledge base gives more accurate answers.
+                                </span>
+                            </p>
+                        </div>
+
+                        <!-- ── Add source section ── -->
+                        <div
+                            class="rounded-xl border transition-colors"
+                            :class="aiSourceLimitReached ? 'border-border/40 bg-muted/20 opacity-60 pointer-events-none' : 'border-border bg-card'"
+                        >
+                            <div class="border-b border-border/50 px-4 py-3">
+                                <p class="text-sm font-semibold text-foreground">Add a Knowledge Source</p>
+                                <p class="text-xs text-muted-foreground">Choose how you want to feed content to the AI.</p>
+                            </div>
+
+                            <!-- Source type selector cards -->
+                            <div class="grid grid-cols-3 gap-0 divide-x divide-border/50">
+                                <button
+                                    type="button"
+                                    class="flex flex-col items-center gap-2 px-3 py-5 text-center transition"
+                                    :class="aiSourceMode === 'url'
+                                        ? 'bg-violet-50 dark:bg-violet-950/20'
+                                        : 'hover:bg-muted/40'"
+                                    @click="aiSourceMode = 'url'"
+                                >
+                                    <span
+                                        class="flex h-10 w-10 items-center justify-center rounded-xl transition"
+                                        :class="aiSourceMode === 'url' ? 'bg-violet-100 dark:bg-violet-900/40' : 'bg-muted'"
+                                    >
+                                        <Icon icon="solar:global-bold-duotone" class="size-5" :class="aiSourceMode === 'url' ? 'text-violet-600' : 'text-muted-foreground'" />
+                                    </span>
+                                    <span class="text-xs font-semibold leading-tight" :class="aiSourceMode === 'url' ? 'text-violet-700 dark:text-violet-300' : 'text-foreground'">Website URL</span>
+                                    <span class="hidden text-[10px] leading-tight text-muted-foreground sm:block">Scrape page content</span>
+                                    <span v-if="aiSourceMode === 'url'" class="h-0.5 w-6 rounded-full bg-violet-500" />
+                                </button>
+                                <button
+                                    type="button"
+                                    class="flex flex-col items-center gap-2 px-3 py-5 text-center transition"
+                                    :class="aiSourceMode === 'transcript'
+                                        ? 'bg-violet-50 dark:bg-violet-950/20'
+                                        : 'hover:bg-muted/40'"
+                                    @click="aiSourceMode = 'transcript'"
+                                >
+                                    <span
+                                        class="flex h-10 w-10 items-center justify-center rounded-xl transition"
+                                        :class="aiSourceMode === 'transcript' ? 'bg-violet-100 dark:bg-violet-900/40' : 'bg-muted'"
+                                    >
+                                        <Icon icon="solar:subtitles-bold-duotone" class="size-5" :class="aiSourceMode === 'transcript' ? 'text-violet-600' : 'text-muted-foreground'" />
+                                    </span>
+                                    <span class="text-xs font-semibold leading-tight" :class="aiSourceMode === 'transcript' ? 'text-violet-700 dark:text-violet-300' : 'text-foreground'">Transcript</span>
+                                    <span class="hidden text-[10px] leading-tight text-muted-foreground sm:block">Paste video text</span>
+                                    <span v-if="aiSourceMode === 'transcript'" class="h-0.5 w-6 rounded-full bg-violet-500" />
+                                </button>
+                                <button
+                                    type="button"
+                                    class="flex flex-col items-center gap-2 px-3 py-5 text-center transition"
+                                    :class="aiSourceMode === 'file'
+                                        ? 'bg-violet-50 dark:bg-violet-950/20'
+                                        : 'hover:bg-muted/40'"
+                                    @click="aiSourceMode = 'file'"
+                                >
+                                    <span
+                                        class="flex h-10 w-10 items-center justify-center rounded-xl transition"
+                                        :class="aiSourceMode === 'file' ? 'bg-violet-100 dark:bg-violet-900/40' : 'bg-muted'"
+                                    >
+                                        <Icon icon="solar:file-bold-duotone" class="size-5" :class="aiSourceMode === 'file' ? 'text-violet-600' : 'text-muted-foreground'" />
+                                    </span>
+                                    <span class="text-xs font-semibold leading-tight" :class="aiSourceMode === 'file' ? 'text-violet-700 dark:text-violet-300' : 'text-foreground'">Upload File</span>
+                                    <span class="hidden text-[10px] leading-tight text-muted-foreground sm:block">PDF, DOCX, CSV…</span>
+                                    <span v-if="aiSourceMode === 'file'" class="h-0.5 w-6 rounded-full bg-violet-500" />
+                                </button>
+                            </div>
+
+                            <!-- URL form -->
+                            <div v-if="aiSourceMode === 'url'" class="grid gap-4 border-t border-border/50 p-4">
+                                <div class="grid gap-3 sm:grid-cols-[1fr_1fr_auto] sm:items-end">
+                                    <div class="grid gap-1.5">
+                                        <Label class="text-xs">Label (optional)</Label>
+                                        <Input v-model="aiUrlForm.title" placeholder="e.g. Offer Page" />
+                                    </div>
+                                    <div class="grid gap-1.5">
+                                        <Label class="text-xs">{{ markRequired('Page URL') }}</Label>
+                                        <Input v-model="aiUrlForm.url" type="url" placeholder="https://example.com/page" />
+                                    </div>
+                                    <Button type="button" class="bg-violet-600 text-white hover:bg-violet-700" @click="submitAiUrlSource">
+                                        <Icon icon="solar:add-circle-bold-duotone" class="mr-1.5 size-4" />
+                                        Add URL
+                                    </Button>
+                                </div>
+                                <p class="text-[11px] text-muted-foreground">The page will be scraped and its readable text extracted for AI training.</p>
+                            </div>
+
+                            <!-- Transcript form -->
+                            <div v-if="aiSourceMode === 'transcript'" class="grid gap-4 border-t border-border/50 p-4">
+                                <div class="grid gap-1.5">
+                                    <Label class="text-xs">Label (optional)</Label>
+                                    <Input v-model="aiTranscriptForm.title" placeholder="e.g. Main Webinar Transcript" />
+                                </div>
+                                <div class="grid gap-1.5">
+                                    <Label class="text-xs">{{ markRequired('Transcript text') }}</Label>
+                                    <textarea
+                                        v-model="aiTranscriptForm.transcript"
+                                        rows="6"
+                                        class="w-full rounded-lg border border-input bg-background px-3 py-2 text-sm leading-relaxed transition focus:outline-none focus:ring-2 focus:ring-violet-400"
+                                        placeholder="Paste your full video transcript here…"
+                                    />
+                                </div>
+                                <div>
+                                    <Button type="button" class="bg-violet-600 text-white hover:bg-violet-700" @click="submitAiTranscriptSource">
+                                        <Icon icon="solar:add-circle-bold-duotone" class="mr-1.5 size-4" />
+                                        Add Transcript
+                                    </Button>
+                                </div>
+                            </div>
+
+                            <!-- File form -->
+                            <div v-if="aiSourceMode === 'file'" class="grid gap-4 border-t border-border/50 p-4">
+                                <div class="grid gap-3 sm:grid-cols-[1fr_auto_auto] sm:items-end">
+                                    <div class="grid gap-1.5">
+                                        <Label class="text-xs">Label (optional)</Label>
+                                        <Input v-model="aiFileForm.title" placeholder="e.g. FAQ Document" />
+                                    </div>
+                                    <div class="grid gap-1.5">
+                                        <Label class="text-xs">{{ markRequired('File') }}</Label>
+                                        <label class="flex h-9 cursor-pointer items-center gap-2 rounded-md border border-dashed border-border bg-muted/30 px-3 text-sm text-muted-foreground transition hover:bg-muted/50">
+                                            <Icon icon="solar:upload-minimalistic-bold-duotone" class="size-4 shrink-0" />
+                                            <span class="truncate max-w-[140px]">{{ aiFileForm.file ? aiFileForm.file.name : 'Choose file…' }}</span>
+                                            <input
+                                                type="file"
+                                                accept=".pdf,.txt,.md,.csv,.xlsx,.xls,.docx"
+                                                class="sr-only"
+                                                @change="onAiFileSelected"
+                                            />
+                                        </label>
+                                    </div>
+                                    <Button type="button" class="bg-violet-600 text-white hover:bg-violet-700" @click="submitAiFileSource">
+                                        <Icon icon="solar:add-circle-bold-duotone" class="mr-1.5 size-4" />
+                                        Upload
+                                    </Button>
+                                </div>
+                                <p class="text-[11px] text-muted-foreground">Supported: PDF, DOCX, TXT, MD, CSV, XLSX, XLS — max 20 MB</p>
+                            </div>
+                        </div>
+
+                        <!-- Inline confirm banner for AI actions -->
+                        <div
+                            v-if="confirmToastMessage && confirmSection === 'ai'"
+                            class="flex items-start gap-3 rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 dark:border-rose-800/50 dark:bg-rose-950/30"
+                        >
+                            <Icon icon="solar:danger-bold-duotone" class="mt-0.5 size-4 shrink-0 text-rose-500" />
+                            <div class="flex-1">
+                                <p class="text-sm font-medium text-rose-800 dark:text-rose-300">{{ confirmToastMessage }}</p>
+                                <div class="mt-2 flex items-center gap-2">
+                                    <button
+                                        type="button"
+                                        class="inline-flex h-7 items-center rounded-lg bg-rose-600 px-3 text-xs font-semibold text-white hover:bg-rose-700"
+                                        @click="continueConfirmToast"
+                                    >
+                                        Confirm
+                                    </button>
+                                    <button
+                                        type="button"
+                                        class="inline-flex h-7 items-center rounded-lg border border-rose-200 bg-white px-3 text-xs font-medium text-rose-700 hover:bg-rose-50 dark:bg-transparent dark:text-rose-300"
+                                        @click="cancelConfirmToast"
+                                    >
+                                        Cancel
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- ── Indexed sources ── -->
+                        <div class="grid gap-3">
+                            <div class="flex items-center justify-between gap-2">
+                                <p class="text-sm font-semibold text-foreground">Indexed Sources</p>
+                                <div class="flex items-center gap-2">
+                                    <button
+                                        v-if="aiSourcesList.length > 1"
+                                        type="button"
+                                        class="text-[11px] text-muted-foreground underline underline-offset-2 hover:text-foreground"
+                                        @click="toggleAllAiSourcesOnPage"
+                                    >
+                                        {{ aiSourcesList.every((s) => selectedAiSourceIds.includes(s.id)) ? 'Uncheck all' : 'Select all' }}
+                                    </button>
+                                    <button
+                                        v-if="selectedAiSourceIds.length > 0"
+                                        type="button"
+                                        class="inline-flex items-center gap-1 rounded-md border border-rose-200 bg-rose-50 px-2.5 py-1 text-[11px] font-medium text-rose-700 transition hover:bg-rose-100"
+                                        @click="bulkDeleteAiSources"
+                                    >
+                                        <Icon icon="solar:trash-bin-minimalistic-bold-duotone" class="size-3.5" />
+                                        Delete {{ selectedAiSourceIds.length }} selected
+                                    </button>
+                                </div>
+                            </div>
+
+                            <!-- Loading -->
+                            <div v-if="aiSourcesLoading" class="flex items-center justify-center gap-2 rounded-xl border border-dashed border-border/60 py-10 text-sm text-muted-foreground">
+                                <Icon icon="solar:refresh-bold-duotone" class="size-4 animate-spin" />
+                                Loading sources…
+                            </div>
+
+                            <!-- Empty state -->
+                            <div v-else-if="aiSourcesList.length === 0" class="flex flex-col items-center gap-2 rounded-xl border border-dashed border-border/60 py-10 text-center">
+                                <Icon icon="solar:database-bold-duotone" class="size-8 text-muted-foreground/40" />
+                                <p class="text-sm font-medium text-muted-foreground">No sources indexed yet</p>
+                                <p class="text-xs text-muted-foreground/70">Add a URL, transcript, or file above to start training the AI.</p>
+                            </div>
+
+                            <!-- Source cards grid (max 3) -->
+                            <div v-else class="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                                <div
+                                    v-for="source in aiSourcesList"
+                                    :key="`ai-source-${source.id}`"
+                                    class="group relative flex flex-col gap-3 rounded-xl border bg-card p-4 shadow-sm transition"
+                                    :class="selectedAiSourceIds.includes(source.id)
+                                        ? 'border-violet-300 ring-1 ring-violet-300 dark:border-violet-700 dark:ring-violet-700'
+                                        : 'border-border hover:border-violet-200'"
+                                >
+                                    <!-- Checkbox top-right -->
+                                    <input
+                                        :checked="selectedAiSourceIds.includes(source.id)"
+                                        type="checkbox"
+                                        class="absolute right-3 top-3 h-4 w-4 cursor-pointer accent-violet-500"
+                                        @change="toggleAiSource(source.id)"
+                                    />
+
+                                    <!-- Type icon + status -->
+                                    <div class="flex items-start gap-3">
+                                        <span class="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg"
+                                            :class="source.type === 'url' ? 'bg-sky-100 dark:bg-sky-950/40' : source.type === 'video_transcript' ? 'bg-violet-100 dark:bg-violet-950/40' : 'bg-amber-100 dark:bg-amber-950/40'"
+                                        >
+                                            <Icon
+                                                :icon="source.type === 'url' ? 'solar:global-bold-duotone' : source.type === 'video_transcript' ? 'solar:subtitles-bold-duotone' : 'solar:file-bold-duotone'"
+                                                class="size-4.5"
+                                                :class="source.type === 'url' ? 'text-sky-600' : source.type === 'video_transcript' ? 'text-violet-600' : 'text-amber-600'"
+                                            />
+                                        </span>
+                                        <div class="min-w-0 flex-1 pr-5">
+                                            <p class="truncate text-sm font-semibold text-foreground">{{ source.title || 'Untitled Source' }}</p>
+                                            <p class="mt-0.5 truncate text-[11px] capitalize text-muted-foreground">
+                                                {{ source.type === 'video_transcript' ? 'Transcript' : source.type }}
+                                            </p>
+                                        </div>
+                                    </div>
+
+                                    <!-- URL preview if applicable -->
+                                    <p v-if="source.source_url" class="truncate rounded bg-muted/50 px-2 py-1 text-[11px] text-muted-foreground">
+                                        {{ source.source_url }}
+                                    </p>
+
+                                    <!-- Status row -->
+                                    <div class="flex items-center justify-between gap-2">
+                                        <span
+                                            class="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-semibold"
+                                            :class="{
+                                                'bg-emerald-100 text-emerald-700': source.status === 'ready',
+                                                'bg-rose-100 text-rose-700': source.status === 'failed',
+                                                'bg-amber-100 text-amber-700': source.status === 'processing',
+                                                'bg-muted text-muted-foreground': source.status === 'queued',
+                                            }"
+                                        >
+                                            <Icon
+                                                :icon="source.status === 'ready' ? 'solar:check-circle-bold' : source.status === 'failed' ? 'solar:close-circle-bold' : 'solar:clock-circle-bold'"
+                                                class="size-3"
+                                            />
+                                            {{ source.status }}
+                                        </span>
+                                        <span class="text-[11px] text-muted-foreground">{{ source.chunk_count }} chunk{{ source.chunk_count === 1 ? '' : 's' }}</span>
+                                    </div>
+
+                                    <!-- Error message -->
+                                    <p v-if="source.error_message" class="rounded bg-rose-50 px-2 py-1.5 text-[11px] text-rose-700 dark:bg-rose-950/30">
+                                        <Icon icon="solar:danger-bold-duotone" class="mr-1 inline-block size-3" />
+                                        {{ source.error_message }}
+                                    </p>
+
+                                    <!-- Actions -->
+                                    <div class="mt-auto flex items-center gap-2 border-t border-border/50 pt-3">
+                                        <button
+                                            type="button"
+                                            class="inline-flex flex-1 items-center justify-center gap-1.5 rounded-lg border border-border bg-background px-3 py-1.5 text-[12px] font-medium text-foreground transition hover:bg-muted"
+                                            @click="openSourcePreview(source)"
+                                        >
+                                            <Icon icon="solar:eye-bold-duotone" class="size-3.5 text-violet-500" />
+                                            Preview
+                                        </button>
+                                        <button
+                                            type="button"
+                                            class="inline-flex items-center justify-center gap-1.5 rounded-lg border border-rose-200 bg-rose-50 px-3 py-1.5 text-[12px] font-medium text-rose-700 transition hover:bg-rose-100 dark:bg-rose-950/20 dark:text-rose-400"
+                                            @click="deleteAiSource(source)"
+                                        >
+                                            <Icon icon="solar:trash-bin-minimalistic-bold-duotone" class="size-3.5" />
+                                            Delete
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                    </template>
+                </div>
+            </div>
+
+            <!-- ── Chunk preview modal ── -->
+            <div
+                v-if="previewOpen"
+                class="fixed inset-0 z-50 flex items-end justify-center bg-black/60 p-4 backdrop-blur-sm sm:items-center h-screen"
+                @click.self="previewOpen = false"
+            >
+                <div class="flex w-full max-w-2xl flex-col rounded-2xl border border-border/60 bg-card shadow-2xl" style="max-height: 85vh;">
+                    <!-- Modal header -->
+                    <div class="flex shrink-0 items-center gap-3 border-b border-border/50 px-5 py-4">
+                        <div class="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-violet-100 dark:bg-violet-950/40">
+                            <Icon icon="solar:eye-bold-duotone" class="size-4 text-violet-600" />
+                        </div>
+                        <div class="min-w-0 flex-1">
+                            <p class="truncate text-sm font-semibold text-foreground">{{ previewSource?.title || 'Source Preview' }}</p>
+                            <p class="text-[11px] text-muted-foreground">
+                                {{ previewChunksMeta.total }} chunk{{ previewChunksMeta.total === 1 ? '' : 's' }} extracted
+                            </p>
+                        </div>
+                        <button
+                            type="button"
+                            class="flex h-7 w-7 items-center justify-center rounded-lg border border-border text-muted-foreground transition hover:bg-muted"
+                            @click="previewOpen = false"
+                        >
+                            <Icon icon="solar:close-bold"  class="size-4 text-black" />
+                            <!-- <Icon icon="solar:close-bold" class="size-4" /> -->
+                        </button>
+                    </div>
+
+                    <!-- Chunks list -->
+                    <div class="flex-1 overflow-y-auto px-5 py-4">
+                        <div v-if="previewChunksLoading" class="flex items-center justify-center gap-2 py-10 text-sm text-muted-foreground">
+                            <Icon icon="solar:refresh-bold-duotone" class="size-4 animate-spin" />
+                            Loading chunks…
+                        </div>
+                        <div v-else class="space-y-3">
+                            <div
+                                v-for="chunk in previewChunks"
+                                :key="`chunk-${chunk.id}`"
+                                class="rounded-lg border border-border/60 bg-muted/20 p-3"
+                            >
+                                <p class="mb-1.5 flex items-center gap-1 text-[11px] font-semibold text-violet-600">
+                                    <Icon icon="solar:layers-minimalistic-bold-duotone" class="size-3.5" />
+                                    Chunk {{ chunk.chunk_index + 1 }}
+                                </p>
+                                <p class="text-[12px] leading-relaxed text-foreground/80 whitespace-pre-wrap">{{ chunk.content }}</p>
+                            </div>
+                            <div v-if="previewChunks.length === 0" class="flex flex-col items-center gap-2 py-10 text-center text-sm text-muted-foreground">
+                                <Icon icon="solar:document-bold-duotone" class="size-8 opacity-30" />
+                                No chunks found for this source yet.
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Chunk pagination -->
+                    <div v-if="previewChunksMeta.last_page > 1" class="flex shrink-0 items-center justify-between border-t border-border/50 px-5 py-3">
+                        <button
+                            type="button"
+                            class="inline-flex items-center gap-1 rounded-lg border border-border px-3 py-1.5 text-xs font-medium text-foreground transition hover:bg-muted disabled:opacity-40"
+                            :disabled="previewChunksMeta.current_page <= 1"
+                            @click="void loadPreviewChunks(previewChunksMeta.current_page - 1)"
+                        >
+                            <Icon icon="solar:arrow-left-bold" class="size-3.5" />
+                            Previous
+                        </button>
+                        <span class="text-[11px] text-muted-foreground">Page {{ previewChunksMeta.current_page }} of {{ previewChunksMeta.last_page }}</span>
+                        <button
+                            type="button"
+                            class="inline-flex items-center gap-1 rounded-lg border border-border px-3 py-1.5 text-xs font-medium text-foreground transition hover:bg-muted disabled:opacity-40"
+                            :disabled="previewChunksMeta.current_page >= previewChunksMeta.last_page"
+                            @click="void loadPreviewChunks(previewChunksMeta.current_page + 1)"
+                        >
+                            Next
+                            <Icon icon="solar:arrow-right-bold" class="size-3.5" />
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <div v-if="activeStep === 7" class="rounded-2xl border border-border/60 bg-card shadow-sm overflow-hidden">
                 <div class="flex items-center gap-3 border-b border-border/50 bg-muted/20 px-5 py-4">
                     <Icon icon="solar:bell-bing-bold-duotone" class="size-5 text-rose-500" />
                     <h3 class="text-base font-semibold text-foreground">Reminder and Notification</h3>
@@ -1355,7 +2296,7 @@ const stepMeta: Array<{ icon: string; color: string }> = [
             </div>
             </div>
 
-            <div v-if="activeStep === 7" class="rounded-2xl border border-border/60 bg-card shadow-sm overflow-hidden">
+            <div v-if="activeStep === 8" class="rounded-2xl border border-border/60 bg-card shadow-sm overflow-hidden">
                 <div class="flex items-center gap-3 border-b border-border/50 bg-muted/20 px-5 py-4">
                     <Icon icon="solar:chart-2-bold-duotone" class="size-5 text-amber-500" />
                     <h3 class="text-base font-semibold text-foreground">Publish and Tracking</h3>

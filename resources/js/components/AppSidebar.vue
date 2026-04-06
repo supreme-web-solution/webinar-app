@@ -30,6 +30,7 @@ const mainNavItems = [
 const managementNavItems = [
     { title: 'Registrants', href: '/admin/registrants', icon: 'solar:users-group-rounded-bold-duotone' },
     { title: 'Analytics', href: '/admin/analytics', icon: 'solar:chart-2-bold-duotone' },
+    { title: 'SMTP', href: '/settings/smtp', icon: 'solar:letter-bold-duotone' },
     { title: 'Settings', href: '/settings/profile', icon: 'solar:settings-minimalistic-bold-duotone' },
 ];
 </script>

@@ -30,6 +30,16 @@ type WebinarPayload = {
         show_fake_viewers: boolean;
         redirect_enabled: boolean;
         redirect_url: string;
+        exit_popup_enabled: boolean;
+        exit_popup_heading: string;
+        exit_popup_body: string;
+        exit_popup_cta_text: string;
+        exit_popup_cta_url: string;
+    };
+    ai_settings: {
+        enabled: boolean;
+        auto_reply_enabled: boolean;
+        assistant_name: string;
     };
     registration_settings: {
         buttons: Array<{
@@ -60,11 +70,33 @@ type Stats = {
     chat_messages: number;
     offers: number;
     cta_clicks: number;
+    segment_below_50: number;
+    segment_above_50: number;
+    segment_completed_no_click: number;
 };
 
 const props = defineProps<{
     webinar: WebinarPayload;
     stats: Stats;
+    aiSourceUrls: {
+        index: string | null;
+        url: string | null;
+        transcript: string | null;
+        file: string | null;
+        bulk_delete: string | null;
+    };
+    aiSources: Array<{
+        id: number;
+        type: string;
+        title: string | null;
+        source_url: string | null;
+        status: string;
+        error_message: string | null;
+        processed_at: string | null;
+        chunk_count: number;
+        chunks_url: string;
+        delete_url: string;
+    }>;
     attendees: {
         subscribed_total: number;
         subscribed: Array<{ id: number; name: string; email: string; registered_at?: string | null; unsubscribe_url?: string }>;
@@ -127,6 +159,18 @@ const breadcrumbs: BreadcrumbItem[] = [
                         <p class="text-muted-foreground">CTA Clicks</p>
                         <p class="font-semibold">{{ stats.cta_clicks }}</p>
                     </div>
+                    <div class="rounded-md border px-3 py-2">
+                        <p class="text-muted-foreground">Below 50%</p>
+                        <p class="font-semibold">{{ stats.segment_below_50 }}</p>
+                    </div>
+                    <div class="rounded-md border px-3 py-2">
+                        <p class="text-muted-foreground">Above 50%</p>
+                        <p class="font-semibold">{{ stats.segment_above_50 }}</p>
+                    </div>
+                    <div class="rounded-md border px-3 py-2">
+                        <p class="text-muted-foreground">Completed No Click</p>
+                        <p class="font-semibold">{{ stats.segment_completed_no_click }}</p>
+                    </div>
                 </div>
             </div>
 
@@ -135,6 +179,8 @@ const breadcrumbs: BreadcrumbItem[] = [
                 method="put"
                 :action-url="`/admin/webinars/${webinar.id}`"
                 :initial-values="webinar"
+                :ai-source-urls="aiSourceUrls"
+                :ai-sources="aiSources"
                 :attendees="attendees"
                 :attendee-import-url="attendeeImportUrl"
                 :attendee-action-urls="attendeeActionUrls"

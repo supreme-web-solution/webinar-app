@@ -30,7 +30,7 @@ class ResendService
             ];
         }
 
-        $primary = $this->resolvePrimaryProvider();
+        $primary = $this->resolvePrimaryProvider($webinar);
         $fallback = $this->resolveFallbackProvider();
 
         Log::info('webinar_email.provider.batch.start', [
@@ -82,7 +82,7 @@ class ResendService
 
     public function sendWebinarEmail(Webinar $webinar, WebinarRegistrant $registrant, string $subject, string $intro): bool
     {
-        $primary = $this->resolvePrimaryProvider();
+        $primary = $this->resolvePrimaryProvider($webinar);
         $fallback = $this->resolveFallbackProvider();
 
         Log::info('webinar_email.provider.single.start', [
@@ -294,9 +294,15 @@ class ResendService
 
     private function sendSingleViaSmtp(Webinar $webinar, WebinarRegistrant $registrant, string $subject, string $intro): bool
     {
+        $smtpConfig = $this->resolveSmtpTransportConfig($webinar);
+        $usingUserSmtp = $smtpConfig !== null;
         $mailer = (string) config('services.email.ses_smtp_mailer', 'ses');
-        $fromAddress = (string) config('services.email.ses_smtp_from_address', config('mail.from.address'));
-        $fromName = (string) config('services.email.ses_smtp_from_name', config('mail.from.name'));
+        $fromAddress = $usingUserSmtp
+            ? (string) ($smtpConfig['from_address'] ?? config('mail.from.address'))
+            : (string) config('services.email.ses_smtp_from_address', config('mail.from.address'));
+        $fromName = $usingUserSmtp
+            ? (string) ($smtpConfig['from_name'] ?? config('mail.from.name'))
+            : (string) config('services.email.ses_smtp_from_name', config('mail.from.name'));
         $dynamicFromName = trim($webinar->host_name) !== '' ? trim($webinar->host_name).' via '.$fromName : $fromName;
         $html = $this->buildWebinarEmailHtml($webinar, $registrant, $intro);
 
@@ -308,7 +314,11 @@ class ResendService
                 'subject' => $subject,
             ]);
 
-            Mail::mailer($mailer)->send([], [], function ($message) use (
+            $mailSender = $usingUserSmtp
+                ? app('mail.manager')->build($smtpConfig['transport'])
+                : Mail::mailer($mailer);
+
+            $mailSender->send([], [], function ($message) use (
                 $registrant,
                 $subject,
                 $fromAddress,
@@ -322,7 +332,7 @@ class ResendService
             });
 
             Log::info('smtp.single.accepted', [
-                'mailer' => $mailer,
+                'mailer' => $usingUserSmtp ? 'user_smtp' : $mailer,
                 'webinar_id' => $webinar->id,
                 'registrant_id' => $registrant->id,
             ]);
@@ -330,7 +340,7 @@ class ResendService
             return true;
         } catch (\Throwable $exception) {
             Log::error('smtp.single.failed', [
-                'mailer' => $mailer,
+                'mailer' => $usingUserSmtp ? 'user_smtp' : $mailer,
                 'webinar_id' => $webinar->id,
                 'registrant_id' => $registrant->id,
                 'message' => $exception->getMessage(),
@@ -340,8 +350,12 @@ class ResendService
         }
     }
 
-    private function resolvePrimaryProvider(): string
+    private function resolvePrimaryProvider(Webinar $webinar): string
     {
+        if ($this->resolveSmtpTransportConfig($webinar) !== null) {
+            return 'smtp';
+        }
+
         $provider = strtolower(trim((string) config('services.email.primary', 'resend')));
 
         return in_array($provider, ['resend', 'ses_smtp', 'smtp'], true) ? $provider : 'resend';
@@ -357,6 +371,43 @@ class ResendService
         return in_array($provider, ['resend', 'ses_smtp', 'smtp'], true) ? $provider : null;
     }
 
+    /**
+     * @return array{transport: array<string, mixed>, from_address: string, from_name: string}|null
+     */
+    private function resolveSmtpTransportConfig(Webinar $webinar): ?array
+    {
+        $owner = $webinar->relationLoaded('user') ? $webinar->user : $webinar->user()->first();
+        if (!$owner || !$owner->smtp_enabled) {
+            return null;
+        }
+
+        $host = trim((string) ($owner->smtp_host ?? ''));
+        $port = (int) ($owner->smtp_port ?? 0);
+        $fromAddress = trim((string) ($owner->smtp_from_address ?? ''));
+        $fromName = trim((string) ($owner->smtp_from_name ?? ''));
+
+        if ($host === '' || $port <= 0 || $fromAddress === '' || $fromName === '') {
+            return null;
+        }
+
+        $encryption = trim((string) ($owner->smtp_encryption ?? 'tls'));
+        $encryption = $encryption === 'none' ? '' : $encryption;
+
+        return [
+            'transport' => [
+                'transport' => 'smtp',
+                'host' => $host,
+                'port' => $port,
+                'encryption' => $encryption === '' ? null : $encryption,
+                'username' => $owner->smtp_username ?: null,
+                'password' => $owner->smtp_password ?: null,
+                'timeout' => null,
+            ],
+            'from_address' => $fromAddress,
+            'from_name' => $fromName,
+        ];
+    }
+
     private function buildWebinarEmailHtml(Webinar $webinar, WebinarRegistrant $registrant, string $intro): string
     {
         $joinLink = route('webinar.room', ['token' => $registrant->access_token]);
@@ -365,6 +416,7 @@ class ResendService
         $descriptionHtml = $webinarDescription !== ''
             ? $this->formatDescriptionForEmail($webinarDescription)
             : '';
+        $introHtml = $this->formatIntroForEmail($intro);
         $prefixedTitle = e($webinar->prefixedTitleLine());
 
         return "
@@ -379,7 +431,7 @@ class ResendService
                         <p style=\"margin:0 0 6px 0;font-size:14px;color:#6b7280;\">Hosted by <strong style=\"color:#111827;\">".e($webinar->host_name)."</strong></p>
                         {$descriptionHtml}
 
-                        <p style=\"margin:0 0 16px 0;color:#374151;font-size:15px;line-height:1.6;\">".e($intro)."</p>
+                        <div style=\"margin:0 0 16px 0;color:#374151;font-size:15px;line-height:1.6;\">{$introHtml}</div>
 
                         <div style=\"margin:14px 0 18px 0;\">
                             <a href=\"{$joinLink}\" style=\"display:inline-block;background:#2563eb;color:#ffffff;text-decoration:none;padding:12px 18px;border-radius:10px;font-weight:700;font-size:14px;\">Join Webinar</a>
@@ -422,6 +474,22 @@ class ResendService
         return '<div style="margin: 0 0 12px 0; color: #4b5563; font-size: 14px; line-height: 1.55;">'
             .$html
             .'</div>';
+    }
+
+    private function formatIntroForEmail(string $intro): string
+    {
+        $escaped = e(trim($intro));
+        if ($escaped === '') {
+            return '';
+        }
+
+        $withLineBreaks = nl2br($escaped);
+
+        return (string) preg_replace_callback(
+            '/(https?:\/\/[^\s<]+)/i',
+            static fn (array $matches): string => '<a href="'.$matches[1].'" style="color:#2563eb;text-decoration:underline;word-break:break-all;">'.$matches[1].'</a>',
+            $withLineBreaks,
+        );
     }
 
     private function postWithRateLimitRetry(string $apiKey, string $endpoint, array $payload, int $attempt = 0): ?Response

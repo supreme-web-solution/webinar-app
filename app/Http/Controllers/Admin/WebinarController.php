@@ -75,6 +75,7 @@ class WebinarController extends Controller
                     'send_confirmation' => true,
                     'send_reminder' => true,
                     'send_follow_up' => true,
+                    'auto_follow_up_profit_enabled' => true,
                 ],
                 'playback_settings' => [
                     'show_fake_viewers' => true,
@@ -86,9 +87,22 @@ class WebinarController extends Controller
                     'exit_popup_cta_text' => '',
                     'exit_popup_cta_url' => '',
                 ],
+                'ai_settings' => [
+                    'enabled' => false,
+                    'auto_reply_enabled' => true,
+                    'assistant_name' => 'Webinar AI Helper',
+                ],
                 'registration_settings' => $this->defaultRegistrationSettings(),
                 'offers' => [],
             ],
+            'aiSourceUrls' => [
+                'index' => null,
+                'url' => null,
+                'transcript' => null,
+                'file' => null,
+                'bulk_delete' => null,
+            ],
+            'aiSources' => [],
             'attendees' => [
                 'subscribed_total' => 0,
                 'subscribed' => [],
@@ -110,6 +124,7 @@ class WebinarController extends Controller
         $data = $this->normalizeTitlePrefixPayload($data);
         $data = $this->normalizeSchedulePayload($data);
         $data = $this->normalizePlaybackSettingsPayload($data);
+        $data = $this->normalizeAiSettingsPayload($data);
         $data = $this->normalizeRegistrationSettingsPayload($data);
         $data['user_id'] = Auth::id();
 
@@ -160,6 +175,7 @@ class WebinarController extends Controller
                     'send_confirmation' => true,
                     'send_reminder' => true,
                     'send_follow_up' => true,
+                    'auto_follow_up_profit_enabled' => true,
                 ],
                 'playback_settings' => array_merge([
                     'show_fake_viewers' => true,
@@ -172,6 +188,11 @@ class WebinarController extends Controller
                     'exit_popup_cta_url' => '',
                 ], is_array($webinar->playback_settings) ? $webinar->playback_settings : []),
                 'registration_settings' => $webinar->registration_settings ?? $this->defaultRegistrationSettings(),
+                'ai_settings' => array_merge([
+                    'enabled' => false,
+                    'auto_reply_enabled' => true,
+                    'assistant_name' => 'Webinar AI Helper',
+                ], is_array($webinar->ai_settings) ? $webinar->ai_settings : []),
                 'offers' => $webinar->offers()
                     ->orderBy('trigger_second')
                     ->get()
@@ -225,6 +246,14 @@ class WebinarController extends Controller
                 'bulk_unsubscribe_url' => route('admin.webinars.attendees.unsubscribe.bulk', ['webinar' => $webinar->id]),
                 'bulk_delete_url' => route('admin.webinars.attendees.delete.bulk', ['webinar' => $webinar->id]),
             ],
+            'aiSourceUrls' => [
+                'index' => route('admin.webinars.ai.sources.index', ['webinar' => $webinar->id]),
+                'url' => route('admin.webinars.ai.sources.url', ['webinar' => $webinar->id]),
+                'transcript' => route('admin.webinars.ai.sources.transcript', ['webinar' => $webinar->id]),
+                'file' => route('admin.webinars.ai.sources.file', ['webinar' => $webinar->id]),
+                'bulk_delete' => route('admin.webinars.ai.sources.delete.bulk', ['webinar' => $webinar->id]),
+            ],
+            'aiSources' => [],
             'timezoneOptions' => timezone_identifiers_list(),
             'stats' => [
                 'registrants' => $webinar->registrants()->count(),
@@ -234,6 +263,9 @@ class WebinarController extends Controller
                 'chat_messages' => $webinar->chatMessages()->count(),
                 'offers' => $webinar->offers()->count(),
                 'cta_clicks' => $webinar->analyticsEvents()->where('event_type', 'offer_cta_clicked')->count(),
+                'segment_below_50' => $webinar->registrants()->where('engagement_segment', 'below_50')->count(),
+                'segment_above_50' => $webinar->registrants()->where('engagement_segment', 'above_50')->count(),
+                'segment_completed_no_click' => $webinar->registrants()->where('engagement_segment', 'completed_no_click')->count(),
             ],
         ]);
     }
@@ -247,6 +279,7 @@ class WebinarController extends Controller
         $data = $this->normalizeTitlePrefixPayload($data);
         $data = $this->normalizeSchedulePayload($data);
         $data = $this->normalizePlaybackSettingsPayload($data);
+        $data = $this->normalizeAiSettingsPayload($data);
         $data = $this->normalizeRegistrationSettingsPayload($data);
 
         if (($data['is_published'] ?? false) && $webinar->published_at === null) {
@@ -497,6 +530,39 @@ class WebinarController extends Controller
             'exit_popup_body' => $exitPopupEnabled ? $exitPopupBody : '',
             'exit_popup_cta_text' => $exitPopupEnabled ? $exitPopupCtaText : '',
             'exit_popup_cta_url' => $exitPopupEnabled ? $exitPopupCtaUrl : '',
+        ];
+
+        return $data;
+    }
+
+    /**
+     * @param array<string, mixed> $data
+     * @return array<string, mixed>
+     */
+    private function normalizeAiSettingsPayload(array $data): array
+    {
+        $settings = is_array($data['ai_settings'] ?? null)
+            ? $data['ai_settings']
+            : [];
+
+        $enabled = (bool) ($settings['enabled'] ?? false);
+        $autoReplyEnabled = (bool) ($settings['auto_reply_enabled'] ?? true);
+        $assistantName = trim(strip_tags((string) ($settings['assistant_name'] ?? 'Webinar AI Helper')));
+
+        if ($assistantName === '') {
+            $assistantName = 'Webinar AI Helper';
+        }
+
+        if (function_exists('mb_substr')) {
+            $assistantName = mb_substr($assistantName, 0, 80);
+        } else {
+            $assistantName = substr($assistantName, 0, 80);
+        }
+
+        $data['ai_settings'] = [
+            'enabled' => $enabled,
+            'auto_reply_enabled' => $enabled ? $autoReplyEnabled : false,
+            'assistant_name' => $assistantName,
         ];
 
         return $data;

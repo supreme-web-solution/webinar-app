@@ -5,6 +5,7 @@ namespace App\Services;
 use App\Jobs\SendWebinarEmailsBatchJob;
 use App\Models\Webinar;
 use App\Models\WebinarRegistrant;
+use App\Services\WebinarProfitFollowUpService;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Log;
@@ -33,13 +34,19 @@ class WebinarLifecycleEmailService
 
             $sendReminder = (bool) data_get($webinar->email_settings, 'send_reminder', true);
             $sendFollowUp = (bool) data_get($webinar->email_settings, 'send_follow_up', true);
+            $useProfitFollowUp = (bool) data_get($webinar->email_settings, 'auto_follow_up_profit_enabled', true);
 
             if ($sendReminder && $now->greaterThanOrEqualTo($scheduleAt->copy()->subHour()) && $now->lessThan($endAt)) {
                 $remindersSent += $this->queueReminderEmails($webinar);
             }
 
             if ($sendFollowUp && $now->greaterThanOrEqualTo($endAt)) {
-                $followUpsSent += $this->queueFollowUpEmails($webinar);
+                if ($useProfitFollowUp) {
+                    $profitResult = app(WebinarProfitFollowUpService::class)->dispatchForWebinar($webinar);
+                    $followUpsSent += (int) ($profitResult['total_sent'] ?? 0);
+                } else {
+                    $followUpsSent += $this->queueFollowUpEmails($webinar);
+                }
             }
         }
 

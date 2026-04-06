@@ -30,6 +30,16 @@ type Defaults = {
         show_fake_viewers: boolean;
         redirect_enabled: boolean;
         redirect_url: string;
+        exit_popup_enabled: boolean;
+        exit_popup_heading: string;
+        exit_popup_body: string;
+        exit_popup_cta_text: string;
+        exit_popup_cta_url: string;
+    };
+    ai_settings: {
+        enabled: boolean;
+        auto_reply_enabled: boolean;
+        assistant_name: string;
     };
     registration_settings: {
         buttons: Array<{
@@ -54,6 +64,25 @@ type Defaults = {
 
 defineProps<{
     defaults: Defaults;
+    aiSourceUrls: {
+        index: string | null;
+        url: string | null;
+        transcript: string | null;
+        file: string | null;
+        bulk_delete: string | null;
+    };
+    aiSources: Array<{
+        id: number;
+        type: string;
+        title: string | null;
+        source_url: string | null;
+        status: string;
+        error_message: string | null;
+        processed_at: string | null;
+        chunk_count: number;
+        chunks_url: string;
+        delete_url: string;
+    }>;
     attendees: {
         subscribed_total: number;
         subscribed: Array<{ id: number; name: string; email: string; registered_at?: string | null; unsubscribe_url?: string }>;
@@ -100,6 +129,8 @@ const breadcrumbs: BreadcrumbItem[] = [
                 method="post"
                 action-url="/admin/webinars"    
                 :initial-values="defaults"
+                :ai-source-urls="aiSourceUrls"
+                :ai-sources="aiSources"
                 :attendees="attendees"
                 :attendee-import-url="attendeeImportUrl"
                 :attendee-action-urls="attendeeActionUrls"

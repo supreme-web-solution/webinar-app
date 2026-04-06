@@ -42,6 +42,9 @@ const props = defineProps<{
         total_registrants: number;
         total_views: number;
         total_chat_messages: number;
+        segment_below_50: number;
+        segment_above_50: number;
+        segment_completed_no_click: number;
     };
     recentWebinars: RecentWebinar[];
 }>();
@@ -142,6 +145,30 @@ const statCards = computed(() => [
         color: 'bg-amber-500/10 text-amber-600 dark:text-amber-400',
         trend: '+24%',
     },
+    // {
+    //     title: 'Below 50% Watch',
+    //     value: props.stats.segment_below_50.toLocaleString(),
+    //     sub: 'Needs stronger follow-up hook',
+    //     icon: 'solar:danger-circle-bold-duotone',
+    //     color: 'bg-rose-500/10 text-rose-600 dark:text-rose-400',
+    //     trend: null,
+    // },
+    // {
+    //     title: 'Above 50% Watch',
+    //     value: props.stats.segment_above_50.toLocaleString(),
+    //     sub: 'Warm leads near conversion',
+    //     icon: 'solar:chart-2-bold-duotone',
+    //     color: 'bg-sky-500/10 text-sky-600 dark:text-sky-400',
+    //     trend: null,
+    // },
+    // {
+    //     title: 'Completed No Click',
+    //     value: props.stats.segment_completed_no_click.toLocaleString(),
+    //     sub: 'High intent but CTA missed',
+    //     icon: 'solar:target-bold-duotone',
+    //     color: 'bg-orange-500/10 text-orange-600 dark:text-orange-400',
+    //     trend: null,
+    // },
 ]);
 </script>
 

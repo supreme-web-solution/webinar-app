@@ -23,6 +23,15 @@ class WebinarRegistrant extends Model
         'last_joined_at',
         'reminder_sent_at',
         'follow_up_sent_at',
+        'max_watch_duration_seconds',
+        'has_reached_50_percent',
+        'has_watched_to_end',
+        'has_offer_click',
+        'engagement_segment',
+        'engagement_segment_updated_at',
+        'follow_up_lt_50_sent_at',
+        'follow_up_gte_50_sent_at',
+        'follow_up_completed_no_click_sent_at',
         'is_subscribed',
     ];
 
@@ -34,6 +43,14 @@ class WebinarRegistrant extends Model
             'last_joined_at' => 'datetime',
             'reminder_sent_at' => 'datetime',
             'follow_up_sent_at' => 'datetime',
+            'max_watch_duration_seconds' => 'integer',
+            'has_reached_50_percent' => 'boolean',
+            'has_watched_to_end' => 'boolean',
+            'has_offer_click' => 'boolean',
+            'engagement_segment_updated_at' => 'datetime',
+            'follow_up_lt_50_sent_at' => 'datetime',
+            'follow_up_gte_50_sent_at' => 'datetime',
+            'follow_up_completed_no_click_sent_at' => 'datetime',
             'is_subscribed' => 'boolean',
         ];
     }

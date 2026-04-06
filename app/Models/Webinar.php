@@ -35,6 +35,7 @@ class Webinar extends Model
         'email_settings',
         'playback_settings',
         'registration_settings',
+        'ai_settings',
     ];
 
     protected function casts(): array
@@ -46,6 +47,7 @@ class Webinar extends Model
             'email_settings' => 'array',
             'playback_settings' => 'array',
             'registration_settings' => 'array',
+            'ai_settings' => 'array',
         ];
     }
 
@@ -95,6 +97,16 @@ class Webinar extends Model
     public function analyticsEvents(): HasMany
     {
         return $this->hasMany(AnalyticsEvent::class);
+    }
+
+    public function aiKnowledgeSources(): HasMany
+    {
+        return $this->hasMany(WebinarAiKnowledgeSource::class);
+    }
+
+    public function aiKnowledgeChunks(): HasMany
+    {
+        return $this->hasMany(WebinarAiKnowledgeChunk::class);
     }
 
     /**

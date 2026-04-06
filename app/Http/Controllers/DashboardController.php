@@ -35,6 +35,21 @@ class DashboardController extends Controller
             ->whereHas('webinar', fn ($q) => $q->where('user_id', $userId))
             ->count();
 
+        $below50Segment = WebinarRegistrant::query()
+            ->where('engagement_segment', 'below_50')
+            ->whereHas('webinar', fn ($q) => $q->where('user_id', $userId))
+            ->count();
+
+        $above50Segment = WebinarRegistrant::query()
+            ->where('engagement_segment', 'above_50')
+            ->whereHas('webinar', fn ($q) => $q->where('user_id', $userId))
+            ->count();
+
+        $completedNoClickSegment = WebinarRegistrant::query()
+            ->where('engagement_segment', 'completed_no_click')
+            ->whereHas('webinar', fn ($q) => $q->where('user_id', $userId))
+            ->count();
+
         $recentWebinars = Webinar::query()
             ->where('user_id', $userId)
             ->withCount(['registrants', 'views'])
@@ -73,6 +88,9 @@ class DashboardController extends Controller
                 'total_registrants' => $totalRegistrants,
                 'total_views' => $totalViews,
                 'total_chat_messages' => $totalChatMessages,
+                'segment_below_50' => $below50Segment,
+                'segment_above_50' => $above50Segment,
+                'segment_completed_no_click' => $completedNoClickSegment,
             ],
             'recentWebinars' => $recentWebinars,
         ]);

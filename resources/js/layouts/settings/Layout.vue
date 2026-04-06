@@ -23,6 +23,10 @@ const sidebarNavItems: NavItem[] = [
         title: 'Appearance',
         href: editAppearance(),
     },
+    {
+        title: 'SMTP',
+        href: '/settings/smtp',
+    },
 ];
 
 const { isCurrentOrParentUrl } = useCurrentUrl();

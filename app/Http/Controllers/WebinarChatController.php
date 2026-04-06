@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Events\WebinarChatMessageSent;
+use App\Jobs\GenerateWebinarAiReplyJob;
 use App\Models\ChatMessage;
 use App\Models\WebinarRegistrant;
 use Illuminate\Http\JsonResponse;
@@ -77,6 +78,7 @@ class WebinarChatController extends Controller
 
         Cache::forget("webinar:chat:{$registrant->access_token}");
         broadcast(new WebinarChatMessageSent($registrant->access_token, $message))->toOthers();
+        GenerateWebinarAiReplyJob::dispatch($registrant->id, $message->id);
 
         return response()->json([
             'message' => [

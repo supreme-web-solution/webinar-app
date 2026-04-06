@@ -72,7 +72,7 @@ class WebinarRoomController extends Controller
         // block re-entry to the room as well as any further emails.
         if ($registrant->is_subscribed !== true) {
             return Inertia::render('public/UnsubscribeResult', [
-                'webinarTitle' => $webinar->title,
+                'webinarTitle' => (string) ($payload['title'] ?? 'Webinar'),
                 'email' => $registrant->email,
             ]);
         }
@@ -125,6 +125,8 @@ class WebinarRoomController extends Controller
         if ($isNewView) {
             $registrant->update([
                 'last_joined_at' => $now,
+                'engagement_segment' => $registrant->engagement_segment ?: 'below_50',
+                'engagement_segment_updated_at' => $registrant->engagement_segment_updated_at ?: $now,
             ]);
 
             AnalyticsEvent::create([
@@ -161,7 +163,6 @@ class WebinarRoomController extends Controller
     public function trackOfferClick(Request $request, string $token, WebinarOffer $offer): JsonResponse
     {
         $registrant = WebinarRegistrant::query()
-            ->select(['id', 'webinar_id'])
             ->where('access_token', $token)
             ->firstOrFail();
 
@@ -187,6 +188,66 @@ class WebinarRoomController extends Controller
             'occurred_at' => Carbon::now(),
         ]);
 
+        $webinar = Webinar::query()
+            ->select(['id', 'video_duration_seconds'])
+            ->find($registrant->webinar_id);
+
+        if ($webinar) {
+            $this->applyRegistrantEngagement(
+                $registrant,
+                $webinar,
+                max((int) $registrant->max_watch_duration_seconds, (int) ($validated['elapsed_seconds'] ?? 0)),
+                (bool) $registrant->has_reached_50_percent,
+                (bool) $registrant->has_watched_to_end,
+                true,
+            );
+        }
+
+        return response()->json([
+            'tracked' => true,
+        ]);
+    }
+
+    public function trackCtaClick(Request $request, string $token): JsonResponse
+    {
+        $registrant = WebinarRegistrant::query()
+            ->where('access_token', $token)
+            ->firstOrFail();
+
+        $validated = $request->validate([
+            'source' => ['nullable', 'string', 'max:50'],
+            'url' => ['required', 'url', 'max:2048'],
+            'elapsed_seconds' => ['nullable', 'integer', 'min:0'],
+            'event_type' => ['nullable', 'string', 'in:webinar_cta_link_clicked,webinar_redirect_triggered'],
+        ]);
+
+        AnalyticsEvent::create([
+            'webinar_id' => $registrant->webinar_id,
+            'registrant_id' => $registrant->id,
+            'event_type' => $validated['event_type'] ?? 'webinar_cta_link_clicked',
+            'event_data' => [
+                'source' => $validated['source'] ?? 'unknown',
+                'url' => $validated['url'],
+                'elapsed_seconds' => $validated['elapsed_seconds'] ?? null,
+            ],
+            'occurred_at' => Carbon::now(),
+        ]);
+
+        $webinar = Webinar::query()
+            ->select(['id', 'video_duration_seconds'])
+            ->find($registrant->webinar_id);
+
+        if ($webinar) {
+            $this->applyRegistrantEngagement(
+                $registrant,
+                $webinar,
+                max((int) $registrant->max_watch_duration_seconds, (int) ($validated['elapsed_seconds'] ?? 0)),
+                (bool) $registrant->has_reached_50_percent,
+                (bool) $registrant->has_watched_to_end,
+                true,
+            );
+        }
+
         return response()->json([
             'tracked' => true,
         ]);
@@ -195,12 +256,15 @@ class WebinarRoomController extends Controller
     public function trackWatchMilestone(Request $request, string $token): JsonResponse
     {
         $registrant = WebinarRegistrant::query()
-            ->select(['id', 'webinar_id'])
             ->where('access_token', $token)
             ->firstOrFail();
 
+        $webinar = Webinar::query()
+            ->select(['id', 'video_duration_seconds'])
+            ->findOrFail($registrant->webinar_id);
+
         $validated = $request->validate([
-            'milestone' => ['required', 'string', 'in:watched_60_seconds,watched_to_end'],
+            'milestone' => ['required', 'string', 'in:watched_60_seconds,watched_50_percent,watched_to_end'],
             'watch_duration_seconds' => ['nullable', 'integer', 'min:0'],
         ]);
 
@@ -221,7 +285,7 @@ class WebinarRoomController extends Controller
         $now = Carbon::now();
 
         return match ($validated['milestone']) {
-            'watched_60_seconds' => (function () use ($view, $registrant, $now) {
+            'watched_60_seconds' => (function () use ($view, $registrant, $webinar, $now) {
                 $targetSeconds = 60;
 
                 // Update duration so admin stats can use `watch_duration_seconds >= 60`.
@@ -250,10 +314,59 @@ class WebinarRoomController extends Controller
                     ]);
                 }
 
+                $this->applyRegistrantEngagement(
+                    $registrant,
+                    $webinar,
+                    max((int) $registrant->max_watch_duration_seconds, $targetSeconds),
+                    (bool) $registrant->has_reached_50_percent,
+                    (bool) $registrant->has_watched_to_end,
+                    (bool) $registrant->has_offer_click,
+                );
+
                 return response()->json(['tracked' => true]);
             })(),
 
-            'watched_to_end' => (function () use ($view, $registrant, $validated, $now) {
+            'watched_50_percent' => (function () use ($view, $registrant, $webinar, $now) {
+                $targetSeconds = $this->halfwayThresholdSeconds($webinar);
+
+                if ($view->watch_duration_seconds < $targetSeconds) {
+                    $view->watch_duration_seconds = $targetSeconds;
+                    $view->save();
+                }
+
+                $alreadyTracked = AnalyticsEvent::query()
+                    ->where('view_id', $view->id)
+                    ->where('event_type', 'webinar_watched_50_percent')
+                    ->exists();
+
+                if (! $alreadyTracked) {
+                    AnalyticsEvent::create([
+                        'webinar_id' => $registrant->webinar_id,
+                        'registrant_id' => $registrant->id,
+                        'view_id' => $view->id,
+                        'event_type' => 'webinar_watched_50_percent',
+                        'event_data' => [
+                            'milestone_seconds' => $targetSeconds,
+                            'watch_duration_seconds' => $targetSeconds,
+                            'source' => 'public_room',
+                        ],
+                        'occurred_at' => $now,
+                    ]);
+                }
+
+                $this->applyRegistrantEngagement(
+                    $registrant,
+                    $webinar,
+                    max((int) $registrant->max_watch_duration_seconds, $targetSeconds),
+                    true,
+                    (bool) $registrant->has_watched_to_end,
+                    (bool) $registrant->has_offer_click,
+                );
+
+                return response()->json(['tracked' => true]);
+            })(),
+
+            'watched_to_end' => (function () use ($view, $registrant, $validated, $webinar, $now) {
                 // Only finalize once.
                 if ($view->left_at === null) {
                     $duration = $validated['watch_duration_seconds'] ?? null;
@@ -288,9 +401,63 @@ class WebinarRoomController extends Controller
                     ]);
                 }
 
+                $this->applyRegistrantEngagement(
+                    $registrant,
+                    $webinar,
+                    max((int) $registrant->max_watch_duration_seconds, (int) $view->watch_duration_seconds),
+                    true,
+                    true,
+                    (bool) $registrant->has_offer_click,
+                );
+
                 return response()->json(['tracked' => true]);
             })(),
         };
+    }
+
+    private function halfwayThresholdSeconds(Webinar $webinar): int
+    {
+        $durationSeconds = max(1, (int) ($webinar->video_duration_seconds ?? 5400));
+
+        return max(1, (int) floor($durationSeconds * 0.5) + 1);
+    }
+
+    private function resolveEngagementSegment(bool $hasReached50Percent, bool $hasWatchedToEnd, bool $hasOfferClick): string
+    {
+        if ($hasWatchedToEnd && ! $hasOfferClick) {
+            return 'completed_no_click';
+        }
+
+        if ($hasWatchedToEnd && $hasOfferClick) {
+            return 'completed_clicked';
+        }
+
+        if ($hasReached50Percent) {
+            return 'above_50';
+        }
+
+        return 'below_50';
+    }
+
+    private function applyRegistrantEngagement(
+        WebinarRegistrant $registrant,
+        Webinar $webinar,
+        int $maxWatchSeconds,
+        bool $hasReached50Percent,
+        bool $hasWatchedToEnd,
+        bool $hasOfferClick
+    ): void {
+        $resolvedReached50 = $hasReached50Percent || $maxWatchSeconds >= $this->halfwayThresholdSeconds($webinar);
+        $segment = $this->resolveEngagementSegment($resolvedReached50, $hasWatchedToEnd, $hasOfferClick);
+
+        $registrant->forceFill([
+            'max_watch_duration_seconds' => max((int) $registrant->max_watch_duration_seconds, $maxWatchSeconds),
+            'has_reached_50_percent' => $resolvedReached50,
+            'has_watched_to_end' => $hasWatchedToEnd,
+            'has_offer_click' => $hasOfferClick,
+            'engagement_segment' => $segment,
+            'engagement_segment_updated_at' => Carbon::now(),
+        ])->save();
     }
 
     /**

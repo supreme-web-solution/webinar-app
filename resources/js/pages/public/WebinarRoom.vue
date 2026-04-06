@@ -78,6 +78,7 @@ const droppedOffers = ref<Offer[]>([]);
 const iframeMuted = ref(true);
 const videoEnded = ref(false);
 const tracked60Seconds = ref(false);
+const tracked50Percent = ref(false);
 const trackedToEnd = ref(false);
 const iframeRef = ref<HTMLIFrameElement | null>(null);
 const directVideoRef = ref<HTMLVideoElement | null>(null);
@@ -90,8 +91,6 @@ const hasExitPopupConfig = computed(() => {
     const settings = props.webinar.playback_settings;
     return Boolean(settings?.exit_popup_enabled && settings?.exit_popup_cta_url?.trim());
 });
-
-const refreshIntentStorageKey = computed(() => `webinar-exit-intent-refresh-${props.webinar.id}`);
 
 let timer: ReturnType<typeof setInterval> | null = null;
 let viewersTimer: ReturnType<typeof setInterval> | null = null;
@@ -182,7 +181,7 @@ const trackOfferClick = async (offer: Offer, source: 'chat' | 'popup' | 'pinned'
 };
 
 const trackWatchMilestone = async (
-    milestone: 'watched_60_seconds' | 'watched_to_end',
+    milestone: 'watched_60_seconds' | 'watched_50_percent' | 'watched_to_end',
     watchDurationSeconds?: number,
 ): Promise<void> => {
     if (!props.chatToken) {
@@ -209,6 +208,40 @@ const trackWatchMilestone = async (
         });
     } catch {
         // Tracking should never block playback.
+    }
+};
+
+const trackGeneralCtaClick = async (
+    source: 'exit-popup' | 'redirect',
+    url: string,
+    eventType: 'webinar_cta_link_clicked' | 'webinar_redirect_triggered' = 'webinar_cta_link_clicked',
+): Promise<void> => {
+    if (!props.chatToken || !url.trim()) {
+        return;
+    }
+
+    const csrfToken = document
+        .querySelector('meta[name="csrf-token"]')
+        ?.getAttribute('content') ?? '';
+
+    try {
+        await fetch(`/webinar/${props.chatToken}/cta-click`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRF-TOKEN': csrfToken,
+                Accept: 'application/json',
+            },
+            keepalive: true,
+            body: JSON.stringify({
+                source,
+                url,
+                elapsed_seconds: elapsedSeconds.value,
+                event_type: eventType,
+            }),
+        });
+    } catch {
+        // Tracking should never block playback/redirect actions.
     }
 };
 
@@ -346,6 +379,14 @@ const prettyElapsed = computed(() => {
     return `${minutes}:${seconds}`;
 });
 
+const halfwayWatchThreshold = computed(() => {
+    const duration = props.webinar.video_duration_seconds && props.webinar.video_duration_seconds > 0
+        ? props.webinar.video_duration_seconds
+        : 5400;
+
+    return Math.max(1, Math.floor(duration * 0.5) + 1);
+});
+
 const pinnedStarterMessage = computed(() => {
     const name = props.registrant.name?.trim() ? props.registrant.name : 'Guest';
     return `Welcome ${name}! The webinar is starting now.`;
@@ -372,16 +413,15 @@ const dismissExitPopup = (): void => {
     exitPopupDismissed.value = true;
 };
 
-const onBeforeWindowUnload = (): void => {
+const onBeforeWindowUnload = (event: BeforeUnloadEvent): void => {
     if (!hasExitPopupConfig.value || props.roomEnded || props.accessRequired || videoEnded.value) {
         return;
     }
 
-    try {
-        sessionStorage.setItem(refreshIntentStorageKey.value, '1');
-    } catch {
-        // Ignore storage errors.
-    }
+    // Browsers do not allow custom modal UI during unload.
+    // Trigger native confirmation on refresh/close/navigation attempts.
+    event.preventDefault();
+    event.returnValue = '';
 };
 
 const stopAllTimers = (): void => {
@@ -452,6 +492,8 @@ const redirectAfterEndIfEnabled = (): void => {
         if (!['http:', 'https:'].includes(parsed.protocol)) {
             return;
         }
+
+        void trackGeneralCtaClick('redirect', parsed.toString(), 'webinar_redirect_triggered');
 
         window.location.href = parsed.toString();
     } catch {
@@ -568,6 +610,11 @@ const tryResumePlayback = (): void => {
 
 const tickTimeline = (): void => {
     elapsedSeconds.value += 1;
+
+    if (!tracked50Percent.value && elapsedSeconds.value >= halfwayWatchThreshold.value && props.chatToken) {
+        tracked50Percent.value = true;
+        void trackWatchMilestone('watched_50_percent', elapsedSeconds.value);
+    }
 
     if (!tracked60Seconds.value && elapsedSeconds.value >= 60 && props.chatToken) {
         tracked60Seconds.value = true;
@@ -799,15 +846,6 @@ const onDocumentVisibilityChange = (): void => {
 onMounted(() => {
     if (props.roomEnded || props.accessRequired) {
         return;
-    }
-
-    try {
-        if (sessionStorage.getItem(refreshIntentStorageKey.value) === '1') {
-            showExitPopup.value = true;
-            sessionStorage.removeItem(refreshIntentStorageKey.value);
-        }
-    } catch {
-        // Ignore storage errors.
     }
 
     window.addEventListener('message', onIframeMessage);
@@ -1297,7 +1335,11 @@ const submitAccess = (): void => {
                 <div class="min-w-0 flex-1">
                     <p class="text-[10px] font-bold uppercase tracking-wider text-amber-600">Special Offer</p>
                     <h3 class="mt-0.5 text-sm font-bold text-foreground">{{ popupOffer.title }}</h3>
-                    <p v-if="popupOffer.description" class="mt-1 text-xs text-muted-foreground">{{ popupOffer.description }}</p>
+                    <div
+                        v-if="popupOffer.description"
+                        class="prose prose-sm mt-1 max-h-28 overflow-y-auto text-xs text-muted-foreground prose-p:my-1 dark:prose-invert"
+                        v-html="popupOffer.description"
+                    />
                     <div class="mt-3 flex items-center gap-2">
                         <a
                             class="inline-flex items-center gap-1.5 rounded-xl bg-primary px-3.5 py-1.5 text-xs font-bold text-primary-foreground shadow-sm transition hover:bg-primary/90"
@@ -1367,7 +1409,14 @@ const submitAccess = (): void => {
                             target="_blank"
                             rel="noopener noreferrer"
                             class="inline-flex flex-1 items-center justify-center gap-2 rounded-xl bg-primary px-4 py-2.5 text-sm font-bold text-primary-foreground shadow-sm transition hover:bg-primary/90"
-                            @click="dismissExitPopup"
+                            @click="
+                                void trackGeneralCtaClick(
+                                    'exit-popup',
+                                    webinar.playback_settings.exit_popup_cta_url,
+                                    'webinar_cta_link_clicked',
+                                );
+                                dismissExitPopup();
+                            "
                         >
                             <Icon icon="solar:arrow-right-up-bold" class="size-4" />
                             {{ webinar.playback_settings.exit_popup_cta_text || 'Get the Offer' }}

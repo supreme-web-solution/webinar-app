@@ -5,13 +5,56 @@ import '@vueup/vue-quill/dist/vue-quill.snow.css';
 withDefaults(defineProps<{
     modelValue: string;
     placeholder?: string;
+    maxPlainTextLength?: number | null;
 }>(), {
     placeholder: 'Write description...',
+    maxPlainTextLength: null,
 });
 
 const emit = defineEmits<{
     (e: 'update:modelValue', value: string): void;
 }>();
+
+const getPlainTextFromHtml = (value: string): string =>
+    value
+        .replace(/<[^>]*>/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim();
+
+const escapeHtml = (value: string): string =>
+    value
+        .replaceAll('&', '&amp;')
+        .replaceAll('<', '&lt;')
+        .replaceAll('>', '&gt;')
+        .replaceAll('"', '&quot;')
+        .replaceAll("'", '&#39;');
+
+const toSafeParagraphHtml = (value: string): string => {
+    const trimmed = value.trim();
+    if (trimmed === '') {
+        return '';
+    }
+
+    return `<p>${escapeHtml(trimmed)}</p>`;
+};
+
+const onContentUpdate = (value: unknown): void => {
+    const html = typeof value === 'string' ? value : '';
+
+    if (maxPlainTextLength === null || maxPlainTextLength === undefined) {
+        emit('update:modelValue', html);
+        return;
+    }
+
+    const plain = getPlainTextFromHtml(html);
+    if (plain.length <= maxPlainTextLength) {
+        emit('update:modelValue', html);
+        return;
+    }
+
+    const clamped = plain.slice(0, maxPlainTextLength);
+    emit('update:modelValue', toSafeParagraphHtml(clamped));
+};
 
 const toolbar = [
     ['bold', 'italic', 'underline'],
@@ -29,7 +72,7 @@ const toolbar = [
             theme="snow"
             :toolbar="toolbar"
             :placeholder="placeholder"
-            @update:content="(value) => emit('update:modelValue', typeof value === 'string' ? value : '')"
+            @update:content="onContentUpdate"
         />
     </div>
 </template>

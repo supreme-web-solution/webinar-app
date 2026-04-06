@@ -24,6 +24,14 @@ class User extends Authenticatable
         'name',
         'email',
         'password',
+        'smtp_enabled',
+        'smtp_host',
+        'smtp_port',
+        'smtp_encryption',
+        'smtp_username',
+        'smtp_password',
+        'smtp_from_address',
+        'smtp_from_name',
     ];
 
     /**
@@ -36,6 +44,7 @@ class User extends Authenticatable
         'two_factor_secret',
         'two_factor_recovery_codes',
         'remember_token',
+        'smtp_password',
     ];
 
     /**
@@ -49,6 +58,9 @@ class User extends Authenticatable
             'email_verified_at' => 'datetime',
             'password' => 'hashed',
             'two_factor_confirmed_at' => 'datetime',
+            'smtp_enabled' => 'boolean',
+            'smtp_port' => 'integer',
+            'smtp_password' => 'encrypted',
         ];
     }
 

@@ -2,6 +2,7 @@
 
 use App\Http\Controllers\Settings\ProfileController;
 use App\Http\Controllers\Settings\SecurityController;
+use App\Http\Controllers\Settings\SmtpController;
 use Illuminate\Support\Facades\Route;
 
 Route::middleware(['auth'])->group(function () {
@@ -21,4 +22,8 @@ Route::middleware(['auth', 'verified'])->group(function () {
         ->name('user-password.update');
 
     Route::inertia('settings/appearance', 'settings/Appearance')->name('appearance.edit');
+
+    Route::get('settings/smtp', [SmtpController::class, 'edit'])->name('smtp.edit');
+    Route::patch('settings/smtp', [SmtpController::class, 'update'])->name('smtp.update');
+    Route::post('settings/smtp/test', [SmtpController::class, 'test'])->name('smtp.test');
 });
