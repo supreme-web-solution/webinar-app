@@ -43,10 +43,13 @@ class WebinarVideoTranscriptService
 
         try {
             $this->assertFfmpegAvailable($ffmpegBin);
+            $this->assertYtDlpAvailable($ytDlpBin);
 
             $audioPath = $workingDir.DIRECTORY_SEPARATOR.'audio_clean.wav';
             $chunkPattern = $workingDir.DIRECTORY_SEPARATOR.'chunk_%03d.wav';
-            $extractInput = $this->resolveStreamUrlWithYtDlp($videoUrl, $ytDlpBin) ?? $videoUrl;
+            $extractInput = $this->shouldDownloadWithYtDlp($videoUrl)
+                ? $this->downloadAudioWithYtDlp($videoUrl, $ytDlpBin, $workingDir)
+                : $videoUrl;
 
             // Single pass extraction + normalization gives Whisper-ready audio.
             $extractProcess = new Process([
@@ -187,43 +190,81 @@ class WebinarVideoTranscriptService
         }
     }
 
-    private function resolveStreamUrlWithYtDlp(string $videoUrl, string $ytDlpBin): ?string
+    private function assertYtDlpAvailable(string $ytDlpBin): void
     {
-        $host = strtolower((string) parse_url($videoUrl, PHP_URL_HOST));
-
-        if ($host === '' || ! preg_match('/youtube\.com|youtu\.be|vimeo\.com/u', $host)) {
-            return null;
-        }
-
         $versionProcess = new Process([$ytDlpBin, '--version']);
         $versionProcess->setTimeout(15);
         $versionProcess->run();
 
         if (! $versionProcess->isSuccessful()) {
             throw new \RuntimeException(sprintf(
-                'yt-dlp is required for YouTube/Vimeo URLs but is unavailable at "%s". Error: %s',
+                'yt-dlp is unavailable at "%s". Error: %s',
                 $ytDlpBin,
                 trim($versionProcess->getErrorOutput()) ?: 'command failed',
             ));
         }
+    }
 
-        $process = new Process([$ytDlpBin, '-g', '--no-playlist', $videoUrl]);
-        $process->setTimeout(60);
+    private function shouldDownloadWithYtDlp(string $videoUrl): bool
+    {
+        $host = strtolower((string) parse_url($videoUrl, PHP_URL_HOST));
+        $path = strtolower((string) parse_url($videoUrl, PHP_URL_PATH));
+
+        if ($host === '') {
+            return false;
+        }
+
+        if (preg_match('/youtube\.com|youtu\.be|vimeo\.com|vimeocdn\.com/u', $host)) {
+            return true;
+        }
+
+        if (str_ends_with($path, '.m3u8') || str_ends_with($path, '.mpd')) {
+            return true;
+        }
+
+        return false;
+    }
+
+    private function downloadAudioWithYtDlp(string $videoUrl, string $ytDlpBin, string $workingDir): string
+    {
+        $outputTemplate = $workingDir.DIRECTORY_SEPARATOR.'source_audio.%(ext)s';
+
+        $process = new Process([
+            $ytDlpBin,
+            '--no-playlist',
+            '--restrict-filenames',
+            '-f',
+            'bestaudio/best',
+            '-x',
+            '--audio-format',
+            'wav',
+            '-o',
+            $outputTemplate,
+            $videoUrl,
+        ]);
+        $process->setTimeout(1800);
         $process->run();
 
         if (! $process->isSuccessful()) {
-            throw new \RuntimeException('yt-dlp failed to resolve video stream URL: '.trim($process->getErrorOutput()));
+            $error = trim($process->getErrorOutput());
+
+            if (str_contains(mb_strtolower($error), 'sign in to confirm')) {
+                throw new \RuntimeException('Video provider blocked anonymous extraction for this URL. Use a public direct media URL (mp4) or a different public video.');
+            }
+
+            throw new \RuntimeException('yt-dlp failed to download audio: '.$error);
         }
 
-        $lines = preg_split('/\r\n|\r|\n/', trim($process->getOutput())) ?: [];
-        foreach ($lines as $line) {
-            $candidate = trim($line);
-            if ($candidate !== '') {
-                return $candidate;
+        $files = glob($workingDir.DIRECTORY_SEPARATOR.'source_audio.*') ?: [];
+        sort($files);
+
+        foreach ($files as $file) {
+            if (is_file($file)) {
+                return $file;
             }
         }
 
-        throw new \RuntimeException('yt-dlp did not return a playable media URL.');
+        throw new \RuntimeException('yt-dlp completed but no audio file was generated.');
     }
 
     private function deleteDirectory(string $path): void
