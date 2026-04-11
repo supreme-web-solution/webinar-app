@@ -63,6 +63,15 @@ return [
         'api_key' => env('OPENAI_API_KEY'),
         'chat_model' => env('OPENAI_CHAT_MODEL', 'gpt-4o-mini'),
         'embedding_model' => env('OPENAI_EMBEDDING_MODEL', 'text-embedding-3-small'),
+        'transcription_model' => env('OPENAI_TRANSCRIPTION_MODEL', 'whisper-1'),
+    ],
+
+    'ai_transcript' => [
+        'ffmpeg_bin' => env('FFMPEG_BIN', 'ffmpeg'),
+        'yt_dlp_bin' => env('YT_DLP_BIN', 'yt-dlp'),
+        'chunk_seconds' => (int) env('AI_TRANSCRIPT_CHUNK_SECONDS', 300),
+        'ffmpeg_timeout_seconds' => (int) env('AI_TRANSCRIPT_FFMPEG_TIMEOUT_SECONDS', 7200),
+        'openai_timeout_seconds' => (int) env('AI_TRANSCRIPT_OPENAI_TIMEOUT_SECONDS', 180),
     ],
 
     'scrapingbee' => [

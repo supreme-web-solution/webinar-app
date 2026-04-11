@@ -68,6 +68,7 @@ defineProps<{
         index: string | null;
         url: string | null;
         transcript: string | null;
+        video_transcript_generate: string | null;
         file: string | null;
         bulk_delete: string | null;
     };

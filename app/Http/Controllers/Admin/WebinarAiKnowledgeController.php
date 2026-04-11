@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Admin;
 
 use App\Http\Controllers\Controller;
+use App\Jobs\GenerateWebinarVideoTranscriptJob;
 use App\Jobs\IngestWebinarKnowledgeSourceJob;
 use App\Models\Webinar;
 use App\Models\WebinarAiKnowledgeSource;
@@ -138,6 +139,55 @@ class WebinarAiKnowledgeController extends Controller
             ->onQueue((string) config('services.queues.ai_ingest', 'ai-ingest'));
 
         return back()->with('success', 'Transcript queued for AI knowledge ingestion.');
+    }
+
+    public function generateTranscriptFromVideo(Request $request, Webinar $webinar): JsonResponse
+    {
+        $this->authorizeWebinar($webinar);
+        $this->ensureSourceLimitNotReached($webinar);
+
+        $validated = $request->validate([
+            'title' => ['nullable', 'string', 'max:160'],
+            'video_url' => ['nullable', 'url', 'max:2048'],
+        ]);
+
+        $inputVideoUrl = trim((string) ($validated['video_url'] ?? ''));
+        $videoUrl = $inputVideoUrl !== ''
+            ? $inputVideoUrl
+            : trim((string) ($webinar->video_url ?? ''));
+
+        if ($videoUrl === '') {
+            return response()->json([
+                'message' => 'Provide a video URL first in the Video step, then try again.',
+            ], 422);
+        }
+
+        if ($inputVideoUrl !== '' && $webinar->video_url !== $inputVideoUrl) {
+            $webinar->update([
+                'video_url' => $inputVideoUrl,
+            ]);
+        }
+
+        $source = WebinarAiKnowledgeSource::create([
+            'webinar_id' => $webinar->id,
+            'source_type' => 'video_transcript',
+            'title' => trim((string) ($validated['title'] ?? '')) ?: 'Video Transcript',
+            'source_url' => $videoUrl,
+            'status' => 'queued',
+            'meta' => [
+                'origin' => 'video_url',
+                'transcription_status' => 'queued',
+            ],
+        ]);
+
+        GenerateWebinarVideoTranscriptJob::dispatch($source->id)
+            ->onQueue((string) config('services.queues.ai_ingest', 'ai-ingest'));
+
+        return response()->json([
+            'message' => 'Transcript generation started in background. It will appear in sources once ready.',
+            'source_id' => $source->id,
+            'video_url' => $videoUrl,
+        ]);
     }
 
     public function storeFile(Request $request, Webinar $webinar, WebinarKnowledgeIngestionService $ingestionService): RedirectResponse

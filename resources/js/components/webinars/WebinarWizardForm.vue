@@ -96,6 +96,7 @@ const props = defineProps<{
         index: string | null;
         url: string | null;
         transcript: string | null;
+        video_transcript_generate: string | null;
         file: string | null;
         bulk_delete: string | null;
     };
@@ -320,6 +321,9 @@ const aiFileForm = useForm<{
 });
 
 const aiSourceMode = ref<'url' | 'transcript' | 'file'>('url');
+const aiVideoTranscriptModalOpen = ref(false);
+const aiVideoTranscriptGenerating = ref(false);
+const aiVideoTranscriptUrlInput = ref('');
 const AI_SOURCE_LIMIT = 3;
 const aiSourcesList = ref(props.aiSources ?? []);
 const aiSourcesMeta = ref({
@@ -632,6 +636,71 @@ const submitAiTranscriptSource = (): void => {
             }
         },
     });
+};
+
+const submitVideoTranscriptGeneration = async (videoUrlInput?: string): Promise<void> => {
+    if (aiSourceLimitReached.value) {
+        showToast(`Source limit reached (${AI_SOURCE_LIMIT}). Delete one source to add another.`);
+        return;
+    }
+
+    if (!props.aiSourceUrls.video_transcript_generate) {
+        showToast('AI video transcript endpoint is not configured.');
+        return;
+    }
+
+    const explicitUrl = (videoUrlInput ?? '').trim();
+    const existingUrl = form.video_url.trim();
+    const resolvedUrl = explicitUrl || existingUrl;
+
+    if (!resolvedUrl) {
+        aiVideoTranscriptUrlInput.value = '';
+        aiVideoTranscriptModalOpen.value = true;
+        return;
+    }
+
+    aiVideoTranscriptGenerating.value = true;
+    try {
+        const response = await fetch(props.aiSourceUrls.video_transcript_generate, {
+            method: 'POST',
+            headers: {
+                Accept: 'application/json',
+                'Content-Type': 'application/json',
+                'X-CSRF-TOKEN': csrfToken(),
+            },
+            body: JSON.stringify({
+                title: aiTranscriptForm.title || 'Video Transcript',
+                video_url: explicitUrl || undefined,
+            }),
+        });
+
+        if (!response.ok) {
+            showToast(await extractErrorMessage(response, 'Failed to queue transcript generation.'));
+            return;
+        }
+
+        const payload = await response.json() as {
+            message?: string;
+            video_url?: string;
+        };
+
+        if (payload.video_url && payload.video_url !== form.video_url) {
+            form.video_url = payload.video_url;
+        }
+
+        aiVideoTranscriptModalOpen.value = false;
+        aiVideoTranscriptUrlInput.value = '';
+        showToast(payload.message || 'Video transcript generation queued.');
+        await loadAiSources(1);
+    } catch {
+        showToast('Failed to queue transcript generation.');
+    } finally {
+        aiVideoTranscriptGenerating.value = false;
+    }
+};
+
+const confirmVideoTranscriptGenerationFromModal = (): void => {
+    void submitVideoTranscriptGeneration(aiVideoTranscriptUrlInput.value);
 };
 
 const onAiFileSelected = (event: Event): void => {
@@ -2331,15 +2400,63 @@ const stepMeta: Array<{ icon: string; color: string }> = [
                                         placeholder="Paste your full video transcript here…"
                                     />
                                 </div>
-                                <div>
+                                <div class="flex flex-wrap items-center gap-2">
                                     <Button type="button" class="bg-violet-600 text-white hover:bg-violet-700" @click="submitAiTranscriptSource">
                                         <Icon icon="solar:add-circle-bold-duotone" class="mr-1.5 size-4" />
                                         Add Transcript
                                     </Button>
+                                    <Button
+                                        type="button"
+                                        variant="outline"
+                                        :disabled="aiVideoTranscriptGenerating"
+                                        @click="void submitVideoTranscriptGeneration()"
+                                    >
+                                        <Icon
+                                            :icon="aiVideoTranscriptGenerating ? 'svg-spinners:3-dots-fade' : 'solar:clapperboard-text-bold-duotone'"
+                                            class="mr-1.5 size-4"
+                                        />
+                                        Generate from Video URL
+                                    </Button>
                                 </div>
+                                <p class="text-[11px] text-muted-foreground">
+                                    Uses the Video step URL, extracts audio with FFmpeg, splits into chunks, transcribes, then trains AI automatically.
+                                </p>
                             </div>
 
-                            <!-- File form -->
+                            <Dialog :open="aiVideoTranscriptModalOpen" @update:open="aiVideoTranscriptModalOpen = $event">
+                                <DialogContent class="sm:max-w-lg">
+                                    <DialogHeader>
+                                        <DialogTitle>Video URL Required</DialogTitle>
+                                        <DialogDescription>
+                                            Add the webinar video URL to generate transcript automatically. This URL will also be saved in the Video step.
+                                        </DialogDescription>
+                                    </DialogHeader>
+
+                                    <div class="grid gap-2 py-1">
+                                        <Label for="ai_video_transcript_url">Video URL</Label>
+                                        <Input
+                                            id="ai_video_transcript_url"
+                                            v-model="aiVideoTranscriptUrlInput"
+                                            placeholder="https://example.com/video.mp4"
+                                            type="url"
+                                        />
+                                    </div>
+
+                                    <DialogFooter>
+                                        <Button type="button" variant="ghost" :disabled="aiVideoTranscriptGenerating" @click="aiVideoTranscriptModalOpen = false">
+                                            Cancel
+                                        </Button>
+                                        <Button type="button" :disabled="aiVideoTranscriptGenerating" @click="confirmVideoTranscriptGenerationFromModal">
+                                            <Icon
+                                                :icon="aiVideoTranscriptGenerating ? 'svg-spinners:3-dots-fade' : 'solar:subtitles-bold-duotone'"
+                                                class="mr-1.5 size-4"
+                                            />
+                                            Generate Transcript
+                                        </Button>
+                                    </DialogFooter>
+                                </DialogContent>
+                            </Dialog>
+
                             <div v-if="aiSourceMode === 'file'" class="grid gap-4 border-t border-border/50 p-4">
                                 <div class="grid gap-3 sm:grid-cols-[1fr_auto_auto] sm:items-end">
                                     <div class="grid gap-1.5">

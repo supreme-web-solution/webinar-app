@@ -35,6 +35,7 @@ Route::middleware(['auth', 'verified'])->group(function () {
         Route::get('webinars/{webinar}/ai/sources/{source}/chunks', [WebinarAiKnowledgeController::class, 'sourceChunks'])->name('webinars.ai.sources.chunks');
         Route::post('webinars/{webinar}/ai/sources/url', [WebinarAiKnowledgeController::class, 'storeUrl'])->name('webinars.ai.sources.url');
         Route::post('webinars/{webinar}/ai/sources/transcript', [WebinarAiKnowledgeController::class, 'storeTranscript'])->name('webinars.ai.sources.transcript');
+        Route::post('webinars/{webinar}/ai/sources/transcript-from-video', [WebinarAiKnowledgeController::class, 'generateTranscriptFromVideo'])->name('webinars.ai.sources.transcript.video');
         Route::post('webinars/{webinar}/ai/sources/file', [WebinarAiKnowledgeController::class, 'storeFile'])->name('webinars.ai.sources.file');
         Route::delete('webinars/{webinar}/ai/sources/{source}', [WebinarAiKnowledgeController::class, 'destroy'])->name('webinars.ai.sources.delete');
         Route::post('webinars/{webinar}/ai/sources/delete-bulk', [WebinarAiKnowledgeController::class, 'bulkDestroy'])->name('webinars.ai.sources.delete.bulk');
