@@ -91,6 +91,7 @@ return [
     'queues' => [
         'emails' => env('QUEUE_EMAILS_NAME', 'emails'),
         'apollo_fetch' => env('QUEUE_APOLLO_FETCH_NAME', 'apollo-fetch'),
+        'ai_transcript' => env('QUEUE_AI_TRANSCRIPT_NAME', 'ai-transcript'),
         'ai_ingest' => env('QUEUE_AI_INGEST_NAME', 'ai-ingest'),
         'ai_chat' => env('QUEUE_AI_CHAT_NAME', 'ai-chat'),
     ],

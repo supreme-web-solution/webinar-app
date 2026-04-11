@@ -168,6 +168,22 @@ class WebinarAiKnowledgeController extends Controller
             ]);
         }
 
+        $existingVideoSource = WebinarAiKnowledgeSource::query()
+            ->where('webinar_id', $webinar->id)
+            ->where('source_type', 'video_transcript')
+            ->where('source_url', $videoUrl)
+            ->whereIn('status', ['queued', 'processing'])
+            ->latest('id')
+            ->first();
+
+        if ($existingVideoSource) {
+            return response()->json([
+                'message' => 'Transcript generation is already running for this video URL.',
+                'source_id' => $existingVideoSource->id,
+                'video_url' => $videoUrl,
+            ]);
+        }
+
         $source = WebinarAiKnowledgeSource::create([
             'webinar_id' => $webinar->id,
             'source_type' => 'video_transcript',
@@ -181,7 +197,7 @@ class WebinarAiKnowledgeController extends Controller
         ]);
 
         GenerateWebinarVideoTranscriptJob::dispatch($source->id)
-            ->onQueue((string) config('services.queues.ai_ingest', 'ai-ingest'));
+            ->onQueue((string) config('services.queues.ai_transcript', 'ai-transcript'));
 
         return response()->json([
             'message' => 'Transcript generation started in background. It will appear in sources once ready.',
