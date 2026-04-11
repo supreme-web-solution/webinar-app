@@ -116,10 +116,11 @@ const statCards = computed(() => [
     {
         title: 'Total Webinars',
         value: props.stats.total_webinars,
-        sub: `${props.stats.published_webinars} published Â· ${props.stats.draft_webinars} draft`,
+        sub: `${props.stats.published_webinars} published · ${props.stats.draft_webinars} draft`,
         icon: 'solar:monitor-camera-bold-duotone',
         color: 'bg-indigo-500/10 text-indigo-600 dark:text-indigo-400',
         trend: null,
+        info: 'Total number of webinars created, including both published and draft webinars.'
     },
     {
         title: 'Registrants',
@@ -128,6 +129,7 @@ const statCards = computed(() => [
         icon: 'solar:users-group-rounded-bold-duotone',
         color: 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400',
         trend: '+12%',
+        info: 'Unique users who registered for any webinar. Counted by email address.'
     },
     {
         title: 'Room Views',
@@ -136,6 +138,7 @@ const statCards = computed(() => [
         icon: 'solar:eye-bold-duotone',
         color: 'bg-violet-500/10 text-violet-600 dark:text-violet-400',
         trend: '+8%',
+        info: 'Total number of times a webinar room was joined. Multiple joins by the same user are counted.'
     },
     {
         title: 'Chat Messages',
@@ -144,6 +147,7 @@ const statCards = computed(() => [
         icon: 'solar:chat-round-dots-bold-duotone',
         color: 'bg-amber-500/10 text-amber-600 dark:text-amber-400',
         trend: '+24%',
+        info: 'Total number of chat messages sent by hosts and attendees during webinars.'
     },
     // {
     //     title: 'Below 50% Watch',
@@ -220,8 +224,14 @@ const statCards = computed(() => [
                     class="border border-border/60 shadow-sm bg-card hover:shadow-md transition-shadow"
                 >
                     <CardHeader class="flex flex-row items-start justify-between space-y-0 pb-2 pt-4 px-5">
-                        <CardTitle class="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                        <CardTitle class="text-xs font-semibold uppercase tracking-wider text-muted-foreground flex items-center gap-1">
                             {{ card.title }}
+                            <span class="relative group">
+                                <Icon icon="solar:info-circle-bold" class="size-3.5 cursor-pointer text-muted-foreground/70 hover:text-primary" />
+                                <span class="absolute left-1/2 z-10 mt-2 w-56 -translate-x-1/2 rounded bg-background px-3 py-2 text-xs text-foreground shadow-lg opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none border border-border" style="white-space:normal;">
+                                    {{ card.info }}
+                                </span>
+                            </span>
                         </CardTitle>
                         <div :class="`flex h-9 w-9 items-center justify-center rounded-xl ${card.color}`">
                             <Icon :icon="card.icon" class="size-4" />
