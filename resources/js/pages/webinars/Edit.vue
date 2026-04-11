@@ -178,44 +178,124 @@ const copyLink = async (value: string, label: string): Promise<void> => {
                     </div>
                 </div>
                 <div class="grid grid-cols-2 gap-2 text-sm md:grid-cols-5">
-                    <div class="rounded-md border px-3 py-2">
-                        <p class="text-muted-foreground">Registrants</p>
+                    <div class="rounded-md border px-3 py-2 relative group">
+                        <p class="text-muted-foreground flex items-center gap-1">
+                            Registrants
+                            <span class="ml-1 cursor-pointer">
+                                <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 text-muted-foreground" fill="none" viewBox="0 0 24 24" stroke="currentColor"><circle cx="12" cy="12" r="10" stroke-width="2"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 16v-4m0-4h.01"/></svg>
+                                <span class="absolute left-0 z-10 hidden w-48 rounded bg-background p-2 text-xs text-foreground shadow group-hover:block">
+                                    Total number of unique users who registered for this webinar.
+                                </span>
+                            </span>
+                        </p>
                         <p class="font-semibold">{{ stats.registrants }}</p>
                     </div>
-                    <div class="rounded-md border px-3 py-2">
-                        <p class="text-muted-foreground">Views</p>
+                    <div class="rounded-md border px-3 py-2 relative group">
+                        <p class="text-muted-foreground flex items-center gap-1">
+                            Views
+                            <span class="ml-1 cursor-pointer">
+                                <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 text-muted-foreground" fill="none" viewBox="0 0 24 24" stroke="currentColor"><circle cx="12" cy="12" r="10" stroke-width="2"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 16v-4m0-4h.01"/></svg>
+                                <span class="absolute left-0 z-10 hidden w-48 rounded bg-background p-2 text-xs text-foreground shadow group-hover:block">
+                                    Total number of times the webinar room was joined (unique per session, not per user).
+                                </span>
+                            </span>
+                        </p>
                         <p class="font-semibold">{{ stats.views }}</p>
                     </div>
-                    <div class="rounded-md border px-3 py-2">
-                        <p class="text-muted-foreground">Watched 60s+</p>
+                    <div class="rounded-md border px-3 py-2 relative group">
+                        <p class="text-muted-foreground flex items-center gap-1">
+                            Watched 60s+
+                            <span class="ml-1 cursor-pointer">
+                                <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 text-muted-foreground" fill="none" viewBox="0 0 24 24" stroke="currentColor"><circle cx="12" cy="12" r="10" stroke-width="2"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 16v-4m0-4h.01"/></svg>
+                                <span class="absolute left-0 z-10 hidden w-48 rounded bg-background p-2 text-xs text-foreground shadow group-hover:block">
+                                    Number of viewers who watched at least 60 seconds of the webinar.
+                                </span>
+                            </span>
+                        </p>
                         <p class="font-semibold">{{ stats.views_60_seconds }}</p>
                     </div>
-                    <div class="rounded-md border px-3 py-2">
-                        <p class="text-muted-foreground">Watched to End</p>
+                    <div class="rounded-md border px-3 py-2 relative group">
+                        <p class="text-muted-foreground flex items-center gap-1">
+                            Watched to End
+                            <span class="ml-1 cursor-pointer">
+                                <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 text-muted-foreground" fill="none" viewBox="0 0 24 24" stroke="currentColor"><circle cx="12" cy="12" r="10" stroke-width="2"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 16v-4m0-4h.01"/></svg>
+                                <span class="absolute left-0 z-10 hidden w-48 rounded bg-background p-2 text-xs text-foreground shadow group-hover:block">
+                                    Number of viewers who watched until the end of the webinar video.
+                                </span>
+                            </span>
+                        </p>
                         <p class="font-semibold">{{ stats.views_watched_to_end }}</p>
                     </div>
-                    <div class="rounded-md border px-3 py-2">
-                        <p class="text-muted-foreground">Messages</p>
+                    <div class="rounded-md border px-3 py-2 relative group">
+                        <p class="text-muted-foreground flex items-center gap-1">
+                            Messages
+                            <span class="ml-1 cursor-pointer">
+                                <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 text-muted-foreground" fill="none" viewBox="0 0 24 24" stroke="currentColor"><circle cx="12" cy="12" r="10" stroke-width="2"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 16v-4m0-4h.01"/></svg>
+                                <span class="absolute left-0 z-10 hidden w-48 rounded bg-background p-2 text-xs text-foreground shadow group-hover:block">
+                                    Total chat messages sent by attendees during the webinar.
+                                </span>
+                            </span>
+                        </p>
                         <p class="font-semibold">{{ stats.chat_messages }}</p>
                     </div>
-                    <div class="rounded-md border px-3 py-2">
-                        <p class="text-muted-foreground">Offers</p>
+                    <div class="rounded-md border px-3 py-2 relative group">
+                        <p class="text-muted-foreground flex items-center gap-1">
+                            Offers
+                            <span class="ml-1 cursor-pointer">
+                                <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 text-muted-foreground" fill="none" viewBox="0 0 24 24" stroke="currentColor"><circle cx="12" cy="12" r="10" stroke-width="2"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 16v-4m0-4h.01"/></svg>
+                                <span class="absolute left-0 z-10 hidden w-48 rounded bg-background p-2 text-xs text-foreground shadow group-hover:block">
+                                    Number of unique offer popups shown to attendees.
+                                </span>
+                            </span>
+                        </p>
                         <p class="font-semibold">{{ stats.offers }}</p>
                     </div>
-                    <div class="rounded-md border px-3 py-2">
-                        <p class="text-muted-foreground">CTA Clicks</p>
+                    <div class="rounded-md border px-3 py-2 relative group">
+                        <p class="text-muted-foreground flex items-center gap-1">
+                            CTA Clicks
+                            <span class="ml-1 cursor-pointer">
+                                <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 text-muted-foreground" fill="none" viewBox="0 0 24 24" stroke="currentColor"><circle cx="12" cy="12" r="10" stroke-width="2"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 16v-4m0-4h.01"/></svg>
+                                <span class="absolute left-0 z-10 hidden w-48 rounded bg-background p-2 text-xs text-foreground shadow group-hover:block">
+                                    Number of times attendees clicked a call-to-action button.
+                                </span>
+                            </span>
+                        </p>
                         <p class="font-semibold">{{ stats.cta_clicks }}</p>
                     </div>
-                    <div class="rounded-md border px-3 py-2">
-                        <p class="text-muted-foreground">Below 50%</p>
+                    <div class="rounded-md border px-3 py-2 relative group">
+                        <p class="text-muted-foreground flex items-center gap-1">
+                            Below 50%
+                            <span class="ml-1 cursor-pointer">
+                                <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 text-muted-foreground" fill="none" viewBox="0 0 24 24" stroke="currentColor"><circle cx="12" cy="12" r="10" stroke-width="2"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 16v-4m0-4h.01"/></svg>
+                                <span class="absolute left-0 z-10 hidden w-48 rounded bg-background p-2 text-xs text-foreground shadow group-hover:block">
+                                    Attendees who watched less than 50% of the webinar.
+                                </span>
+                            </span>
+                        </p>
                         <p class="font-semibold">{{ stats.segment_below_50 }}</p>
                     </div>
-                    <div class="rounded-md border px-3 py-2">
-                        <p class="text-muted-foreground">Above 50%</p>
+                    <div class="rounded-md border px-3 py-2 relative group">
+                        <p class="text-muted-foreground flex items-center gap-1">
+                            Above 50%
+                            <span class="ml-1 cursor-pointer">
+                                <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 text-muted-foreground" fill="none" viewBox="0 0 24 24" stroke="currentColor"><circle cx="12" cy="12" r="10" stroke-width="2"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 16v-4m0-4h.01"/></svg>
+                                <span class="absolute left-0 z-10 hidden w-48 rounded bg-background p-2 text-xs text-foreground shadow group-hover:block">
+                                    Attendees who watched more than 50% of the webinar.
+                                </span>
+                            </span>
+                        </p>
                         <p class="font-semibold">{{ stats.segment_above_50 }}</p>
                     </div>
-                    <div class="rounded-md border px-3 py-2">
-                        <p class="text-muted-foreground">Completed No Click</p>
+                    <div class="rounded-md border px-3 py-2 relative group">
+                        <p class="text-muted-foreground flex items-center gap-1">
+                            Completed No Click
+                            <span class="ml-1 cursor-pointer">
+                                <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 text-muted-foreground" fill="none" viewBox="0 0 24 24" stroke="currentColor"><circle cx="12" cy="12" r="10" stroke-width="2"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 16v-4m0-4h.01"/></svg>
+                                <span class="absolute left-0 z-10 hidden w-48 rounded bg-background p-2 text-xs text-foreground shadow group-hover:block">
+                                    Attendees who watched to the end but did not click any CTA.
+                                </span>
+                            </span>
+                        </p>
                         <p class="font-semibold">{{ stats.segment_completed_no_click }}</p>
                     </div>
                 </div>
