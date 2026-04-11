@@ -16,6 +16,8 @@ use Inertia\Response;
 
 class WebinarRoomController extends Controller
 {
+    private const ACTIVE_VIEW_REUSE_SECONDS = 120;
+
     public function showPublic(Webinar $webinar): Response
     {
         abort_unless($webinar->is_published, 404);
@@ -95,18 +97,35 @@ class WebinarRoomController extends Controller
 
         $now = Carbon::now();
 
-        // Avoid duplicate "views" rows when the page reloads/redirects
-        // by reusing the active view for this registrant.
-        $view = WebinarView::query()
+        // Reuse only very recent active view rows to avoid duplicate refresh writes,
+        // but still count genuinely new join sessions.
+        $activeView = WebinarView::query()
             ->where('webinar_id', $registrant->webinar_id)
             ->where('registrant_id', $registrant->id)
             ->whereNull('left_at')
             ->latest('id')
             ->first();
 
+        $sameClientAsActiveView = $activeView
+            && (string) ($activeView->ip_address ?? '') === (string) request()->ip()
+            && (string) ($activeView->user_agent ?? '') === (string) request()->userAgent();
+
+        $activeViewIsRecent = $activeView
+            && $activeView->joined_at
+            && $activeView->joined_at->greaterThan($now->copy()->subSeconds(self::ACTIVE_VIEW_REUSE_SECONDS));
+
+        $view = ($sameClientAsActiveView && $activeViewIsRecent)
+            ? $activeView
+            : null;
+
         $isNewView = false;
 
         if (! $view) {
+            if ($activeView && $activeView->left_at === null) {
+                $activeView->left_at = $now;
+                $activeView->save();
+            }
+
             $isNewView = true;
             $view = WebinarView::create([
                 'webinar_id' => $registrant->webinar_id,

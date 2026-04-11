@@ -1374,7 +1374,7 @@ const stepMeta: Array<{ icon: string; color: string }> = [
                 </div>
                 <div class="ml-auto flex items-center gap-1 text-xs text-muted-foreground">
                     <Icon icon="solar:check-circle-bold" class="size-3.5 text-primary" />
-                    {{ activeStep }} / {{ steps.length }} completed
+                    {{ activeStep + 1 }} / {{ steps.length }} completed
                 </div>
             </div>
         </div>
