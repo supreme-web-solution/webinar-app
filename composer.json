@@ -19,6 +19,7 @@
         "laravel/tinker": "^2.10.1",
         "laravel/wayfinder": "^0.1.9",
         "phpoffice/phpspreadsheet": "^5.5",
+        "resend/resend-php": "^1.2",
         "smalot/pdfparser": "^2.12"
     },
     "require-dev": {

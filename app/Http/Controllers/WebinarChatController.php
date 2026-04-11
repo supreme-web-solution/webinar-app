@@ -78,7 +78,8 @@ class WebinarChatController extends Controller
 
         Cache::forget("webinar:chat:{$registrant->access_token}");
         broadcast(new WebinarChatMessageSent($registrant->access_token, $message))->toOthers();
-        GenerateWebinarAiReplyJob::dispatch($registrant->id, $message->id);
+        GenerateWebinarAiReplyJob::dispatch($registrant->id, $message->id)
+            ->onQueue((string) config('services.queues.ai_chat', 'ai-chat'));
 
         return response()->json([
             'message' => [

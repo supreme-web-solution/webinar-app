@@ -33,14 +33,6 @@ class ResendService
         $primary = $this->resolvePrimaryProvider($webinar);
         $fallback = $this->resolveFallbackProvider();
 
-        Log::info('webinar_email.provider.batch.start', [
-            'webinar_id' => $webinar->id,
-            'provider' => $primary,
-            'fallback_provider' => $fallback,
-            'attempted' => count($list),
-            'subject' => $subject,
-        ]);
-
         $result = $this->sendBatchUsingProvider($primary, $webinar, $list, $subject, $intro);
         $attempted = count($list);
 
@@ -67,13 +59,6 @@ class ResendService
             }
         }
 
-        Log::info('webinar_email.provider.batch.completed', [
-            'webinar_id' => $webinar->id,
-            'provider' => $primary,
-            'sent' => count($result['sent_registrant_ids']),
-            'attempted' => $attempted,
-        ]);
-
         return [
             'sent_registrant_ids' => $result['sent_registrant_ids'],
             'attempted' => $attempted,
@@ -84,14 +69,6 @@ class ResendService
     {
         $primary = $this->resolvePrimaryProvider($webinar);
         $fallback = $this->resolveFallbackProvider();
-
-        Log::info('webinar_email.provider.single.start', [
-            'provider' => $primary,
-            'fallback_provider' => $fallback,
-            'webinar_id' => $webinar->id,
-            'registrant_id' => $registrant->id,
-            'subject' => $subject,
-        ]);
 
         $sent = $this->sendSingleUsingProvider($primary, $webinar, $registrant, $subject, $intro);
         if ($sent) {
@@ -176,12 +153,6 @@ class ResendService
             ];
         }
 
-        Log::info('resend.batch.requesting', [
-            'webinar_id' => $webinar->id,
-            'attempted' => count($emails),
-            'subject' => $subject,
-        ]);
-
         $response = $this->postWithRateLimitRetry($apiKey, 'emails/batch', $emails);
         if (! $response || $response->failed()) {
             Log::warning('Resend batch API request failed.', [
@@ -196,15 +167,6 @@ class ResendService
                 'attempted' => count($emails),
             ];
         }
-
-        Log::info('resend.batch.accepted', [
-            'webinar_id' => $webinar->id,
-            'attempted' => count($emails),
-            'status' => $response->status(),
-            'ratelimit_remaining' => $response->header('ratelimit-remaining'),
-            'ratelimit_reset' => $response->header('ratelimit-reset'),
-            'monthly_quota' => $response->header('x-resend-monthly-quota'),
-        ]);
 
         return [
             'sent_registrant_ids' => $registrantIds,
@@ -228,12 +190,6 @@ class ResendService
 
         $from = $this->resolveDynamicFrom($configuredFrom, $webinar->host_name);
         try {
-            Log::info('resend.single.requesting', [
-                'webinar_id' => $webinar->id,
-                'registrant_id' => $registrant->id,
-                'subject' => $subject,
-            ]);
-
             $response = $this->postWithRateLimitRetry($apiKey, 'emails', [
                     'from' => $from,
                     'to' => [$registrant->email],
@@ -251,15 +207,6 @@ class ResendService
 
                 return false;
             }
-
-            Log::info('resend.single.accepted', [
-                'webinar_id' => $webinar->id,
-                'registrant_id' => $registrant->id,
-                'status' => $response->status(),
-                'ratelimit_remaining' => $response->header('ratelimit-remaining'),
-                'ratelimit_reset' => $response->header('ratelimit-reset'),
-                'monthly_quota' => $response->header('x-resend-monthly-quota'),
-            ]);
 
             return true;
         } catch (\Throwable $exception) {
@@ -307,13 +254,6 @@ class ResendService
         $html = $this->buildWebinarEmailHtml($webinar, $registrant, $intro);
 
         try {
-            Log::info('smtp.single.requesting', [
-                'mailer' => $mailer,
-                'webinar_id' => $webinar->id,
-                'registrant_id' => $registrant->id,
-                'subject' => $subject,
-            ]);
-
             $mailSender = $usingUserSmtp
                 ? app('mail.manager')->build($smtpConfig['transport'])
                 : Mail::mailer($mailer);
@@ -330,12 +270,6 @@ class ResendService
                 $message->from($fromAddress, $dynamicFromName);
                 $message->html($html);
             });
-
-            Log::info('smtp.single.accepted', [
-                'mailer' => $usingUserSmtp ? 'user_smtp' : $mailer,
-                'webinar_id' => $webinar->id,
-                'registrant_id' => $registrant->id,
-            ]);
 
             return true;
         } catch (\Throwable $exception) {

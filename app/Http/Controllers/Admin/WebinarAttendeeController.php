@@ -2,11 +2,14 @@
 
 namespace App\Http\Controllers\Admin;
 
+use App\Jobs\FetchApolloLeadsForWebinarJob;
 use App\Jobs\SendWebinarEmailsBatchJob;
 use App\Http\Controllers\Controller;
 use App\Models\EmailUnsubscribe;
 use App\Models\Webinar;
 use App\Models\WebinarRegistrant;
+use App\Services\Apollo\ApolloLeadService;
+use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
@@ -18,6 +21,122 @@ use PhpOffice\PhpSpreadsheet\IOFactory;
 
 class WebinarAttendeeController extends Controller
 {
+    public function previewFromApollo(Request $request, Webinar $webinar, ApolloLeadService $apolloLeadService): JsonResponse
+    {
+        abort_unless($webinar->user_id === Auth::id(), 403);
+
+        $validated = $request->validate([
+            'count' => ['required', 'integer', 'min:1'],
+            'job_title' => ['required', 'string', 'max:120'],
+            'industry' => ['required', 'string', 'max:120'],
+            'location' => ['required', 'string', 'max:120'],
+            'company_size' => ['required', 'string', 'max:120'],
+            'keyword' => ['nullable', 'string', 'max:180'],
+        ]);
+
+        $jobTitle = trim((string) ($validated['job_title'] ?? ''));
+        $industry = trim((string) ($validated['industry'] ?? ''));
+        $location = trim((string) ($validated['location'] ?? ''));
+        $companySize = trim((string) ($validated['company_size'] ?? ''));
+        $keyword = trim((string) ($validated['keyword'] ?? ''));
+
+        $configuredMax = max(1, (int) config('services.apollo.max_fetch', 250));
+        $requestedCount = (int) $validated['count'];
+        $previewCount = min($requestedCount, $configuredMax, 25);
+
+        try {
+            $contacts = $apolloLeadService->searchContacts([
+                'job_title' => $jobTitle,
+                'industry' => $industry,
+                'location' => $location,
+                'company_size' => $companySize,
+                'keyword' => $keyword,
+            ], $previewCount);
+        } catch (\Throwable $e) {
+            Log::warning('apollo.preview.failed', [
+                'webinar_id' => $webinar->id,
+                'message' => $e->getMessage(),
+            ]);
+
+            return response()->json([
+                'message' => 'Apollo preview failed: '.$e->getMessage(),
+            ], 502);
+        }
+
+        return response()->json([
+            'sample' => array_slice($contacts, 0, $previewCount),
+            'sample_count' => count($contacts),
+            'preview_limit' => $previewCount,
+            'requested_count' => $requestedCount,
+            'configured_max' => $configuredMax,
+        ]);
+    }
+
+    public function fetchFromApollo(Request $request, Webinar $webinar, ApolloLeadService $apolloLeadService): RedirectResponse
+    {
+        abort_unless($webinar->user_id === Auth::id(), 403);
+
+        $validated = $request->validate([
+            'count' => ['required', 'integer', 'min:1'],
+            'job_title' => ['required', 'string', 'max:120'],
+            'industry' => ['required', 'string', 'max:120'],
+            'location' => ['required', 'string', 'max:120'],
+            'company_size' => ['required', 'string', 'max:120'],
+            'keyword' => ['nullable', 'string', 'max:180'],
+        ]);
+
+        $jobTitle = trim((string) ($validated['job_title'] ?? ''));
+        $industry = trim((string) ($validated['industry'] ?? ''));
+        $location = trim((string) ($validated['location'] ?? ''));
+        $companySize = trim((string) ($validated['company_size'] ?? ''));
+        $keyword = trim((string) ($validated['keyword'] ?? ''));
+
+        $configuredMax = max(1, (int) config('services.apollo.max_fetch', 250));
+        $fetchCount = min((int) $validated['count'], $configuredMax);
+
+        $filters = [
+            'job_title' => $jobTitle,
+            'industry' => $industry,
+            'location' => $location,
+            'company_size' => $companySize,
+            'keyword' => $keyword,
+        ];
+
+        // Fail fast on billing/auth issues before dispatching a background job.
+        try {
+            $apolloLeadService->searchContacts($filters, 1);
+        } catch (\Throwable $e) {
+            $rawMessage = (string) $e->getMessage();
+            $normalized = strtolower($rawMessage);
+            $uiMessage = 'Apollo fetch failed before queueing: '.$rawMessage;
+
+            if (str_contains($normalized, 'issue with your payment')) {
+                $uiMessage = 'Apollo account is currently blocked by billing status (provider response: issue with your payment). Please fix billing in Apollo, then try again.';
+            }
+
+            Log::warning('apollo.fetch.preflight.failed', [
+                'webinar_id' => $webinar->id,
+                'message' => $rawMessage,
+            ]);
+
+            return back()->withErrors([
+                'apollo' => $uiMessage,
+            ]);
+        }
+
+        FetchApolloLeadsForWebinarJob::dispatch(
+            webinarId: (int) $webinar->id,
+            userId: (int) $webinar->user_id,
+            requestedCount: $fetchCount,
+            filters: $filters,
+        )->onQueue((string) config('services.queues.apollo_fetch', 'apollo-fetch'));
+
+        return back()->with('success', sprintf(
+            'Apollo import queued for up to %d contacts. Attendees and emails will be processed in the background.',
+            $fetchCount
+        ));
+    }
+
     public function importCsv(Request $request, Webinar $webinar): RedirectResponse
     {
         abort_unless($webinar->user_id === Auth::id(), 403);
@@ -347,6 +466,7 @@ class WebinarAttendeeController extends Controller
         $batchSize = max(1, (int) env('WEBINAR_EMAIL_BATCH_SIZE', 100));
         $baseDelaySeconds = max(0, (int) env('WEBINAR_EMAIL_BATCH_DELAY_BASE_SECONDS', 0));
         $delayIncrementSeconds = max(0, (int) env('WEBINAR_EMAIL_BATCH_DELAY_INCREMENT_SECONDS', 5));
+        $emailQueue = (string) config('services.queues.emails', 'emails');
 
         $chunks = $registrantIds
             ->filter(fn ($id) => is_numeric($id))
@@ -364,19 +484,8 @@ class WebinarAttendeeController extends Controller
                 $intro,
                 $markSentColumn
             )
-                ->onQueue('emails')
+                ->onQueue($emailQueue)
                 ->delay(now()->addSeconds($delaySeconds));
-
-            Log::info('webinar_email_batch.dispatch', [
-                'source' => 'admin_attendee_controller',
-                'webinar_id' => $webinar->id,
-                'batch_index' => $index,
-                'batch_size' => $chunk->count(),
-                'delay_seconds' => $delaySeconds,
-                'mark_sent_column' => $markSentColumn,
-                'queue' => 'emails',
-                'subject' => $subject,
-            ]);
         }
 
         return $chunks->sum(fn ($chunk) => $chunk->count());

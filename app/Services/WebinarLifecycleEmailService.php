@@ -103,6 +103,7 @@ class WebinarLifecycleEmailService
         $batchSize = max(1, (int) env('WEBINAR_EMAIL_BATCH_SIZE', 100));
         $baseDelaySeconds = max(0, (int) env('WEBINAR_EMAIL_BATCH_DELAY_BASE_SECONDS', 0));
         $delayIncrementSeconds = max(0, (int) env('WEBINAR_EMAIL_BATCH_DELAY_INCREMENT_SECONDS', 5));
+        $emailQueue = (string) config('services.queues.emails', 'emails');
 
         $chunks = $registrantIds
             ->map(fn ($id) => (int) $id)
@@ -119,19 +120,8 @@ class WebinarLifecycleEmailService
                 $intro,
                 $markSentColumn
             )
-                ->onQueue('emails')
+                ->onQueue($emailQueue)
                 ->delay(now()->addSeconds($delaySeconds));
-
-            Log::info('webinar_email_batch.dispatch', [
-                'source' => 'lifecycle_service',
-                'webinar_id' => $webinar->id,
-                'batch_index' => $index,
-                'batch_size' => $chunk->count(),
-                'delay_seconds' => $delaySeconds,
-                'mark_sent_column' => $markSentColumn,
-                'queue' => 'emails',
-                'subject' => $subject,
-            ]);
         }
 
         return $chunks->sum(fn ($chunk) => $chunk->count());

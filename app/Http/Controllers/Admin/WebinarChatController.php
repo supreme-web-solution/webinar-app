@@ -60,13 +60,20 @@ class WebinarChatController extends Controller
                 ->orderBy('sent_at')
                 ->orderBy('id')
                 ->get()
-                ->map(fn (ChatMessage $message) => [
-                    'id' => $message->id,
-                    'sender_type' => $message->sender_type,
-                    'sender_name' => $message->sender_name,
-                    'message' => $message->message,
-                    'sent_at' => ($message->sent_at ?? $message->created_at)?->toDateTimeString(),
-                ]);
+                ->map(function (ChatMessage $message): array {
+                    $senderName = $message->sender_name;
+                    if ($message->sender_type === 'system' && (bool) $message->is_automated) {
+                        $senderName = 'Webinar AI Helper';
+                    }
+
+                    return [
+                        'id' => $message->id,
+                        'sender_type' => $message->sender_type,
+                        'sender_name' => $senderName,
+                        'message' => $message->message,
+                        'sent_at' => ($message->sent_at ?? $message->created_at)?->toDateTimeString(),
+                    ];
+                });
         }
 
         return Inertia::render('webinars/ChatShow', [
@@ -83,6 +90,32 @@ class WebinarChatController extends Controller
             'selectedRegistrantId' => $selectedRegistrantId,
             'messages' => $messages,
         ]);
+    }
+
+    public function destroyMessage(Webinar $webinar, WebinarRegistrant $registrant, ChatMessage $message): RedirectResponse
+    {
+        abort_unless($webinar->user_id === Auth::id(), 403);
+        abort_unless($registrant->webinar_id === $webinar->id, 404);
+        abort_unless($message->webinar_id === $webinar->id && $message->registrant_id === $registrant->id, 404);
+
+        $message->delete();
+
+        return redirect()
+            ->route('admin.webinars.chat.show', ['webinar' => $webinar->id, 'registrant_id' => $registrant->id]);
+    }
+
+    public function destroyAllMessages(Webinar $webinar, WebinarRegistrant $registrant): RedirectResponse
+    {
+        abort_unless($webinar->user_id === Auth::id(), 403);
+        abort_unless($registrant->webinar_id === $webinar->id, 404);
+
+        ChatMessage::query()
+            ->where('webinar_id', $webinar->id)
+            ->where('registrant_id', $registrant->id)
+            ->delete();
+
+        return redirect()
+            ->route('admin.webinars.chat.show', ['webinar' => $webinar->id]);
     }
 
     public function reply(Request $request, Webinar $webinar, WebinarRegistrant $registrant): RedirectResponse

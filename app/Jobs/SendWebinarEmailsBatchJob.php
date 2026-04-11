@@ -34,15 +34,6 @@ class SendWebinarEmailsBatchJob implements ShouldQueue
 
     public function handle(ResendService $resendService): void
     {
-        Log::info('webinar_email_batch_job.started', [
-            'webinar_id' => $this->webinarId,
-            'registrant_ids_count' => count($this->registrantIds),
-            'mark_sent_column' => $this->markSentColumn,
-            'subject' => $this->subject,
-            'attempt' => method_exists($this, 'attempts') ? $this->attempts() : null,
-            'queue_job_id' => $this->job?->getJobId(),
-        ]);
-
         if ($this->registrantIds === []) {
             Log::warning('webinar_email_batch_job.skipped_empty_batch', [
                 'webinar_id' => $this->webinarId,
@@ -100,22 +91,7 @@ class SendWebinarEmailsBatchJob implements ShouldQueue
                 ->update([
                     $this->markSentColumn => Carbon::now(),
                 ]);
-
-            Log::info('webinar_email_batch_job.mark_sent_updated', [
-                'webinar_id' => $this->webinarId,
-                'mark_sent_column' => $this->markSentColumn,
-                'updated_rows' => $updated,
-                'queue_job_id' => $this->job?->getJobId(),
-            ]);
         }
-
-        Log::info('webinar_email_batch_job.completed', [
-            'webinar_id' => $this->webinarId,
-            'attempted' => $result['attempted'],
-            'sent' => count($result['sent_registrant_ids']),
-            'failed' => max(0, (int) $result['attempted'] - count($result['sent_registrant_ids'])),
-            'queue_job_id' => $this->job?->getJobId(),
-        ]);
     }
 
     public function failed(\Throwable $exception): void

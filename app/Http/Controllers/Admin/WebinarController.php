@@ -111,6 +111,7 @@ class WebinarController extends Controller
             ],
             'attendeeImportUrl' => null,
             'attendeeActionUrls' => null,
+            'apolloMaxFetch' => max(1, (int) config('services.apollo.max_fetch', 250)),
             'timezoneOptions' => timezone_identifiers_list(),
         ]);
     }
@@ -245,7 +246,10 @@ class WebinarController extends Controller
             'attendeeActionUrls' => [
                 'bulk_unsubscribe_url' => route('admin.webinars.attendees.unsubscribe.bulk', ['webinar' => $webinar->id]),
                 'bulk_delete_url' => route('admin.webinars.attendees.delete.bulk', ['webinar' => $webinar->id]),
+                'apollo_preview_url' => route('admin.webinars.attendees.apollo.preview', ['webinar' => $webinar->id]),
+                'apollo_fetch_url' => route('admin.webinars.attendees.apollo.fetch', ['webinar' => $webinar->id]),
             ],
+            'apolloMaxFetch' => max(1, (int) config('services.apollo.max_fetch', 250)),
             'aiSourceUrls' => [
                 'index' => route('admin.webinars.ai.sources.index', ['webinar' => $webinar->id]),
                 'url' => route('admin.webinars.ai.sources.url', ['webinar' => $webinar->id]),

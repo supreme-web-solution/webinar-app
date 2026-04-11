@@ -93,7 +93,10 @@ defineProps<{
     attendeeActionUrls: {
         bulk_unsubscribe_url: string;
         bulk_delete_url: string;
+        apollo_preview_url: string;
+        apollo_fetch_url: string;
     } | null;
+    apolloMaxFetch: number;
     timezoneOptions: string[];
 }>();
 
@@ -134,6 +137,7 @@ const breadcrumbs: BreadcrumbItem[] = [
                 :attendees="attendees"
                 :attendee-import-url="attendeeImportUrl"
                 :attendee-action-urls="attendeeActionUrls"
+                :apollo-max-fetch="apolloMaxFetch"
                 :timezone-options="timezoneOptions"
             />
         </div>

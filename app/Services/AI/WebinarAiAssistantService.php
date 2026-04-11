@@ -10,13 +10,16 @@ use Illuminate\Support\Facades\Log;
 
 class WebinarAiAssistantService
 {
+    private const DEFAULT_MIN_CONFIDENCE_SCORE = 0.18;
+    private const NEEDS_HUMAN_ATTENTION_TOKEN = '__NEEDS_HUMAN_ATTENTION__';
+
     public function __construct(
         private readonly OpenAiEmbeddingService $embeddingService,
     ) {
     }
 
     /**
-     * @return array{answer: string, classification: string, sources: array<int, string>}|null
+     * @return array{answer: string, classification: string, sources: array<int, string>, needs_human_attention?: bool, attention_reason?: string}|null
      */
     public function maybeGenerateReply(Webinar $webinar, WebinarRegistrant $registrant, string $userMessage): ?array
     {
@@ -34,11 +37,27 @@ class WebinarAiAssistantService
         }
 
         $topChunks = $this->searchKnowledge($webinar->id, $userMessage, 5);
+        $sources = $this->extractSources($topChunks);
+
         if ($topChunks === []) {
             return [
-                'answer' => 'I could not find enough information in the webinar knowledge base yet. Please ask the host to add more sources.',
+                'answer' => $this->buildNeedsHumanAttentionReply(),
                 'classification' => $classification,
                 'sources' => [],
+                'needs_human_attention' => true,
+                'attention_reason' => 'no_knowledge_match',
+            ];
+        }
+
+        $bestScore = (float) ($topChunks[0]['score'] ?? 0.0);
+        $minimumConfidence = $this->resolveMinimumConfidenceScore($settings);
+        if ($bestScore < $minimumConfidence) {
+            return [
+                'answer' => $this->buildNeedsHumanAttentionReply(),
+                'classification' => $classification,
+                'sources' => $sources,
+                'needs_human_attention' => true,
+                'attention_reason' => 'low_knowledge_confidence',
             ];
         }
 
@@ -52,17 +71,72 @@ class WebinarAiAssistantService
             return null;
         }
 
-        $sources = [];
-        foreach ($topChunks as $chunk) {
-            $sourceLabel = (string) data_get($chunk, 'source_title', 'Knowledge Source');
-            $sources[] = $sourceLabel;
+        if ($answer === self::NEEDS_HUMAN_ATTENTION_TOKEN) {
+            return [
+                'answer' => $this->buildNeedsHumanAttentionReply(),
+                'classification' => $classification,
+                'sources' => $sources,
+                'needs_human_attention' => true,
+                'attention_reason' => 'insufficient_context_for_confident_answer',
+            ];
+        }
+
+        if ($this->looksUncertainOrUnavailable($answer)) {
+            return [
+                'answer' => $this->buildNeedsHumanAttentionReply(),
+                'classification' => $classification,
+                'sources' => $sources,
+                'needs_human_attention' => true,
+                'attention_reason' => 'uncertain_answer',
+            ];
         }
 
         return [
             'answer' => $answer,
             'classification' => $classification,
-            'sources' => array_values(array_unique($sources)),
+            'sources' => $sources,
+            'needs_human_attention' => false,
         ];
+    }
+
+    private function resolveMinimumConfidenceScore(array $settings): float
+    {
+        $value = (float) ($settings['minimum_confidence_score'] ?? self::DEFAULT_MIN_CONFIDENCE_SCORE);
+
+        return max(0.0, min(1.0, $value));
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $chunks
+     * @return array<int, string>
+     */
+    private function extractSources(array $chunks): array
+    {
+        $sources = [];
+        foreach ($chunks as $chunk) {
+            $sourceLabel = (string) data_get($chunk, 'source_title', 'Knowledge Source');
+            $sources[] = $sourceLabel;
+        }
+
+        return array_values(array_unique($sources));
+    }
+
+    private function buildNeedsHumanAttentionReply(): string
+    {
+        return 'I am an automated AI assistant, not a human host. I do not have enough verified information in this webinar knowledge base to answer that accurately. I have flagged your question so the webinar owner can review it and follow up with you.';
+    }
+
+    private function looksUncertainOrUnavailable(string $answer): bool
+    {
+        $text = mb_strtolower(trim($answer));
+        if ($text === '') {
+            return true;
+        }
+
+        return preg_match(
+            '/\b(i\s*(am\s*)?(not\s*sure|unsure|don\'t\s*know|cannot\s*find|can\'t\s*find|could\s*not\s*find|no\s*(enough\s*)?information|not\s*provided|not\s*available|outside\s*(the\s*)?context|don\'t\s*have\s*that|not\s*configured)|appears\s*to\s*be|seems\s*to\s*be|looks\s*like|it\s*may\s*be|it\s*might\s*be)\b/i',
+            $text,
+        ) === 1;
     }
 
     private function classifyMessage(string $message, array $settings): string
@@ -200,7 +274,7 @@ class WebinarAiAssistantService
             ->implode("\n\n");
 
         if ($apiKey === '') {
-            return 'I found related webinar notes, but AI response is not configured yet. Please add OPENAI_API_KEY to enable full answers.';
+            return '';
         }
 
         try {
@@ -212,7 +286,19 @@ class WebinarAiAssistantService
                     'messages' => [
                         [
                             'role' => 'system',
-                            'content' => "You are {$assistantName}, a webinar support helper. Answer only from provided context. If context is weak, say you are unsure and ask for clarification.",
+                            'content' => "You are {$assistantName}, representing the webinar host team.\n"
+                                ."Rules:\n"
+                                ."1) Answer using ONLY the provided context.\n"
+                                ."2) Use confident, natural first-person host voice for attendees. Example tone: 'This webinar is about...'\n"
+                                ."3) Do NOT use hedge or uncertainty phrases such as 'appears to be', 'seems', 'looks like', 'I think', 'I am unsure'.\n"
+                                ."4) Do NOT mention internal context, knowledge base, documents, or retrieval.\n"
+                                ."5) Adapt depth wisely:\n"
+                                ."   - Greeting/simple question: 1 short sentence.\n"
+                                ."   - Informational question: 2-4 clear sentences.\n"
+                                ."   - Process/how-to question: short intro + numbered steps.\n"
+                                ."   - Objection/concern question: acknowledge + clear next action.\n"
+                                ."6) Keep answers practical and attendee-facing.\n"
+                                ."7) If context is insufficient for a confident answer, output exactly: " . self::NEEDS_HUMAN_ATTENTION_TOKEN,
                         ],
                         [
                             'role' => 'user',

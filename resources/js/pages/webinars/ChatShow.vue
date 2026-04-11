@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import { Head, Link, useForm } from '@inertiajs/vue3';
-import { computed } from 'vue';
+import { Head, Link, useForm, router } from '@inertiajs/vue3';
+import { computed, ref } from 'vue';
 import { Icon } from '@iconify/vue';
 import AppLayout from '@/layouts/AppLayout.vue';
 import type { BreadcrumbItem } from '@/types';
@@ -63,6 +63,31 @@ const submit = (): void => {
         preserveScroll: true,
         onSuccess: () => form.reset(),
     });
+};
+
+// Delete
+const deletingMessageId = ref<number | null>(null);
+const confirmClearAll = ref(false);
+
+const deleteMessage = (messageId: number): void => {
+    if (!activeRegistrant.value) return;
+    deletingMessageId.value = messageId;
+    router.delete(
+        `/admin/webinars/${props.webinar.id}/chat/${activeRegistrant.value.id}/messages/${messageId}`,
+        {
+            preserveScroll: true,
+            onFinish: () => { deletingMessageId.value = null; },
+        },
+    );
+};
+
+const clearAllMessages = (): void => {
+    if (!activeRegistrant.value) return;
+    confirmClearAll.value = false;
+    router.delete(
+        `/admin/webinars/${props.webinar.id}/chat/${activeRegistrant.value.id}/messages`,
+        { preserveScroll: false },
+    );
 };
 </script>
 
@@ -177,9 +202,33 @@ const submit = (): void => {
                             <p class="truncate text-sm font-semibold leading-tight text-foreground">{{ activeRegistrant.name }}</p>
                             <p class="truncate text-xs text-muted-foreground">{{ activeRegistrant.email }}</p>
                         </div>
-                        <div class="ml-auto flex items-center gap-1 rounded-full bg-emerald-100 px-2.5 py-0.5 text-[11px] font-medium text-emerald-700 dark:bg-emerald-950/50 dark:text-emerald-400">
-                            <span class="h-1.5 w-1.5 rounded-full bg-emerald-500" />
-                            Active
+                        <div class="ml-auto flex items-center gap-2">
+                            <!-- Clear all confirm -->
+                            <template v-if="messages.length > 0">
+                                <template v-if="!confirmClearAll">
+                                    <button
+                                        type="button"
+                                        class="flex items-center gap-1.5 rounded-lg border border-destructive/30 px-2.5 py-1 text-[11px] font-medium text-destructive/70 transition-colors hover:bg-destructive/10 hover:text-destructive"
+                                        @click="confirmClearAll = true"
+                                    >
+                                        <Icon icon="solar:trash-bin-trash-bold" class="size-3.5" />
+                                        Clear all
+                                    </button>
+                                </template>
+                                <template v-else>
+                                    <span class="text-[11px] text-destructive font-medium">Delete all messages?</span>
+                                    <button
+                                        type="button"
+                                        class="rounded-lg bg-destructive px-2.5 py-1 text-[11px] font-semibold text-white transition-colors hover:bg-destructive/90"
+                                        @click="clearAllMessages"
+                                    >Yes, delete</button>
+                                    <button
+                                        type="button"
+                                        class="rounded-lg border px-2.5 py-1 text-[11px] font-medium transition-colors hover:bg-muted"
+                                        @click="confirmClearAll = false"
+                                    >Cancel</button>
+                                </template>
+                            </template>
                         </div>
                     </div>
 
@@ -195,25 +244,53 @@ const submit = (): void => {
                         <div
                             v-for="message in messages"
                             :key="message.id"
-                            class="flex"
-                            :class="message.sender_type === 'host' ? 'justify-end' : 'justify-start'"
+                            class="group flex items-end gap-1.5"
+                            :class="message.sender_type === 'attendee' ? 'justify-start' : 'justify-end'"
                         >
+                            <!-- Delete button (attendee messages: shown after bubble; host/system: shown before bubble) -->
+                            <button
+                                v-if="message.sender_type !== 'attendee'"
+                                type="button"
+                                class="mb-1 flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-muted-foreground/40 opacity-0 transition-opacity hover:bg-destructive/10 hover:text-destructive group-hover:opacity-100"
+                                :disabled="deletingMessageId === message.id"
+                                :title="'Delete message'"
+                                @click="deleteMessage(message.id)"
+                            >
+                                <Icon icon="solar:trash-bin-minimalistic-bold" class="size-3.5" />
+                            </button>
+
                             <div
                                 class="max-w-[75%] rounded-2xl px-3.5 py-2.5 text-sm shadow-sm"
                                 :class="message.sender_type === 'host'
                                     ? 'rounded-tr-none bg-primary text-primary-foreground'
                                     : message.sender_type === 'system'
-                                        ? 'rounded-2xl bg-amber-50 text-amber-800 border border-amber-200 dark:bg-amber-950/30 dark:text-amber-300 dark:border-amber-800/40'
+                                        ? 'rounded-tr-none bg-primary/15 text-primary border border-primary/30 dark:bg-primary/20 dark:text-primary dark:border-primary/30'
                                         : 'rounded-tl-none bg-background text-foreground border border-border/60'"
                             >
                                 <p class="text-[11px] font-bold leading-tight"
-                                    :class="message.sender_type === 'host' ? 'opacity-70' : 'text-muted-foreground'"
+                                    :class="message.sender_type === 'host'
+                                        ? 'opacity-70'
+                                        : message.sender_type === 'system'
+                                            ? 'opacity-60'
+                                            : 'text-muted-foreground'"
                                 >{{ message.sender_name }}</p>
                                 <p class="mt-1 leading-relaxed">{{ message.message }}</p>
                                 <p v-if="message.sent_at" class="mt-1.5 text-[10px] opacity-50 text-right">
                                     {{ message.sent_at }}
                                 </p>
                             </div>
+
+                            <!-- Delete button for attendee messages (shown after bubble) -->
+                            <button
+                                v-if="message.sender_type === 'attendee'"
+                                type="button"
+                                class="mb-1 flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-muted-foreground/40 opacity-0 transition-opacity hover:bg-destructive/10 hover:text-destructive group-hover:opacity-100"
+                                :disabled="deletingMessageId === message.id"
+                                :title="'Delete message'"
+                                @click="deleteMessage(message.id)"
+                            >
+                                <Icon icon="solar:trash-bin-minimalistic-bold" class="size-3.5" />
+                            </button>
                         </div>
                     </template>
 

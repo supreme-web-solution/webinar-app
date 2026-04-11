@@ -1,5 +1,20 @@
 <?php
 
+$cloudinaryUrl = (string) env('CLOUDINARY_URL', '');
+$cloudinaryParsed = $cloudinaryUrl !== '' ? parse_url($cloudinaryUrl) : false;
+
+$cloudinaryCloudNameFromUrl = is_array($cloudinaryParsed)
+    ? (string) ($cloudinaryParsed['host'] ?? '')
+    : '';
+
+$cloudinaryApiKeyFromUrl = is_array($cloudinaryParsed)
+    ? (string) ($cloudinaryParsed['user'] ?? '')
+    : '';
+
+$cloudinaryApiSecretFromUrl = is_array($cloudinaryParsed)
+    ? (string) ($cloudinaryParsed['pass'] ?? '')
+    : '';
+
 return [
 
     /*
@@ -52,6 +67,33 @@ return [
 
     'scrapingbee' => [
         'api_key' => env('SCRAPINGBEE_API_KEY'),
+    ],
+
+    'heygen' => [
+        'api_key' => env('HEYGEN_API_KEY'),
+    ],
+
+    'apollo' => [
+        'api_key' => env('APOLLO_API_KEY'),
+        'search_endpoint' => env('APOLLO_SEARCH_ENDPOINT', 'https://api.apollo.io/api/v1/mixed_people/search'),
+        'max_fetch' => (int) env('APOLLO_FETCH_MAX_COUNT', 250),
+    ],
+
+    'queues' => [
+        'emails' => env('QUEUE_EMAILS_NAME', 'emails'),
+        'apollo_fetch' => env('QUEUE_APOLLO_FETCH_NAME', 'apollo-fetch'),
+        'ai_ingest' => env('QUEUE_AI_INGEST_NAME', 'ai-ingest'),
+        'ai_chat' => env('QUEUE_AI_CHAT_NAME', 'ai-chat'),
+    ],
+
+    'cloudinary' => [
+        'cloud_name' => env('CLOUDINARY_CLOUD_NAME', $cloudinaryCloudNameFromUrl),
+        'api_key' => env('CLOUDINARY_API_KEY', $cloudinaryApiKeyFromUrl),
+        'api_secret' => env('CLOUDINARY_API_SECRET', $cloudinaryApiSecretFromUrl),
+        'upload_preset' => env('CLOUDINARY_UPLOAD_PRESET'),
+        'notification_url' => env('CLOUDINARY_NOTIFICATION_URL'),
+        'url' => env('CLOUDINARY_URL'),
+        'folder' => env('CLOUDINARY_VIDEO_FOLDER', 'webinars/heygen'),
     ],
 
 ];

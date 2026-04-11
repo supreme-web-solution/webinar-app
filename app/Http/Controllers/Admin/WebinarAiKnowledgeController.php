@@ -110,7 +110,8 @@ class WebinarAiKnowledgeController extends Controller
             'status' => 'queued',
         ]);
 
-        IngestWebinarKnowledgeSourceJob::dispatch($source->id);
+        IngestWebinarKnowledgeSourceJob::dispatch($source->id)
+            ->onQueue((string) config('services.queues.ai_ingest', 'ai-ingest'));
 
         return back()->with('success', 'URL source queued for AI knowledge ingestion.');
     }
@@ -133,7 +134,8 @@ class WebinarAiKnowledgeController extends Controller
             'status' => 'queued',
         ]);
 
-        IngestWebinarKnowledgeSourceJob::dispatch($source->id);
+        IngestWebinarKnowledgeSourceJob::dispatch($source->id)
+            ->onQueue((string) config('services.queues.ai_ingest', 'ai-ingest'));
 
         return back()->with('success', 'Transcript queued for AI knowledge ingestion.');
     }
@@ -164,7 +166,8 @@ class WebinarAiKnowledgeController extends Controller
             ],
         ]);
 
-        IngestWebinarKnowledgeSourceJob::dispatch($source->id);
+        IngestWebinarKnowledgeSourceJob::dispatch($source->id)
+            ->onQueue((string) config('services.queues.ai_ingest', 'ai-ingest'));
 
         return back()->with('success', 'File source queued for AI knowledge ingestion.');
     }

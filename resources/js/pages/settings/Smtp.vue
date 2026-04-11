@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { Head, useForm } from '@inertiajs/vue3';
+import { computed } from 'vue';
 import Heading from '@/components/Heading.vue';
 import InputError from '@/components/InputError.vue';
 import { Button } from '@/components/ui/button';
@@ -84,6 +85,8 @@ const sendTestEmail = (): void => {
     });
 };
 
+const smtpTestError = computed(() => (form.errors as Record<string, string | undefined>).smtp_test || '');
+
 const applyPreset = (preset: (typeof smtpPresets)[number]): void => {
     form.smtp_host = preset.host;
     form.smtp_port = preset.port;
@@ -120,10 +123,19 @@ const applyPreset = (preset: (typeof smtpPresets)[number]): void => {
                 </div>
 
                 <div
-                    v-if="status === 'smtp-test-failed'"
+                    v-if="status === 'smtp-test-failed' || smtpTestError"
                     class="rounded-md border border-rose-300 bg-rose-50 px-3 py-2 text-sm text-rose-800"
                 >
-                    SMTP test failed. Check credentials and try again.
+                    <p class="font-medium">SMTP test failed.</p>
+                    <p class="mt-1">
+                        {{ smtpTestError || 'Check your SMTP host, port, encryption, username, and password, then try again.' }}
+                    </p>
+                    <ul class="mt-2 list-disc space-y-1 pl-5 text-xs text-rose-900/90">
+                        <li>Use SSL with port 465, or TLS with port 587 (they must match).</li>
+                        <li>Quick presets only auto-fill values when you click a preset.</li>
+                        <li>If this worked before, your SMTP server may now be blocking this app server IP or port.</li>
+                        <li>Verify SMTP username/password and mailbox sending permissions with your provider.</li>
+                    </ul>
                 </div>
 
                 <form class="space-y-6" @submit.prevent="submit">
@@ -225,7 +237,7 @@ const applyPreset = (preset: (typeof smtpPresets)[number]): void => {
                         <Label for="test_email">Send test to</Label>
                         <Input id="test_email" v-model="form.test_email" type="email" placeholder="you@domain.com" />
                         <InputError :message="form.errors.test_email" />
-                        <InputError :message="(form.errors as Record<string, string | undefined>).smtp_test" />
+                        <InputError :message="smtpTestError" />
                     </div>
 
                     <div class="flex items-center gap-4">

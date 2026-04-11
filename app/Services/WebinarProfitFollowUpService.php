@@ -310,6 +310,7 @@ class WebinarProfitFollowUpService
         $batchSize = max(1, (int) env('WEBINAR_EMAIL_BATCH_SIZE', 100));
         $baseDelaySeconds = max(0, (int) env('WEBINAR_EMAIL_BATCH_DELAY_BASE_SECONDS', 0));
         $delayIncrementSeconds = max(0, (int) env('WEBINAR_EMAIL_BATCH_DELAY_INCREMENT_SECONDS', 5));
+        $emailQueue = (string) config('services.queues.emails', 'emails');
 
         $chunks = $registrantIds
             ->map(fn ($id) => (int) $id)
@@ -327,7 +328,7 @@ class WebinarProfitFollowUpService
                 $intro,
                 $markSentColumn,
             )
-                ->onQueue('emails')
+                ->onQueue($emailQueue)
                 ->delay(now()->addSeconds($delaySeconds));
         }
 

@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { computed, ref } from 'vue';
 import { Head } from '@inertiajs/vue3';
 import WebinarWizardForm from '@/components/webinars/WebinarWizardForm.vue';
 import AppLayout from '@/layouts/AppLayout.vue';
@@ -107,7 +108,10 @@ const props = defineProps<{
     attendeeActionUrls: {
         bulk_unsubscribe_url: string;
         bulk_delete_url: string;
+        apollo_preview_url: string;
+        apollo_fetch_url: string;
     } | null;
+    apolloMaxFetch: number;
     timezoneOptions: string[];
 }>();
 
@@ -116,6 +120,31 @@ const breadcrumbs: BreadcrumbItem[] = [
     { title: 'Webinars', href: '/admin/webinars' },
     { title: props.webinar.title, href: `/admin/webinars/${props.webinar.id}/edit` },
 ];
+
+const baseUrl = computed(() => {
+    if (typeof window !== 'undefined' && window.location?.origin) {
+        return window.location.origin;
+    }
+
+    return '';
+});
+
+const registerLink = computed(() => `${baseUrl.value}/register/${props.webinar.uuid}`);
+const joinLink = computed(() => `${baseUrl.value}/webinar/live/${props.webinar.uuid}`);
+const copyStatus = ref('');
+
+const copyLink = async (value: string, label: string): Promise<void> => {
+    try {
+        await navigator.clipboard.writeText(value);
+        copyStatus.value = `${label} copied`;
+    } catch {
+        copyStatus.value = `Failed to copy ${label.toLowerCase()}`;
+    }
+
+    window.setTimeout(() => {
+        copyStatus.value = '';
+    }, 2500);
+};
 </script>
 
 <template>
@@ -129,6 +158,23 @@ const breadcrumbs: BreadcrumbItem[] = [
                     <p class="text-sm text-muted-foreground">
                         Update settings, automation, and publishing options.
                     </p>
+                    <div class="mt-3 flex flex-wrap items-center gap-2">
+                        <button
+                            type="button"
+                            class="inline-flex items-center rounded-md border px-3 py-1.5 text-xs font-medium hover:bg-muted"
+                            @click="void copyLink(registerLink, 'Register link')"
+                        >
+                            Copy Register Link
+                        </button>
+                        <button
+                            type="button"
+                            class="inline-flex items-center rounded-md border px-3 py-1.5 text-xs font-medium hover:bg-muted"
+                            @click="void copyLink(joinLink, 'Join link')"
+                        >
+                            Copy Join Link
+                        </button>
+                        <span v-if="copyStatus" class="text-xs text-muted-foreground">{{ copyStatus }}</span>
+                    </div>
                 </div>
                 <div class="grid grid-cols-2 gap-2 text-sm md:grid-cols-5">
                     <div class="rounded-md border px-3 py-2">
@@ -184,6 +230,7 @@ const breadcrumbs: BreadcrumbItem[] = [
                 :attendees="attendees"
                 :attendee-import-url="attendeeImportUrl"
                 :attendee-action-urls="attendeeActionUrls"
+                :apollo-max-fetch="apolloMaxFetch"
                 :timezone-options="timezoneOptions"
             />
         </div>

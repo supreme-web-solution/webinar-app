@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { Head, Link, router } from '@inertiajs/vue3';
 import { Icon } from '@iconify/vue';
-import { ref } from 'vue';
+import { computed, reactive, ref, watch } from 'vue';
 import AppLayout from '@/layouts/AppLayout.vue';
 import { Button } from '@/components/ui/button';
 import {
@@ -18,6 +18,14 @@ import {
     DropdownMenuSeparator,
     DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
+import {
+    Dialog,
+    DialogContent,
+    DialogDescription,
+    DialogFooter,
+    DialogHeader,
+    DialogTitle,
+} from '@/components/ui/dialog';
 import type { BreadcrumbItem } from '@/types';
 
 type WebinarListItem = {
@@ -53,6 +61,504 @@ const breadcrumbs: BreadcrumbItem[] = [
 
 const toastMessage = ref<string | null>(null);
 const toastType = ref<'success' | 'info'>('success');
+
+type AiStep = 'brief' | 'script' | 'video';
+type AiVideoStatus = 'idle' | 'requesting' | 'pending' | 'processing' | 'completed' | 'failed';
+
+const aiModalOpen = ref(false);
+const aiStep = ref<AiStep>('brief');
+const aiScript = ref('');
+const aiScriptModel = ref<string | null>(null);
+const aiVideoStatus = ref<AiVideoStatus>('idle');
+const aiVideoId = ref<string | null>(null);
+const aiVideoUrl = ref<string | null>(null);
+const aiVideoProvider = ref<'heygen' | 'cloudinary' | null>(null);
+const aiVideoMessage = ref<string | null>(null);
+const aiLoadingScript = ref(false);
+const aiLoadingVideo = ref(false);
+const aiCreatingWebinar = ref(false);
+const allowAiModalClose = ref(false);
+let aiPollTimer: number | null = null;
+
+const avatarOptions = [
+    { label: 'Business Presenter (Default)', value: 'avatar_business_presenter' },
+    { label: 'Sales Coach', value: 'avatar_sales_coach' },
+    { label: 'Corporate Host', value: 'avatar_corporate_host' },
+    { label: 'Type custom avatar id...', value: '__custom__' },
+];
+
+const voiceOptions = [
+    { label: 'Default voice (from HeyGen avatar)', value: '' },
+    { label: 'Professional English Voice', value: 'voice_pro_english' },
+    { label: 'Warm Conversational Voice', value: 'voice_warm_conversational' },
+    { label: 'Type custom voice id...', value: '__custom__' },
+];
+
+const webinarTypeOptions = [
+    { label: 'Sales Webinar', value: 'Sales Webinar' },
+    { label: 'Training Webinar', value: 'Training Webinar' },
+    { label: 'Workshop Webinar', value: 'Workshop Webinar' },
+    { label: 'Product Demo Webinar', value: 'Product Demo Webinar' },
+    { label: 'Type custom webinar type...', value: '__custom__' },
+];
+
+const audienceOptions = [
+    { label: 'Coaches and agency owners', value: 'Coaches and agency owners' },
+    { label: 'Ecommerce founders', value: 'Ecommerce founders' },
+    { label: 'SaaS business owners', value: 'SaaS business owners' },
+    { label: 'Freelancers and consultants', value: 'Freelancers and consultants' },
+    { label: 'Type custom audience...', value: '__custom__' },
+];
+
+const toneOptions = [
+    { label: 'Authoritative and persuasive', value: 'authoritative and persuasive' },
+    { label: 'Friendly and conversational', value: 'friendly and conversational' },
+    { label: 'Educational and practical', value: 'educational and practical' },
+    { label: 'Urgent and action-driven', value: 'urgent and action-driven' },
+    { label: 'Type custom tone...', value: '__custom__' },
+];
+
+const selectedAvatarOption = ref('__custom__');
+const customAvatarId = ref('');
+const selectedVoiceOption = ref('');
+const customVoiceId = ref('');
+const selectedWebinarTypeOption = ref('Sales Webinar');
+const customWebinarType = ref('');
+const selectedAudienceOption = ref('__custom__');
+const customAudience = ref('');
+const selectedToneOption = ref('authoritative and persuasive');
+const customTone = ref('');
+
+const aiBrief = reactive({
+    title: '',
+    topic: '',
+    webinar_type: 'Sales Webinar',
+    audience: '',
+    goal: '',
+    tone: 'authoritative and persuasive',
+    duration_minutes: 45,
+    language: 'English',
+    host_name: '',
+    avatar_id: '',
+    voice_id: '',
+    aspect_ratio: '16:9' as '16:9' | '9:16' | '1:1',
+    background_color: '#F8FAFC',
+});
+
+const aiCanGenerateScript = computed(() => {
+    return aiBrief.title.trim() !== ''
+        && aiBrief.topic.trim() !== ''
+        && aiBrief.webinar_type.trim() !== ''
+        && aiBrief.audience.trim() !== ''
+        && aiBrief.goal.trim() !== ''
+        && aiBrief.host_name.trim() !== ''
+        && aiBrief.duration_minutes >= 20;
+});
+
+const aiCanGenerateVideo = computed(() => {
+    return aiScript.value.trim().length >= 300 && aiBrief.avatar_id.trim() !== '';
+});
+
+const estimatedDurationSeconds = computed(() => {
+    const words = aiScript.value.trim().split(/\s+/).filter((part) => part.length > 0).length;
+    if (words === 0) {
+        return null;
+    }
+
+    return Math.max(60, Math.round((words / 130) * 60));
+});
+
+const csrfToken = (): string => {
+    const tokenTag = document.querySelector('meta[name="csrf-token"]') as HTMLMetaElement | null;
+    return tokenTag?.content ?? '';
+};
+
+const resetAiState = (): void => {
+    aiStep.value = 'brief';
+    aiScript.value = '';
+    aiScriptModel.value = null;
+    aiVideoStatus.value = 'idle';
+    aiVideoId.value = null;
+    aiVideoUrl.value = null;
+    aiVideoProvider.value = null;
+    aiVideoMessage.value = null;
+    aiLoadingScript.value = false;
+    aiLoadingVideo.value = false;
+    aiCreatingWebinar.value = false;
+    if (aiPollTimer !== null) {
+        window.clearTimeout(aiPollTimer);
+        aiPollTimer = null;
+    }
+};
+
+const openAiModal = (): void => {
+    allowAiModalClose.value = false;
+    resetAiState();
+    aiBrief.title = '';
+    aiBrief.topic = '';
+    aiBrief.webinar_type = 'Sales Webinar';
+    aiBrief.audience = '';
+    aiBrief.goal = '';
+    aiBrief.tone = 'authoritative and persuasive';
+    aiBrief.duration_minutes = 45;
+    aiBrief.language = 'English';
+    aiBrief.host_name = '';
+    aiBrief.avatar_id = '';
+    aiBrief.voice_id = '';
+    aiBrief.aspect_ratio = '16:9';
+    aiBrief.background_color = '#F8FAFC';
+    selectedWebinarTypeOption.value = 'Sales Webinar';
+    customWebinarType.value = '';
+    selectedAudienceOption.value = '__custom__';
+    customAudience.value = '';
+    selectedToneOption.value = 'authoritative and persuasive';
+    customTone.value = '';
+    aiModalOpen.value = true;
+};
+
+const closeConfirmationMessage = computed((): string => {
+    if (['requesting', 'pending', 'processing'].includes(aiVideoStatus.value)) {
+        return 'Video is still processing. Are you sure you want to close this modal?';
+    }
+
+    return 'Are you sure you want to close?';
+});
+
+const closeAiModal = (): void => {
+    allowAiModalClose.value = true;
+    aiModalOpen.value = false;
+};
+
+const requestCloseAiModal = (): void => {
+    const shouldClose = window.confirm(closeConfirmationMessage.value);
+    if (!shouldClose) {
+        return;
+    }
+
+    closeAiModal();
+};
+
+const onAiModalOpenChange = (nextOpen: boolean): void => {
+    if (nextOpen) {
+        aiModalOpen.value = true;
+        return;
+    }
+
+    if (!allowAiModalClose.value) {
+        aiModalOpen.value = true;
+        return;
+    }
+
+    aiModalOpen.value = false;
+    allowAiModalClose.value = false;
+};
+
+const parseErrorMessage = async (response: Response, fallback: string): Promise<string> => {
+    try {
+        const payload = await response.json() as { message?: string };
+        return payload.message || fallback;
+    } catch {
+        return fallback;
+    }
+};
+
+const generateScript = async (): Promise<void> => {
+    if (!aiCanGenerateScript.value || aiLoadingScript.value) {
+        return;
+    }
+
+    aiLoadingScript.value = true;
+
+    try {
+        const response = await fetch('/admin/webinars/ai/script', {
+            method: 'POST',
+            headers: {
+                Accept: 'application/json',
+                'Content-Type': 'application/json',
+                'X-CSRF-TOKEN': csrfToken(),
+            },
+            body: JSON.stringify({
+                topic: aiBrief.topic,
+                webinar_type: aiBrief.webinar_type,
+                audience: aiBrief.audience,
+                goal: aiBrief.goal,
+                tone: aiBrief.tone,
+                duration_minutes: aiBrief.duration_minutes,
+                language: aiBrief.language,
+            }),
+        });
+
+        if (!response.ok) {
+            showToast(await parseErrorMessage(response, 'Failed to generate script.'), 'info');
+            return;
+        }
+
+        const payload = await response.json() as {
+            script: string;
+            model?: string;
+        };
+
+        aiScript.value = payload.script || '';
+        aiScriptModel.value = payload.model ?? null;
+        aiStep.value = 'script';
+        showToast('Script generated. Review and edit before rendering video.');
+    } catch {
+        showToast('Failed to generate script.', 'info');
+    } finally {
+        aiLoadingScript.value = false;
+    }
+};
+
+const pollVideoStatus = async (): Promise<void> => {
+    if (!aiVideoId.value) {
+        return;
+    }
+
+    try {
+        const response = await fetch(`/admin/webinars/ai/video/status?video_id=${encodeURIComponent(aiVideoId.value)}`, {
+            headers: {
+                Accept: 'application/json',
+            },
+        });
+
+        if (!response.ok) {
+            aiVideoStatus.value = 'failed';
+            aiVideoMessage.value = await parseErrorMessage(response, 'Failed to read video status.');
+            return;
+        }
+
+        const payload = await response.json() as {
+            status: string;
+            video_url?: string | null;
+            cloudinary_uploaded?: boolean;
+        };
+
+        const normalized = String(payload.status || '').toLowerCase();
+        if (normalized === 'completed' || normalized === 'success') {
+            aiVideoStatus.value = 'completed';
+            aiVideoUrl.value = payload.video_url ?? null;
+            aiVideoProvider.value = payload.cloudinary_uploaded ? 'cloudinary' : 'heygen';
+            aiVideoMessage.value = aiVideoUrl.value
+                ? 'Video completed successfully.'
+                : 'Video is completed but URL is still unavailable. Check again shortly.';
+            return;
+        }
+
+        if (normalized === 'failed' || normalized === 'error') {
+            aiVideoStatus.value = 'failed';
+            aiVideoMessage.value = 'Video rendering failed on provider.';
+            return;
+        }
+
+        aiVideoStatus.value = normalized === 'processing' ? 'processing' : 'pending';
+        aiVideoMessage.value = 'Rendering in progress. This can take a few minutes.';
+
+        aiPollTimer = window.setTimeout(() => {
+            void pollVideoStatus();
+        }, 8000);
+    } catch {
+        aiVideoStatus.value = 'failed';
+        aiVideoMessage.value = 'Failed to read video status.';
+    }
+};
+
+const generateVideo = async (): Promise<void> => {
+    if (!aiCanGenerateVideo.value || aiLoadingVideo.value) {
+        return;
+    }
+
+    if (aiPollTimer !== null) {
+        window.clearTimeout(aiPollTimer);
+        aiPollTimer = null;
+    }
+
+    aiLoadingVideo.value = true;
+    aiVideoStatus.value = 'requesting';
+    aiVideoMessage.value = 'Submitting video generation request...';
+    aiVideoUrl.value = null;
+    aiVideoProvider.value = null;
+
+    try {
+        const response = await fetch('/admin/webinars/ai/video', {
+            method: 'POST',
+            headers: {
+                Accept: 'application/json',
+                'Content-Type': 'application/json',
+                'X-CSRF-TOKEN': csrfToken(),
+            },
+            body: JSON.stringify({
+                title: aiBrief.title,
+                script: aiScript.value,
+                avatar_id: aiBrief.avatar_id,
+                voice_id: aiBrief.voice_id || null,
+                aspect_ratio: aiBrief.aspect_ratio,
+                background_color: aiBrief.background_color,
+            }),
+        });
+
+        if (!response.ok) {
+            aiVideoStatus.value = 'failed';
+            aiVideoMessage.value = await parseErrorMessage(response, 'Failed to start HeyGen generation.');
+            return;
+        }
+
+        const payload = await response.json() as { video_id: string };
+        aiVideoId.value = payload.video_id;
+        aiVideoStatus.value = 'pending';
+        aiVideoMessage.value = 'Video request accepted. Polling status...';
+
+        void pollVideoStatus();
+    } catch {
+        aiVideoStatus.value = 'failed';
+        aiVideoMessage.value = 'Failed to start HeyGen generation.';
+    } finally {
+        aiLoadingVideo.value = false;
+    }
+};
+
+const createWebinarFromAi = async (): Promise<void> => {
+    if (!aiVideoUrl.value || aiCreatingWebinar.value) {
+        return;
+    }
+
+    aiCreatingWebinar.value = true;
+
+    try {
+        const response = await fetch('/admin/webinars/ai/create', {
+            method: 'POST',
+            headers: {
+                Accept: 'application/json',
+                'Content-Type': 'application/json',
+                'X-CSRF-TOKEN': csrfToken(),
+            },
+            body: JSON.stringify({
+                title: aiBrief.title,
+                host_name: aiBrief.host_name,
+                description: aiBrief.topic,
+                script: aiScript.value,
+                video_url: aiVideoUrl.value,
+                video_duration_seconds: estimatedDurationSeconds.value,
+                source: aiVideoProvider.value || 'heygen',
+                avatar_id: aiBrief.avatar_id,
+                voice_id: aiBrief.voice_id || null,
+                webinar_type: aiBrief.webinar_type,
+                audience: aiBrief.audience,
+                goal: aiBrief.goal,
+            }),
+        });
+
+        if (!response.ok) {
+            showToast(await parseErrorMessage(response, 'Failed to create webinar from AI output.'), 'info');
+            return;
+        }
+
+        const payload = await response.json() as { edit_url: string };
+        showToast('Webinar created from AI. Redirecting to editor...');
+        router.visit(payload.edit_url);
+    } catch {
+        showToast('Failed to create webinar from AI output.', 'info');
+    } finally {
+        aiCreatingWebinar.value = false;
+    }
+};
+
+watch(selectedAvatarOption, (value) => {
+    if (value === '__custom__') {
+        aiBrief.avatar_id = customAvatarId.value.trim();
+        return;
+    }
+
+    aiBrief.avatar_id = value;
+});
+
+watch(customAvatarId, (value) => {
+    if (selectedAvatarOption.value === '__custom__') {
+        aiBrief.avatar_id = value.trim();
+    }
+});
+
+watch(selectedVoiceOption, (value) => {
+    if (value === '__custom__') {
+        aiBrief.voice_id = customVoiceId.value.trim();
+        return;
+    }
+
+    aiBrief.voice_id = value;
+});
+
+watch(customVoiceId, (value) => {
+    if (selectedVoiceOption.value === '__custom__') {
+        aiBrief.voice_id = value.trim();
+    }
+});
+
+watch(selectedWebinarTypeOption, (value) => {
+    if (value === '__custom__') {
+        aiBrief.webinar_type = customWebinarType.value.trim();
+        return;
+    }
+
+    aiBrief.webinar_type = value;
+});
+
+watch(customWebinarType, (value) => {
+    if (selectedWebinarTypeOption.value === '__custom__') {
+        aiBrief.webinar_type = value.trim();
+    }
+});
+
+watch(selectedAudienceOption, (value) => {
+    if (value === '__custom__') {
+        aiBrief.audience = customAudience.value.trim();
+        return;
+    }
+
+    aiBrief.audience = value;
+});
+
+watch(customAudience, (value) => {
+    if (selectedAudienceOption.value === '__custom__') {
+        aiBrief.audience = value.trim();
+    }
+});
+
+watch(selectedToneOption, (value) => {
+    if (value === '__custom__') {
+        aiBrief.tone = customTone.value.trim();
+        return;
+    }
+
+    aiBrief.tone = value;
+});
+
+watch(customTone, (value) => {
+    if (selectedToneOption.value === '__custom__') {
+        aiBrief.tone = value.trim();
+    }
+});
+
+watch(aiModalOpen, (open) => {
+    if (open) {
+        return;
+    }
+
+    if (aiPollTimer !== null) {
+        window.clearTimeout(aiPollTimer);
+        aiPollTimer = null;
+    }
+});
+
+const videoStatusClass = computed((): string => {
+    if (aiVideoStatus.value === 'completed') {
+        return 'border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-300';
+    }
+
+    if (aiVideoStatus.value === 'failed') {
+        return 'border-rose-200 bg-rose-50 text-rose-700 dark:border-rose-800 dark:bg-rose-950/40 dark:text-rose-300';
+    }
+
+    return 'border-sky-200 bg-sky-50 text-sky-700 dark:border-sky-800 dark:bg-sky-950/40 dark:text-sky-300';
+});
 
 const showToast = (message: string, type: 'success' | 'info' = 'success'): void => {
     toastMessage.value = message;
@@ -110,12 +616,24 @@ const videoSourceIcon = (source: string): string => {
                         Manage your webinar funnels, registration flows, and playback settings.
                     </p>
                 </div>
-                <Button as-child size="sm" class="mt-3 gap-1.5 h-9 px-4 font-semibold shadow-sm sm:mt-0">
-                    <Link href="/admin/webinars/create">
-                        <Icon icon="solar:add-circle-bold" class="size-4" />
-                        New Webinar
-                    </Link>
-                </Button>
+                <div class="mt-3 flex items-center gap-2 sm:mt-0">
+                    <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        class="h-9 gap-1.5 px-4 font-semibold"
+                        @click="openAiModal"
+                    >
+                        <Icon icon="solar:stars-bold-duotone" class="size-4" />
+                        Create with AI
+                    </Button>
+                    <Button as-child size="sm" class="h-9 gap-1.5 px-4 font-semibold shadow-sm">
+                        <Link href="/admin/webinars/create">
+                            <Icon icon="solar:add-circle-bold" class="size-4" />
+                            New Webinar
+                        </Link>
+                    </Button>
+                </div>
             </div>
 
             <!-- Webinars table card -->
@@ -334,5 +852,261 @@ const videoSourceIcon = (source: string): string => {
             </Card>
 
         </div>
+
+        <Dialog :open="aiModalOpen" @update:open="onAiModalOpenChange">
+            <DialogContent
+                class="sm:max-w-4xl"
+                :show-close-button="false"
+                @interact-outside.prevent
+                @escape-key-down.prevent
+            >
+                <button
+                    type="button"
+                    class="absolute right-4 top-4 inline-flex h-8 w-8 items-center justify-center rounded-md border border-border text-muted-foreground transition hover:bg-muted hover:text-foreground"
+                    @click="requestCloseAiModal"
+                >
+                    <Icon icon="solar:close-circle-linear" class="size-4" />
+                    <span class="sr-only">Close</span>
+                </button>
+                <DialogHeader>
+                    <DialogTitle class="flex items-center gap-2">
+                        <Icon icon="solar:stars-bold-duotone" class="size-5 text-primary" />
+                        Create Webinar with AI
+                    </DialogTitle>
+                    <DialogDescription>
+                        Brief the webinar, generate a long script, render with HeyGen, then create a draft webinar automatically.
+                    </DialogDescription>
+                </DialogHeader>
+
+                <div class="flex items-center gap-2 text-xs font-semibold">
+                    <span class="inline-flex h-6 items-center rounded-full px-2"
+                        :class="aiStep === 'brief' ? 'bg-primary/15 text-primary' : 'bg-muted text-muted-foreground'"
+                    >1. Brief</span>
+                    <span class="h-px flex-1 bg-border" />
+                    <span class="inline-flex h-6 items-center rounded-full px-2"
+                        :class="aiStep === 'script' ? 'bg-primary/15 text-primary' : 'bg-muted text-muted-foreground'"
+                    >2. Script</span>
+                    <span class="h-px flex-1 bg-border" />
+                    <span class="inline-flex h-6 items-center rounded-full px-2"
+                        :class="aiStep === 'video' ? 'bg-primary/15 text-primary' : 'bg-muted text-muted-foreground'"
+                    >3. Video and Create</span>
+                </div>
+
+                <div v-if="aiStep === 'brief'" class="grid gap-4 py-2 sm:grid-cols-2">
+                    <div class="space-y-1.5">
+                        <label class="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Webinar Title</label>
+                        <input v-model="aiBrief.title" type="text" class="w-full rounded-md border bg-background px-3 py-2 text-sm" placeholder="High-Ticket Offer Masterclass" />
+                    </div>
+                    <div class="space-y-1.5">
+                        <label class="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Host Name</label>
+                        <input v-model="aiBrief.host_name" type="text" class="w-full rounded-md border bg-background px-3 py-2 text-sm" placeholder="John Smith" />
+                    </div>
+                    <div class="space-y-1.5 sm:col-span-2">
+                        <label class="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Topic</label>
+                        <input v-model="aiBrief.topic" type="text" class="w-full rounded-md border bg-background px-3 py-2 text-sm" placeholder="How to close premium coaching clients" />
+                    </div>
+                    <div class="space-y-1.5">
+                        <label class="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Webinar Type</label>
+                        <select v-model="selectedWebinarTypeOption" class="w-full rounded-md border bg-background px-3 py-2 text-sm">
+                            <option v-for="option in webinarTypeOptions" :key="option.value" :value="option.value">{{ option.label }}</option>
+                        </select>
+                        <input
+                            v-if="selectedWebinarTypeOption === '__custom__'"
+                            v-model="customWebinarType"
+                            type="text"
+                            class="w-full rounded-md border bg-background px-3 py-2 text-sm"
+                            placeholder="Type your webinar type"
+                        />
+                    </div>
+                    <div class="space-y-1.5">
+                        <label class="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Audience</label>
+                        <select v-model="selectedAudienceOption" class="w-full rounded-md border bg-background px-3 py-2 text-sm">
+                            <option v-for="option in audienceOptions" :key="option.value" :value="option.value">{{ option.label }}</option>
+                        </select>
+                        <input
+                            v-if="selectedAudienceOption === '__custom__'"
+                            v-model="customAudience"
+                            type="text"
+                            class="w-full rounded-md border bg-background px-3 py-2 text-sm"
+                            placeholder="Type your audience"
+                        />
+                    </div>
+                    <div class="space-y-1.5 sm:col-span-2">
+                        <label class="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Goal</label>
+                        <input v-model="aiBrief.goal" type="text" class="w-full rounded-md border bg-background px-3 py-2 text-sm" placeholder="Sell strategy calls" />
+                    </div>
+                    <div class="space-y-1.5">
+                        <label class="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Tone</label>
+                        <select v-model="selectedToneOption" class="w-full rounded-md border bg-background px-3 py-2 text-sm">
+                            <option v-for="option in toneOptions" :key="option.value" :value="option.value">{{ option.label }}</option>
+                        </select>
+                        <input
+                            v-if="selectedToneOption === '__custom__'"
+                            v-model="customTone"
+                            type="text"
+                            class="w-full rounded-md border bg-background px-3 py-2 text-sm"
+                            placeholder="Type your tone"
+                        />
+                    </div>
+                    <div class="space-y-1.5">
+                        <label class="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Duration (minutes)</label>
+                        <input v-model.number="aiBrief.duration_minutes" type="number" min="20" max="120" class="w-full rounded-md border bg-background px-3 py-2 text-sm" />
+                    </div>
+                </div>
+
+                <div v-else-if="aiStep === 'script'" class="space-y-3 py-2">
+                    <div class="flex flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground">
+                        <span>Review and edit the generated script before creating video.</span>
+                        <span v-if="aiScriptModel">Model: {{ aiScriptModel }}</span>
+                    </div>
+                    <textarea
+                        v-model="aiScript"
+                        rows="16"
+                        class="w-full rounded-md border bg-background px-3 py-2 text-sm leading-6"
+                        placeholder="Generated script will appear here"
+                    />
+                </div>
+
+                <div v-else class="space-y-3 py-2">
+                    <div class="grid gap-3 rounded-lg border border-border/70 bg-muted/15 p-3 sm:grid-cols-2">
+                        <div class="space-y-1.5">
+                            <label class="text-xs font-semibold uppercase tracking-wide text-muted-foreground">HeyGen Avatar</label>
+                            <select v-model="selectedAvatarOption" class="w-full rounded-md border bg-background px-3 py-2 text-sm">
+                                <option v-for="option in avatarOptions" :key="option.value" :value="option.value">{{ option.label }}</option>
+                            </select>
+                            <input
+                                v-if="selectedAvatarOption === '__custom__'"
+                                v-model="customAvatarId"
+                                type="text"
+                                class="w-full rounded-md border bg-background px-3 py-2 text-sm"
+                                placeholder="avatar_xxx"
+                            />
+                        </div>
+                        <div class="space-y-1.5">
+                            <label class="text-xs font-semibold uppercase tracking-wide text-muted-foreground">HeyGen Voice (optional)</label>
+                            <select v-model="selectedVoiceOption" class="w-full rounded-md border bg-background px-3 py-2 text-sm">
+                                <option v-for="option in voiceOptions" :key="option.value || 'default-voice'" :value="option.value">{{ option.label }}</option>
+                            </select>
+                            <input
+                                v-if="selectedVoiceOption === '__custom__'"
+                                v-model="customVoiceId"
+                                type="text"
+                                class="w-full rounded-md border bg-background px-3 py-2 text-sm"
+                                placeholder="voice_xxx"
+                            />
+                        </div>
+                        <div class="space-y-1.5">
+                            <label class="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Aspect Ratio</label>
+                            <select v-model="aiBrief.aspect_ratio" class="w-full rounded-md border bg-background px-3 py-2 text-sm">
+                                <option value="16:9">16:9 (Webinar)</option>
+                                <option value="1:1">1:1</option>
+                                <option value="9:16">9:16</option>
+                            </select>
+                        </div>
+                        <div class="space-y-1.5">
+                            <label class="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Background Color</label>
+                            <input v-model="aiBrief.background_color" type="text" class="w-full rounded-md border bg-background px-3 py-2 text-sm" placeholder="#F8FAFC" />
+                        </div>
+                    </div>
+
+                    <div class="grid gap-2 rounded-lg border bg-muted/20 p-3 text-xs sm:grid-cols-3">
+                        <div>
+                            <p class="text-muted-foreground">Title</p>
+                            <p class="font-semibold text-foreground">{{ aiBrief.title || '-' }}</p>
+                        </div>
+                        <div>
+                            <p class="text-muted-foreground">Avatar</p>
+                            <p class="font-semibold text-foreground">{{ aiBrief.avatar_id || '-' }}</p>
+                        </div>
+                        <div>
+                            <p class="text-muted-foreground">Estimated Duration</p>
+                            <p class="font-semibold text-foreground">{{ estimatedDurationSeconds ? Math.round(estimatedDurationSeconds / 60) + ' min' : '-' }}</p>
+                        </div>
+                    </div>
+
+                    <div
+                        v-if="aiVideoStatus !== 'idle'"
+                        class="rounded-md border px-3 py-2 text-sm"
+                        :class="videoStatusClass"
+                    >
+                        <p class="font-semibold capitalize">Status: {{ aiVideoStatus }}</p>
+                        <p class="mt-1">{{ aiVideoMessage }}</p>
+                    </div>
+
+                    <div v-if="aiVideoUrl" class="space-y-1 rounded-md border border-border bg-background p-3">
+                        <p class="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Generated Video URL</p>
+                        <a :href="aiVideoUrl" target="_blank" rel="noopener" class="break-all text-sm font-medium text-primary underline">
+                            {{ aiVideoUrl }}
+                        </a>
+                        <p class="text-xs text-muted-foreground">Provider: {{ aiVideoProvider || 'heygen' }}</p>
+                    </div>
+                </div>
+
+                <DialogFooter class="flex flex-wrap justify-between gap-2">
+                    <div class="flex items-center gap-2">
+                        <Button type="button" variant="ghost" @click="requestCloseAiModal">Cancel</Button>
+                        <Button
+                            v-if="aiStep !== 'brief'"
+                            type="button"
+                            variant="outline"
+                            @click="aiStep = aiStep === 'video' ? 'script' : 'brief'"
+                        >
+                            Back
+                        </Button>
+                    </div>
+
+                    <div class="flex items-center gap-2">
+                        <Button
+                            v-if="aiStep === 'brief'"
+                            type="button"
+                            :disabled="!aiCanGenerateScript || aiLoadingScript"
+                            @click="generateScript"
+                        >
+                            <Icon v-if="aiLoadingScript" icon="svg-spinners:3-dots-fade" class="mr-1 size-4" />
+                            Generate Script
+                        </Button>
+
+                        <template v-else-if="aiStep === 'script'">
+                            <Button
+                                type="button"
+                                variant="outline"
+                                :disabled="aiLoadingScript"
+                                @click="generateScript"
+                            >
+                                <Icon v-if="aiLoadingScript" icon="svg-spinners:3-dots-fade" class="mr-1 size-4" />
+                                Regenerate
+                            </Button>
+                            <Button
+                                type="button"
+                                :disabled="aiScript.trim().length < 300"
+                                @click="aiStep = 'video'"
+                            >
+                                Continue to Video
+                            </Button>
+                        </template>
+
+                        <template v-else>
+                            <Button
+                                type="button"
+                                variant="outline"
+                                :disabled="!aiCanGenerateVideo || aiLoadingVideo"
+                                @click="generateVideo"
+                            >
+                                <Icon v-if="aiLoadingVideo" icon="svg-spinners:3-dots-fade" class="mr-1 size-4" />
+                                Generate Video
+                            </Button>
+                            <Button
+                                type="button"
+                                :disabled="!aiVideoUrl || aiCreatingWebinar"
+                                @click="createWebinarFromAi"
+                            >
+                                <Icon v-if="aiCreatingWebinar" icon="svg-spinners:3-dots-fade" class="mr-1 size-4" />
+                                Create Webinar
+                            </Button>
+                        </template>
+                    </div>
+                </DialogFooter>
+            </DialogContent>
+        </Dialog>
     </AppLayout>
 </template>

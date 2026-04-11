@@ -7,6 +7,14 @@ import RichTextEditor from '@/components/webinars/RichTextEditor.vue';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import {
+    Dialog,
+    DialogContent,
+    DialogDescription,
+    DialogFooter,
+    DialogHeader,
+    DialogTitle,
+} from '@/components/ui/dialog';
 
 type WebinarFormData = {
     title_prefix: string;
@@ -80,7 +88,10 @@ const props = defineProps<{
     attendeeActionUrls: {
         bulk_unsubscribe_url: string;
         bulk_delete_url: string;
+        apollo_preview_url: string;
+        apollo_fetch_url: string;
     } | null;
+    apolloMaxFetch: number;
     aiSourceUrls: {
         index: string | null;
         url: string | null;
@@ -209,6 +220,80 @@ const bulkUnsubscribeForm = useForm<{ attendee_ids: number[] }>({
 const bulkDeleteForm = useForm<{ attendee_ids: number[] }>({
     attendee_ids: [],
 });
+
+const apolloModalOpen = ref(false);
+const apolloJobTitleOptions = [
+    { label: 'Founder / CEO', value: 'Founder' },
+    { label: 'Marketing Manager', value: 'Marketing Manager' },
+    { label: 'Agency Owner', value: 'Agency Owner' },
+    { label: 'Sales Director', value: 'Sales Director' },
+    { label: 'Custom...', value: '__custom__' },
+];
+const apolloIndustryOptions = [
+    { label: 'Marketing and Advertising', value: 'Marketing and Advertising' },
+    { label: 'Real Estate', value: 'Real Estate' },
+    { label: 'E-Learning', value: 'E-Learning' },
+    { label: 'Health and Wellness', value: 'Health and Wellness' },
+    { label: 'Custom...', value: '__custom__' },
+];
+const apolloLocationOptions = [
+    { label: 'United States', value: 'United States' },
+    { label: 'United Kingdom', value: 'United Kingdom' },
+    { label: 'Canada', value: 'Canada' },
+    { label: 'Australia', value: 'Australia' },
+    { label: 'Custom...', value: '__custom__' },
+];
+const apolloCompanySizeOptions = [
+    { label: '1-10', value: '1,10' },
+    { label: '11-50', value: '11,50' },
+    { label: '51-200', value: '51,200' },
+    { label: '201-500', value: '201,500' },
+    { label: 'Custom...', value: '__custom__' },
+];
+
+const selectedApolloJobTitle = ref('Founder');
+const customApolloJobTitle = ref('');
+const selectedApolloIndustry = ref('Marketing and Advertising');
+const customApolloIndustry = ref('');
+const selectedApolloLocation = ref('United States');
+const customApolloLocation = ref('');
+const selectedApolloCompanySize = ref('11,50');
+const customApolloCompanySize = ref('');
+
+const apolloFetchForm = useForm<{
+    count: number;
+    job_title: string;
+    industry: string;
+    location: string;
+    company_size: string;
+    keyword: string;
+}>({
+    count: Math.min(props.apolloMaxFetch, 100),
+    job_title: 'Founder',
+    industry: 'Marketing and Advertising',
+    location: 'United States',
+    company_size: '11,50',
+    keyword: '',
+});
+
+const apolloFetchErrorMessage = computed(() =>
+    (apolloFetchForm.errors as Record<string, string | undefined>).apollo ?? ''
+);
+const apolloPreviewLoading = ref(false);
+const apolloPreviewRows = ref<Array<{ email: string; name: string }>>([]);
+const apolloPreviewMessage = ref('');
+const apolloPreviewHasRun = ref(false);
+const apolloRequiredFiltersComplete = computed(() => {
+    return [
+        apolloFetchForm.job_title,
+        apolloFetchForm.industry,
+        apolloFetchForm.location,
+        apolloFetchForm.company_size,
+    ].every((value) => String(value ?? '').trim() !== '');
+});
+const apolloEstimatedFinalCount = computed(() =>
+    Math.min(Math.max(1, Number(apolloFetchForm.count || 1)), props.apolloMaxFetch),
+);
 
 const aiUrlForm = useForm<{
     title: string;
@@ -514,8 +599,9 @@ const submitAiUrlSource = (): void => {
             void loadAiSources(1);
         },
         onError: () => {
-            if (aiUrlForm.errors.source_limit) {
-                showToast(aiUrlForm.errors.source_limit);
+            const sourceLimit = (aiUrlForm.errors as Record<string, string | undefined>).source_limit;
+            if (sourceLimit) {
+                showToast(sourceLimit);
             }
         },
     });
@@ -540,8 +626,9 @@ const submitAiTranscriptSource = (): void => {
             void loadAiSources(1);
         },
         onError: () => {
-            if (aiTranscriptForm.errors.source_limit) {
-                showToast(aiTranscriptForm.errors.source_limit);
+            const sourceLimit = (aiTranscriptForm.errors as Record<string, string | undefined>).source_limit;
+            if (sourceLimit) {
+                showToast(sourceLimit);
             }
         },
     });
@@ -577,8 +664,9 @@ const submitAiFileSource = (): void => {
             void loadAiSources(1);
         },
         onError: () => {
-            if (aiFileForm.errors.source_limit) {
-                showToast(aiFileForm.errors.source_limit);
+            const sourceLimit = (aiFileForm.errors as Record<string, string | undefined>).source_limit;
+            if (sourceLimit) {
+                showToast(sourceLimit);
             }
         },
     });
@@ -605,6 +693,182 @@ const importAttendeesCsv = (): void => {
         },
     });
 };
+
+const openApolloModal = (): void => {
+    if (!props.attendeeActionUrls?.apollo_fetch_url) {
+        showToast('Create webinar first before using Apollo fetch.');
+        return;
+    }
+
+    apolloFetchForm.clearErrors();
+    apolloFetchForm.count = Math.min(props.apolloMaxFetch, 100);
+    apolloFetchForm.job_title = 'Founder';
+    apolloFetchForm.industry = 'Marketing and Advertising';
+    apolloFetchForm.location = 'United States';
+    apolloFetchForm.company_size = '11,50';
+    apolloFetchForm.keyword = '';
+
+    selectedApolloJobTitle.value = 'Founder';
+    customApolloJobTitle.value = '';
+    selectedApolloIndustry.value = 'Marketing and Advertising';
+    customApolloIndustry.value = '';
+    selectedApolloLocation.value = 'United States';
+    customApolloLocation.value = '';
+    selectedApolloCompanySize.value = '11,50';
+    customApolloCompanySize.value = '';
+
+    apolloPreviewRows.value = [];
+    apolloPreviewMessage.value = '';
+    apolloPreviewHasRun.value = false;
+
+    apolloModalOpen.value = true;
+};
+
+const previewApolloFetch = async (): Promise<void> => {
+    if (!props.attendeeActionUrls?.apollo_preview_url) {
+        showToast('Apollo preview endpoint is not configured.');
+        return;
+    }
+
+    if (!apolloRequiredFiltersComplete.value) {
+        showToast('Fill all required Apollo filters before previewing.');
+        return;
+    }
+
+    if (apolloFetchForm.count > props.apolloMaxFetch) {
+        apolloFetchForm.count = props.apolloMaxFetch;
+    }
+
+    apolloPreviewLoading.value = true;
+    apolloPreviewMessage.value = '';
+    apolloPreviewRows.value = [];
+
+    try {
+        const response = await fetch(props.attendeeActionUrls.apollo_preview_url, {
+            method: 'POST',
+            headers: {
+                Accept: 'application/json',
+                'Content-Type': 'application/json',
+                'X-CSRF-TOKEN': csrfToken(),
+            },
+            body: JSON.stringify({
+                count: apolloFetchForm.count,
+                job_title: apolloFetchForm.job_title,
+                industry: apolloFetchForm.industry,
+                location: apolloFetchForm.location,
+                company_size: apolloFetchForm.company_size,
+                keyword: apolloFetchForm.keyword,
+            }),
+        });
+
+        if (!response.ok) {
+            const message = await extractErrorMessage(response, 'Apollo preview failed.');
+            apolloPreviewMessage.value = message;
+            showToast(message);
+            return;
+        }
+
+        const payload = await response.json() as {
+            sample?: Array<{ email: string; name: string }>;
+            sample_count?: number;
+            preview_limit?: number;
+        };
+
+        apolloPreviewRows.value = payload.sample ?? [];
+        apolloPreviewMessage.value = apolloPreviewRows.value.length > 0
+            ? `Preview ready: ${apolloPreviewRows.value.length} lead(s) sampled.`
+            : 'No leads matched this filter set.';
+        apolloPreviewHasRun.value = true;
+    } catch {
+        apolloPreviewMessage.value = 'Apollo preview failed.';
+        showToast('Apollo preview failed.');
+    } finally {
+        apolloPreviewLoading.value = false;
+    }
+};
+
+const submitApolloFetch = (): void => {
+    if (!props.attendeeActionUrls?.apollo_fetch_url) {
+        showToast('Apollo fetch endpoint is not configured.');
+        return;
+    }
+
+    if (!apolloRequiredFiltersComplete.value) {
+        showToast('Fill all required Apollo filters before fetching.');
+        return;
+    }
+
+    if (apolloFetchForm.count > props.apolloMaxFetch) {
+        apolloFetchForm.count = props.apolloMaxFetch;
+    }
+
+    apolloFetchForm.post(props.attendeeActionUrls.apollo_fetch_url, {
+        preserveScroll: true,
+        onSuccess: () => {
+            apolloModalOpen.value = false;
+            showToast('Apollo import queued. Leads and emails will process in background workers.');
+        },
+        onError: (errors) => {
+            if (errors.apollo) {
+                showToast(errors.apollo);
+            }
+        },
+    });
+};
+
+watch(selectedApolloJobTitle, (value) => {
+    apolloFetchForm.job_title = value === '__custom__' ? customApolloJobTitle.value.trim() : value;
+});
+
+watch(customApolloJobTitle, (value) => {
+    if (selectedApolloJobTitle.value === '__custom__') {
+        apolloFetchForm.job_title = value.trim();
+    }
+});
+
+watch(selectedApolloIndustry, (value) => {
+    apolloFetchForm.industry = value === '__custom__' ? customApolloIndustry.value.trim() : value;
+});
+
+watch(customApolloIndustry, (value) => {
+    if (selectedApolloIndustry.value === '__custom__') {
+        apolloFetchForm.industry = value.trim();
+    }
+});
+
+watch(selectedApolloLocation, (value) => {
+    apolloFetchForm.location = value === '__custom__' ? customApolloLocation.value.trim() : value;
+});
+
+watch(customApolloLocation, (value) => {
+    if (selectedApolloLocation.value === '__custom__') {
+        apolloFetchForm.location = value.trim();
+    }
+});
+
+watch(selectedApolloCompanySize, (value) => {
+    apolloFetchForm.company_size = value === '__custom__' ? customApolloCompanySize.value.trim() : value;
+});
+
+watch(customApolloCompanySize, (value) => {
+    if (selectedApolloCompanySize.value === '__custom__') {
+        apolloFetchForm.company_size = value.trim();
+    }
+});
+
+watch(
+    () => [
+        apolloFetchForm.count,
+        apolloFetchForm.job_title,
+        apolloFetchForm.industry,
+        apolloFetchForm.location,
+        apolloFetchForm.company_size,
+        apolloFetchForm.keyword,
+    ],
+    () => {
+        apolloPreviewHasRun.value = false;
+    },
+);
 
 const missingRequiredByStep = (step: number): string[] => {
     return requiredChecks
@@ -1342,6 +1606,16 @@ const stepMeta: Array<{ icon: string; color: string }> = [
                 </div>
 
                 <div v-else class="space-y-4">
+                    <div class="flex flex-wrap items-center justify-between gap-2 rounded-md border border-dashed bg-muted/20 p-3">
+                        <p class="text-xs text-muted-foreground">
+                            Fetch targeted contacts from Apollo and auto-register them to this webinar.
+                        </p>
+                        <Button type="button" variant="outline" class="h-8 text-xs" @click="openApolloModal">
+                            <Icon icon="solar:database-bold-duotone" class="mr-1 size-4" />
+                            Fetch Emails via Apollo
+                        </Button>
+                    </div>
+
                     <div class="grid gap-3 rounded-md border p-3">
                         <Label for="attendee_csv">Import File *</Label>
                         <Input id="attendee_csv" type="file" accept=".csv,.txt,.xlsx,.xls" @change="onAttendeeCsvSelected" />
@@ -1522,6 +1796,108 @@ const stepMeta: Array<{ icon: string; color: string }> = [
                 </div>
             </div>
             </div>
+
+            <Dialog :open="apolloModalOpen" @update:open="apolloModalOpen = $event">
+                <DialogContent class="sm:max-w-2xl" @interact-outside.prevent @escape-key-down.prevent>
+                    <DialogHeader>
+                        <DialogTitle>Fetch Emails for This Webinar</DialogTitle>
+                        <DialogDescription>
+                            Select Apollo filters. Matching contacts will be auto-registered and invitation emails queued.
+                        </DialogDescription>
+                    </DialogHeader>
+
+                    <div class="grid gap-4 py-2 sm:grid-cols-2">
+                        <div class="space-y-1.5">
+                            <Label>Max leads to fetch (limit {{ apolloMaxFetch }})</Label>
+                            <Input v-model.number="apolloFetchForm.count" type="number" min="1" :max="apolloMaxFetch" />
+                        </div>
+
+                        <div class="space-y-1.5">
+                            <Label>Keyword (optional)</Label>
+                            <Input v-model="apolloFetchForm.keyword" type="text" placeholder="webinar, coaching, automation" />
+                        </div>
+
+                        <div class="space-y-1.5">
+                            <Label>Job Title *</Label>
+                            <select v-model="selectedApolloJobTitle" class="w-full rounded-md border bg-background px-3 py-2 text-sm">
+                                <option v-for="option in apolloJobTitleOptions" :key="option.value" :value="option.value">{{ option.label }}</option>
+                            </select>
+                            <Input v-if="selectedApolloJobTitle === '__custom__'" v-model="customApolloJobTitle" type="text" placeholder="Custom job title" />
+                        </div>
+
+                        <div class="space-y-1.5">
+                            <Label>Industry *</Label>
+                            <select v-model="selectedApolloIndustry" class="w-full rounded-md border bg-background px-3 py-2 text-sm">
+                                <option v-for="option in apolloIndustryOptions" :key="option.value" :value="option.value">{{ option.label }}</option>
+                            </select>
+                            <Input v-if="selectedApolloIndustry === '__custom__'" v-model="customApolloIndustry" type="text" placeholder="Custom industry" />
+                        </div>
+
+                        <div class="space-y-1.5">
+                            <Label>Location *</Label>
+                            <select v-model="selectedApolloLocation" class="w-full rounded-md border bg-background px-3 py-2 text-sm">
+                                <option v-for="option in apolloLocationOptions" :key="option.value" :value="option.value">{{ option.label }}</option>
+                            </select>
+                            <Input v-if="selectedApolloLocation === '__custom__'" v-model="customApolloLocation" type="text" placeholder="Custom location" />
+                        </div>
+
+                        <div class="space-y-1.5">
+                            <Label>Company Size *</Label>
+                            <select v-model="selectedApolloCompanySize" class="w-full rounded-md border bg-background px-3 py-2 text-sm">
+                                <option v-for="option in apolloCompanySizeOptions" :key="option.value" :value="option.value">{{ option.label }}</option>
+                            </select>
+                            <Input v-if="selectedApolloCompanySize === '__custom__'" v-model="customApolloCompanySize" type="text" placeholder="Custom size range" />
+                        </div>
+                    </div>
+
+                    <InputError :message="apolloFetchErrorMessage" />
+
+                    <div class="rounded-md border border-border/70 bg-muted/20 p-3">
+                        <div class="flex items-center justify-between gap-2">
+                            <p class="text-xs text-muted-foreground">Preview sampled leads before importing.</p>
+                            <Button type="button" variant="outline" class="h-8 text-xs" :disabled="apolloPreviewLoading || !apolloRequiredFiltersComplete" @click="void previewApolloFetch()">
+                                <Icon v-if="apolloPreviewLoading" icon="svg-spinners:3-dots-fade" class="mr-1 size-4" />
+                                Preview Leads
+                            </Button>
+                        </div>
+
+                        <p v-if="apolloPreviewMessage" class="mt-2 text-xs text-muted-foreground">
+                            {{ apolloPreviewMessage }}
+                        </p>
+                        <p v-if="!apolloPreviewHasRun" class="mt-1 text-xs text-amber-600">
+                            Preview is optional. You can still Fetch and Register directly.
+                        </p>
+
+                        <div v-if="apolloPreviewRows.length > 0" class="mt-3 overflow-hidden rounded-md border">
+                            <table class="w-full text-xs">
+                                <thead class="bg-muted/40 text-left">
+                                    <tr>
+                                        <th class="px-3 py-2">Name</th>
+                                        <th class="px-3 py-2">Email</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <tr v-for="(row, index) in apolloPreviewRows" :key="`apollo-preview-${index}`" class="border-t">
+                                        <td class="px-3 py-2">{{ row.name }}</td>
+                                        <td class="px-3 py-2">{{ row.email }}</td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+
+                    <DialogFooter>
+                        <p class="mr-auto text-xs text-muted-foreground">
+                            Estimated final fetch count: {{ apolloEstimatedFinalCount }}
+                        </p>
+                        <Button type="button" variant="ghost" @click="apolloModalOpen = false">Cancel</Button>
+                        <Button type="button" :disabled="apolloFetchForm.processing || !apolloRequiredFiltersComplete" @click="submitApolloFetch">
+                            <Icon v-if="apolloFetchForm.processing" icon="svg-spinners:3-dots-fade" class="mr-1 size-4" />
+                            Fetch and Register
+                        </Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
 
             <div v-if="activeStep === 4" class="rounded-2xl border border-border/60 bg-card shadow-sm overflow-hidden">
                 <div class="flex items-center gap-3 border-b border-border/50 bg-muted/20 px-5 py-4">

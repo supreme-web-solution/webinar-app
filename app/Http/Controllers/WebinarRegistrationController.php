@@ -99,17 +99,7 @@ class WebinarRegistrationController extends Controller
                 [$registrant->id],
                 $webinar->prefixedTitleLine(),
                 'Thanks for registering. Use the button below to join the webinar.'
-            )->onQueue('emails');
-
-            Log::info('webinar_email_batch.dispatch', [
-                'source' => 'registration_store',
-                'webinar_id' => $webinar->id,
-                'registrant_id' => $registrant->id,
-                'batch_size' => 1,
-                'delay_seconds' => 0,
-                'queue' => 'emails',
-                'subject' => $webinar->prefixedTitleLine(),
-            ]);
+            )->onQueue((string) config('services.queues.emails', 'emails'));
         }
 
         return redirect()
@@ -159,17 +149,7 @@ class WebinarRegistrationController extends Controller
                 [$registrant->id],
                 $webinar->prefixedTitleLine(),
                 'Thanks for registering. Use the button below to join the webinar.'
-            )->onQueue('emails');
-
-            Log::info('webinar_email_batch.dispatch', [
-                'source' => 'registration_access_from_join_link',
-                'webinar_id' => $webinar->id,
-                'registrant_id' => $registrant->id,
-                'batch_size' => 1,
-                'delay_seconds' => 0,
-                'queue' => 'emails',
-                'subject' => $webinar->prefixedTitleLine(),
-            ]);
+            )->onQueue((string) config('services.queues.emails', 'emails'));
         }
 
         return redirect()->route('webinar.room', ['token' => $registrant->access_token]);
