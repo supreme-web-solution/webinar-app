@@ -69,6 +69,8 @@ return [
     'ai_transcript' => [
         'ffmpeg_bin' => env('FFMPEG_BIN', 'ffmpeg'),
         'yt_dlp_bin' => env('YT_DLP_BIN', 'yt-dlp'),
+        'yt_dlp_js_runtimes' => env('YT_DLP_JS_RUNTIMES', ''),
+        'yt_dlp_cookies_file' => env('YT_DLP_COOKIES_FILE', ''),
         'chunk_seconds' => (int) env('AI_TRANSCRIPT_CHUNK_SECONDS', 300),
         'ffmpeg_timeout_seconds' => (int) env('AI_TRANSCRIPT_FFMPEG_TIMEOUT_SECONDS', 7200),
         'openai_timeout_seconds' => (int) env('AI_TRANSCRIPT_OPENAI_TIMEOUT_SECONDS', 180),

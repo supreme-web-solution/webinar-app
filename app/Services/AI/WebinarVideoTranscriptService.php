@@ -28,6 +28,8 @@ class WebinarVideoTranscriptService
 
         $ffmpegBin = trim((string) config('services.ai_transcript.ffmpeg_bin', 'ffmpeg'));
         $ytDlpBin = trim((string) config('services.ai_transcript.yt_dlp_bin', 'yt-dlp'));
+        $ytDlpJsRuntimes = trim((string) config('services.ai_transcript.yt_dlp_js_runtimes', ''));
+        $ytDlpCookiesFile = trim((string) config('services.ai_transcript.yt_dlp_cookies_file', ''));
         $chunkSeconds = max(60, (int) config('services.ai_transcript.chunk_seconds', 300));
         $ffmpegTimeoutSeconds = max(120, (int) config('services.ai_transcript.ffmpeg_timeout_seconds', 7200));
 
@@ -46,7 +48,7 @@ class WebinarVideoTranscriptService
 
             $audioPath = $workingDir.DIRECTORY_SEPARATOR.'audio_clean.wav';
             $chunkPattern = $workingDir.DIRECTORY_SEPARATOR.'chunk_%03d.wav';
-            $extractInput = $this->resolveStreamUrlWithYtDlp($videoUrl, $ytDlpBin) ?? $videoUrl;
+            $extractInput = $this->resolveStreamUrlWithYtDlp($videoUrl, $ytDlpBin, $ytDlpJsRuntimes, $ytDlpCookiesFile) ?? $videoUrl;
 
             // Single pass extraction + normalization gives Whisper-ready audio.
             $extractProcess = new Process([
@@ -187,7 +189,7 @@ class WebinarVideoTranscriptService
         }
     }
 
-    private function resolveStreamUrlWithYtDlp(string $videoUrl, string $ytDlpBin): ?string
+    private function resolveStreamUrlWithYtDlp(string $videoUrl, string $ytDlpBin, string $ytDlpJsRuntimes = '', string $ytDlpCookiesFile = ''): ?string
     {
         $host = strtolower((string) parse_url($videoUrl, PHP_URL_HOST));
 
@@ -207,7 +209,25 @@ class WebinarVideoTranscriptService
             ));
         }
 
-        $process = new Process([$ytDlpBin, '-g', '--no-playlist', $videoUrl]);
+        $command = [$ytDlpBin, '-g', '--no-playlist'];
+
+        if ($ytDlpJsRuntimes !== '') {
+            $command[] = '--js-runtimes';
+            $command[] = $ytDlpJsRuntimes;
+        }
+
+        if ($ytDlpCookiesFile !== '') {
+            if (! is_file($ytDlpCookiesFile)) {
+                throw new \RuntimeException(sprintf('YT_DLP_COOKIES_FILE is set but file does not exist: "%s".', $ytDlpCookiesFile));
+            }
+
+            $command[] = '--cookies';
+            $command[] = $ytDlpCookiesFile;
+        }
+
+        $command[] = $videoUrl;
+
+        $process = new Process($command);
         $process->setTimeout(60);
         $process->run();
 
