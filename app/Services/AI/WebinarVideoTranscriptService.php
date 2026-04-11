@@ -46,14 +46,14 @@ class WebinarVideoTranscriptService
 
             $audioPath = $workingDir.DIRECTORY_SEPARATOR.'audio_clean.wav';
             $chunkPattern = $workingDir.DIRECTORY_SEPARATOR.'chunk_%03d.wav';
-            $extractInput = $videoUrl;
+            $extractInput = $this->resolveStreamUrlWithYtDlp($videoUrl, $ytDlpBin) ?? $videoUrl;
 
             // Single pass extraction + normalization gives Whisper-ready audio.
             $extractProcess = new Process([
                 $ffmpegBin,
                 '-y',
                 '-i',
-                $videoUrl,
+                $extractInput,
                 '-vn',
                 '-ac',
                 '1',
@@ -67,33 +67,7 @@ class WebinarVideoTranscriptService
             $extractProcess->run();
 
             if (! $extractProcess->isSuccessful()) {
-                $fallbackUrl = $this->resolveStreamUrlWithYtDlp($videoUrl, $ytDlpBin);
-
-                if ($fallbackUrl === null) {
-                    throw new ProcessFailedException($extractProcess);
-                }
-
-                $extractInput = $fallbackUrl;
-                $retryExtractProcess = new Process([
-                    $ffmpegBin,
-                    '-y',
-                    '-i',
-                    $extractInput,
-                    '-vn',
-                    '-ac',
-                    '1',
-                    '-ar',
-                    '16000',
-                    '-c:a',
-                    'pcm_s16le',
-                    $audioPath,
-                ]);
-                $retryExtractProcess->setTimeout($ffmpegTimeoutSeconds);
-                $retryExtractProcess->run();
-
-                if (! $retryExtractProcess->isSuccessful()) {
-                    throw new ProcessFailedException($retryExtractProcess);
-                }
+                throw new ProcessFailedException($extractProcess);
             }
 
             $segmentProcess = new Process([
@@ -226,7 +200,11 @@ class WebinarVideoTranscriptService
         $versionProcess->run();
 
         if (! $versionProcess->isSuccessful()) {
-            return null;
+            throw new \RuntimeException(sprintf(
+                'yt-dlp is required for YouTube/Vimeo URLs but is unavailable at "%s". Error: %s',
+                $ytDlpBin,
+                trim($versionProcess->getErrorOutput()) ?: 'command failed',
+            ));
         }
 
         $process = new Process([$ytDlpBin, '-g', '--no-playlist', $videoUrl]);
@@ -234,12 +212,7 @@ class WebinarVideoTranscriptService
         $process->run();
 
         if (! $process->isSuccessful()) {
-            Log::warning('yt-dlp fallback failed', [
-                'video_url' => $videoUrl,
-                'output' => trim($process->getErrorOutput()),
-            ]);
-
-            return null;
+            throw new \RuntimeException('yt-dlp failed to resolve video stream URL: '.trim($process->getErrorOutput()));
         }
 
         $lines = preg_split('/\r\n|\r|\n/', trim($process->getOutput())) ?: [];
@@ -250,7 +223,7 @@ class WebinarVideoTranscriptService
             }
         }
 
-        return null;
+        throw new \RuntimeException('yt-dlp did not return a playable media URL.');
     }
 
     private function deleteDirectory(string $path): void
