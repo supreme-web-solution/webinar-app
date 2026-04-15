@@ -599,9 +599,23 @@ const pollVideoStatus = async (): Promise<void> => {
         };
 
         const normalized = String(payload.status || '').toLowerCase();
+        const composeStatus = String(payload.compose_status || '').toLowerCase();
+        const composeInProgress = composeStatus === 'processing';
         aiVideoPhase.value = String(payload.phase || '').toLowerCase() || normalized || 'processing';
         aiComposeStage.value = String(payload.compose_stage || '').toLowerCase();
         aiVideoProgressPercent.value = Math.max(0, Math.min(100, Number(payload.progress_percent ?? aiVideoProgressPercent.value)));
+
+        if ((normalized === 'completed' || normalized === 'success') && composeInProgress) {
+            aiVideoStatus.value = 'processing';
+            aiVideoMessage.value = 'Intro is ready. Final compose is still running (slides + merge + upload)...';
+            aiVideoProvider.value = null;
+            aiVideoUrl.value = null;
+            aiPollTimer = window.setTimeout(() => {
+                void pollVideoStatus();
+            }, 8000);
+            return;
+        }
+
         if (normalized === 'completed' || normalized === 'success') {
             aiVideoStatus.value = 'completed';
             aiVideoUrl.value = payload.video_url ?? null;
@@ -1645,7 +1659,7 @@ const videoSourceIcon = (source: string): string => {
                         <a :href="aiVideoUrl" target="_blank" rel="noopener" class="break-all text-sm font-medium text-primary underline">
                             {{ aiVideoUrl }}
                         </a>
-                        <p class="text-xs text-muted-foreground">Provider: {{ aiVideoProvider || 'heygen' }}</p>
+                        <!-- <p class="text-xs text-muted-foreground">Provider: {{ aiVideoProvider || 'heygen' }}</p> -->
                     </div>
                     </div>
                 </div>

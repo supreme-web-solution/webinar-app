@@ -1061,6 +1061,7 @@ class WebinarAiStudioController extends Controller
                     'stage' => 'done',
                     'video_url' => $mergedUrl,
                 ], now()->addHours(24));
+                $this->persistComposedVideoToWebinar($videoId, $mergedUrl);
                 Log::info('webinar.ai.video.compose.completed', [
                     'video_id' => $videoId,
                     'has_video_url' => true,
@@ -1070,6 +1071,7 @@ class WebinarAiStudioController extends Controller
             }
 
             Cache::put($stateKey, ['status' => 'failed', 'stage' => 'no_merged_url'], now()->addHours(2));
+            $this->persistComposeFailureToWebinar($videoId);
             Log::warning('webinar.ai.video.compose.failed_without_url', [
                 'video_id' => $videoId,
             ]);
@@ -1079,6 +1081,7 @@ class WebinarAiStudioController extends Controller
                 'message' => $e->getMessage(),
             ]);
             Cache::put($stateKey, ['status' => 'failed', 'stage' => 'exception'], now()->addHours(2));
+            $this->persistComposeFailureToWebinar($videoId);
         }
     }
 
@@ -1638,6 +1641,56 @@ class WebinarAiStudioController extends Controller
         }
 
         return 20;
+    }
+
+    private function persistComposedVideoToWebinar(string $videoId, string $finalUrl): void
+    {
+        $webinar = Webinar::query()
+            ->where('ai_settings->heygen_video_id', $videoId)
+            ->latest('id')
+            ->first();
+
+        if (! $webinar) {
+            Log::warning('webinar.ai.video.compose.persist_target_missing', [
+                'video_id' => $videoId,
+            ]);
+            return;
+        }
+
+        $safeVideoUrl = $this->normalizePersistedVideoUrl($finalUrl, $videoId, (int) $webinar->user_id);
+        $aiSettings = is_array($webinar->ai_settings) ? $webinar->ai_settings : [];
+        $aiSettings['video_generation_status'] = 'completed';
+        $aiSettings['generation_provider'] = str_contains($safeVideoUrl, 'res.cloudinary.com') ? 'cloudinary' : 'direct';
+
+        $webinar->update([
+            'video_url' => $safeVideoUrl,
+            'video_source' => 'direct',
+            'ai_settings' => $aiSettings,
+        ]);
+
+        Log::info('webinar.ai.video.compose.persisted_to_webinar', [
+            'video_id' => $videoId,
+            'webinar_id' => $webinar->id,
+            'video_url_length' => mb_strlen($safeVideoUrl),
+        ]);
+    }
+
+    private function persistComposeFailureToWebinar(string $videoId): void
+    {
+        $webinar = Webinar::query()
+            ->where('ai_settings->heygen_video_id', $videoId)
+            ->latest('id')
+            ->first();
+
+        if (! $webinar) {
+            return;
+        }
+
+        $aiSettings = is_array($webinar->ai_settings) ? $webinar->ai_settings : [];
+        $aiSettings['video_generation_status'] = 'failed';
+        $webinar->update([
+            'ai_settings' => $aiSettings,
+        ]);
     }
 
     /**
