@@ -1059,7 +1059,11 @@ class WebinarAiStudioController extends Controller
             $ffmpeg = (string) env('FFMPEG_BIN', 'ffmpeg');
             $assArg = str_replace('\\', '/', $assPath);
             $baseFilter = sprintf(
-                "drawbox=x=0:y=h-16:w=w:h=16:color=0x6366f1@0.95:t=fill,drawbox=x=0:y=0:w=w:h=h:color=0x0b1020@0.22:t=fill,ass='%s'",
+                "drawbox=x=0:y=%d:w=%d:h=16:color=0x6366f1@0.95:t=fill,drawbox=x=0:y=0:w=%d:h=%d:color=0x0b1020@0.22:t=fill,ass='%s'",
+                max(0, $height - 16),
+                $width,
+                $width,
+                $height,
                 $assArg
             );
             $slideCmd = sprintf(
