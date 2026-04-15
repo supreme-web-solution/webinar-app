@@ -526,6 +526,7 @@ class WebinarAiStudioController extends Controller
         ]);
 
         $videoUrl = (string) ($payload['video_url'] ?? 'https://example.com/video-processing');
+        $persistedVideoSource = $this->resolvePersistedVideoSource((string) ($payload['source'] ?? 'direct'));
 
         $aiSettings = [
             'enabled' => false,
@@ -566,7 +567,7 @@ class WebinarAiStudioController extends Controller
 
             if (! empty($payload['video_url'])) {
                 $update['video_url'] = $videoUrl;
-                $update['video_source'] = (string) ($payload['source'] ?? 'heygen');
+                $update['video_source'] = $persistedVideoSource;
                 $update['video_duration_seconds'] = $payload['video_duration_seconds'] ?? $webinar->video_duration_seconds;
             }
 
@@ -581,7 +582,7 @@ class WebinarAiStudioController extends Controller
                 'description' => (string) ($payload['description'] ?? ''),
                 'scheduled_at' => Carbon::now()->addDay(),
                 'scheduled_timezone' => config('app.timezone', 'UTC'),
-                'video_source' => (string) ($payload['source'] ?? 'direct'),
+                'video_source' => $persistedVideoSource,
                 'video_url' => $videoUrl,
                 'video_duration_seconds' => $payload['video_duration_seconds'] ?? null,
                 'thumbnail_path' => null,
@@ -1241,6 +1242,16 @@ class WebinarAiStudioController extends Controller
     private function composeStateCacheKey(string $videoId): string
     {
         return 'webinar:ai:compose:state:'.$videoId;
+    }
+
+    private function resolvePersistedVideoSource(string $source): string
+    {
+        // DB enum supports only youtube|vimeo|direct; AI internal states map to direct.
+        return match (strtolower(trim($source))) {
+            'youtube' => 'youtube',
+            'vimeo' => 'vimeo',
+            default => 'direct',
+        };
     }
 
     /**
