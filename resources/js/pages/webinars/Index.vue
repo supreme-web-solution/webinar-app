@@ -62,10 +62,11 @@ const breadcrumbs: BreadcrumbItem[] = [
 const toastMessage = ref<string | null>(null);
 const toastType = ref<'success' | 'info'>('success');
 const selectedWebinarIds = ref<number[]>([]);
-const allSelectedOnPage = computed<boolean>(() =>
-    props.webinars.data.length > 0
-    && props.webinars.data.every((webinar) => selectedWebinarIds.value.includes(webinar.id)),
-);
+const filtersOpen = ref(false);
+const filterSearch = ref('');
+const filterSource = ref<'all' | 'youtube' | 'vimeo' | 'direct'>('all');
+const filterStatus = ref<'all' | 'published' | 'draft' | 'ended'>('all');
+const filterScheduleMode = ref<'all' | 'auto' | 'scheduled'>('all');
 
 type AiStep = 'brief' | 'script' | 'video';
 type AiVideoStatus = 'idle' | 'requesting' | 'pending' | 'processing' | 'completed' | 'failed';
@@ -91,6 +92,10 @@ const aiHeygenOptionsError = ref<string | null>(null);
 const allowAiModalClose = ref(false);
 let aiPollTimer: number | null = null;
 let aiVideoOverlayTimer: number | null = null;
+let voicePreviewAudio: HTMLAudioElement | null = null;
+const voicePreviewAudioCache = new Map<string, string>();
+const voicePreviewLoadingVoiceId = ref<string | null>(null);
+const voicePreviewPlayingVoiceId = ref<string | null>(null);
 
 type HeygenAvatarOption = {
     id: string;
@@ -102,6 +107,8 @@ type HeygenAvatarOption = {
 type OpenAiVoiceOption = {
     id: string;
     label: string;
+    gender?: string | null;
+    style?: string | null;
 };
 
 type SlidePlanItem = {
@@ -217,6 +224,56 @@ const aiCanGenerateVideo = computed(() => {
         && aiBrief.openai_voice.trim() !== '';
 });
 
+const filteredWebinars = computed<WebinarListItem[]>(() => {
+    const search = filterSearch.value.trim().toLowerCase();
+
+    return props.webinars.data.filter((webinar) => {
+        const sourceMatch = filterSource.value === 'all' || webinar.video_source === filterSource.value;
+        if (!sourceMatch) return false;
+
+        const scheduleModeMatch = filterScheduleMode.value === 'all' || webinar.schedule_mode === filterScheduleMode.value;
+        if (!scheduleModeMatch) return false;
+
+        const statusValue = webinar.has_ended ? 'ended' : webinar.is_published ? 'published' : 'draft';
+        const statusMatch = filterStatus.value === 'all' || statusValue === filterStatus.value;
+        if (!statusMatch) return false;
+
+        if (search === '') return true;
+
+        return [
+            webinar.title,
+            webinar.host_name,
+            webinar.uuid,
+            webinar.scheduled_at_label || '',
+            webinar.video_source,
+        ]
+            .join(' ')
+            .toLowerCase()
+            .includes(search);
+    });
+});
+
+const activeFilterCount = computed(() => {
+    let count = 0;
+    if (filterSearch.value.trim() !== '') count += 1;
+    if (filterSource.value !== 'all') count += 1;
+    if (filterStatus.value !== 'all') count += 1;
+    if (filterScheduleMode.value !== 'all') count += 1;
+    return count;
+});
+
+const clearFilters = (): void => {
+    filterSearch.value = '';
+    filterSource.value = 'all';
+    filterStatus.value = 'all';
+    filterScheduleMode.value = 'all';
+};
+
+const allSelectedOnPage = computed<boolean>(() =>
+    filteredWebinars.value.length > 0
+    && filteredWebinars.value.every((webinar) => selectedWebinarIds.value.includes(webinar.id)),
+);
+
 const estimatedDurationSeconds = computed(() => {
     const words = aiScript.value.trim().split(/\s+/).filter((part) => part.length > 0).length;
     if (words === 0) {
@@ -273,6 +330,17 @@ const resetAiState = (): void => {
         window.clearTimeout(aiPollTimer);
         aiPollTimer = null;
     }
+    if (voicePreviewAudio) {
+        voicePreviewAudio.pause();
+        voicePreviewAudio.currentTime = 0;
+        voicePreviewAudio = null;
+    }
+    voicePreviewLoadingVoiceId.value = null;
+    voicePreviewPlayingVoiceId.value = null;
+    for (const objectUrl of voicePreviewAudioCache.values()) {
+        URL.revokeObjectURL(objectUrl);
+    }
+    voicePreviewAudioCache.clear();
 };
 
 const AI_SLIDE_STYLE_CACHE_KEY = 'webinar-ai:slide-style:v1';
@@ -463,7 +531,7 @@ const loadAiOptions = async (): Promise<void> => {
 
         const payload = await response.json() as {
             avatars?: Array<{ id: string; name: string; preview_url?: string | null; gender?: string | null }>;
-            openai_voices?: Array<{ id: string; label?: string }>;
+            openai_voices?: Array<{ id: string; label?: string; gender?: string | null; style?: string | null }>;
             message?: string;
             stale?: boolean;
         };
@@ -481,6 +549,8 @@ const loadAiOptions = async (): Promise<void> => {
         openAiVoiceOptions.value = openAiVoices.map((item) => ({
             id: item.id,
             label: item.label || item.id,
+            gender: item.gender ?? null,
+            style: item.style ?? null,
         }));
         aiAvatarPage.value = 1;
 
@@ -1041,6 +1111,62 @@ const deleteWebinar = (webinarId: number, title: string): void => {
     router.delete(`/admin/webinars/${webinarId}`);
 };
 
+const playVoicePreview = async (voiceId: string): Promise<void> => {
+    if (!voiceId || voicePreviewLoadingVoiceId.value) {
+        return;
+    }
+
+    if (voicePreviewPlayingVoiceId.value === voiceId && voicePreviewAudio) {
+        voicePreviewAudio.pause();
+        voicePreviewAudio.currentTime = 0;
+        voicePreviewPlayingVoiceId.value = null;
+        return;
+    }
+
+    if (voicePreviewAudio) {
+        voicePreviewAudio.pause();
+        voicePreviewAudio.currentTime = 0;
+        voicePreviewAudio = null;
+    }
+
+    try {
+        voicePreviewLoadingVoiceId.value = voiceId;
+
+        let objectUrl = voicePreviewAudioCache.get(voiceId) ?? null;
+        if (!objectUrl) {
+            const query = new URLSearchParams({ voice: voiceId });
+            const response = await fetch(`/admin/webinars/ai/voice-preview?${query.toString()}`, {
+                method: 'GET',
+                credentials: 'same-origin',
+                headers: {
+                    Accept: 'audio/mpeg',
+                },
+            });
+
+            if (!response.ok) {
+                showToast('Failed to load voice preview.', 'info');
+                return;
+            }
+
+            const audioBlob = await response.blob();
+            objectUrl = URL.createObjectURL(audioBlob);
+            voicePreviewAudioCache.set(voiceId, objectUrl);
+        }
+
+        voicePreviewAudio = new Audio(objectUrl);
+        voicePreviewAudio.onended = () => {
+            voicePreviewPlayingVoiceId.value = null;
+        };
+        voicePreviewPlayingVoiceId.value = voiceId;
+        await voicePreviewAudio.play();
+    } catch {
+        showToast('Unable to play voice preview.', 'info');
+        voicePreviewPlayingVoiceId.value = null;
+    } finally {
+        voicePreviewLoadingVoiceId.value = null;
+    }
+};
+
 const toggleWebinarSelection = (webinarId: number, checked: boolean): void => {
     if (checked) {
         if (!selectedWebinarIds.value.includes(webinarId)) {
@@ -1054,11 +1180,14 @@ const toggleWebinarSelection = (webinarId: number, checked: boolean): void => {
 
 const toggleSelectAllOnPage = (checked: boolean): void => {
     if (checked) {
-        selectedWebinarIds.value = props.webinars.data.map((webinar) => webinar.id);
+        const currentSet = new Set(selectedWebinarIds.value);
+        filteredWebinars.value.forEach((webinar) => currentSet.add(webinar.id));
+        selectedWebinarIds.value = Array.from(currentSet);
         return;
     }
 
-    selectedWebinarIds.value = [];
+    const filteredIds = new Set(filteredWebinars.value.map((webinar) => webinar.id));
+    selectedWebinarIds.value = selectedWebinarIds.value.filter((id) => !filteredIds.has(id));
 };
 
 const bulkDeleteWebinars = (): void => {
@@ -1148,7 +1277,7 @@ const videoSourceIcon = (source: string): string => {
                     <div>
                         <CardTitle class="text-sm font-semibold">All Webinars</CardTitle>
                         <CardDescription class="text-xs mt-0.5">
-                            {{ webinars.data.length }} webinar{{ webinars.data.length === 1 ? '' : 's' }} total
+                            {{ filteredWebinars.length }} shown / {{ webinars.data.length }} total
                         </CardDescription>
                     </div>
                     <div class="flex items-center gap-2">
@@ -1162,14 +1291,57 @@ const videoSourceIcon = (source: string): string => {
                             <Icon icon="solar:trash-bin-2-linear" class="size-3.5" />
                             Delete Selected ({{ selectedWebinarIds.length }})
                         </Button>
-                        <Button variant="outline" size="sm" class="h-7 gap-1.5 px-2.5 text-xs border-border/60">
+                        <Button
+                            variant="outline"
+                            size="sm"
+                            class="h-7 gap-1.5 px-2.5 text-xs border-border/60"
+                            @click="filtersOpen = !filtersOpen"
+                        >
                             <Icon icon="solar:filter-linear" class="size-3" />
                             Filter
+                            <span
+                                v-if="activeFilterCount > 0"
+                                class="inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-primary/15 px-1 text-[10px] font-semibold text-primary"
+                            >
+                                {{ activeFilterCount }}
+                            </span>
                         </Button>
                     </div>
                 </CardHeader>
 
                 <CardContent class="px-0 pb-0">
+                    <div v-if="filtersOpen" class="border-b border-border/40 bg-muted/10 px-5 py-3">
+                        <div class="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+                            <input
+                                v-model="filterSearch"
+                                type="text"
+                                placeholder="Search title, host, uuid..."
+                                class="w-full rounded-md border bg-background px-3 py-2 text-sm"
+                            />
+                            <select v-model="filterSource" class="w-full rounded-md border bg-background px-3 py-2 text-sm">
+                                <option value="all">All Sources</option>
+                                <option value="youtube">YouTube</option>
+                                <option value="vimeo">Vimeo</option>
+                                <option value="direct">Direct</option>
+                            </select>
+                            <select v-model="filterStatus" class="w-full rounded-md border bg-background px-3 py-2 text-sm">
+                                <option value="all">All Statuses</option>
+                                <option value="published">Published</option>
+                                <option value="draft">Draft</option>
+                                <option value="ended">Ended</option>
+                            </select>
+                            <select v-model="filterScheduleMode" class="w-full rounded-md border bg-background px-3 py-2 text-sm">
+                                <option value="all">All Modes</option>
+                                <option value="auto">Auto</option>
+                                <option value="scheduled">Scheduled</option>
+                            </select>
+                        </div>
+                        <div class="mt-2 flex justify-end">
+                            <Button variant="ghost" size="sm" class="h-7 text-xs" @click="clearFilters">
+                                Clear filters
+                            </Button>
+                        </div>
+                    </div>
                     <!-- Empty state -->
                     <div
                         v-if="webinars.data.length === 0"
@@ -1191,7 +1363,17 @@ const videoSourceIcon = (source: string): string => {
                     </div>
 
                     <div v-else class="overflow-x-auto">
-                <table class="w-full text-sm">
+                        <div
+                            v-if="filteredWebinars.length === 0"
+                            class="flex flex-col items-center justify-center px-6 py-12 text-center"
+                        >
+                            <h3 class="text-sm font-semibold text-foreground">No webinars match these filters</h3>
+                            <p class="mt-1 text-xs text-muted-foreground">Try changing or clearing your filters.</p>
+                            <Button variant="outline" size="sm" class="mt-3 h-7 text-xs" @click="clearFilters">
+                                Reset filters
+                            </Button>
+                        </div>
+                <table v-else class="w-full text-sm">
                             <thead>
                                 <tr class="border-b border-border/50">
                                     <th class="px-3 pb-2.5 pt-3 text-left text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
@@ -1225,7 +1407,7 @@ const videoSourceIcon = (source: string): string => {
                     </thead>
                     <tbody>
                                 <tr
-                                    v-for="webinar in webinars.data"
+                                    v-for="webinar in filteredWebinars"
                                     :key="webinar.id"
                                     class="border-b border-border/30 last:border-0 hover:bg-muted/30 transition-colors"
                                 >
@@ -1596,14 +1778,55 @@ const videoSourceIcon = (source: string): string => {
                             <div class="flex items-center justify-between">
                                 <label class="text-xs font-semibold uppercase tracking-wide text-muted-foreground">OpenAI Voice</label>
                             </div>
-                            <select v-model="selectedOpenAiVoiceOption" class="w-full rounded-md border bg-background px-3 py-2 text-sm">
-                                <option disabled value="">Select a voice</option>
-                                <option v-for="voice in openAiVoiceOptions" :key="voice.id" :value="voice.id">
-                                    {{ voice.label }}
-                                </option>
-                            </select>
+                            <div class="grid gap-2 sm:grid-cols-2">
+                                <button
+                                    v-for="voice in openAiVoiceOptions"
+                                    :key="voice.id"
+                                    type="button"
+                                    class="rounded-lg border bg-background p-2 text-left transition hover:border-primary/50"
+                                    :class="selectedOpenAiVoiceOption === voice.id ? 'border-primary ring-1 ring-primary/40' : 'border-border/70'"
+                                    @click="selectedOpenAiVoiceOption = voice.id"
+                                >
+                                    <div class="flex items-center justify-between gap-2">
+                                        <p class="text-xs font-semibold text-foreground">{{ voice.label }}</p>
+                                        <Button
+                                            type="button"
+                                            variant="outline"
+                                            size="sm"
+                                            class="h-7 px-2 text-[11px]"
+                                            :disabled="voicePreviewLoadingVoiceId !== null && voicePreviewLoadingVoiceId !== voice.id"
+                                            @click.stop="void playVoicePreview(voice.id)"
+                                        >
+                                            <Icon
+                                                v-if="voicePreviewLoadingVoiceId === voice.id"
+                                                icon="svg-spinners:3-dots-fade"
+                                                class="mr-1 size-3.5"
+                                            />
+                                            <Icon
+                                                v-else
+                                                :icon="voicePreviewPlayingVoiceId === voice.id ? 'solar:stop-circle-linear' : 'solar:play-circle-linear'"
+                                                class="mr-1 size-3.5"
+                                            />
+                                            {{ voicePreviewPlayingVoiceId === voice.id ? 'Stop' : 'Play' }}
+                                        </Button>
+                                    </div>
+                                    <div class="mt-2 flex items-center gap-2 text-[10px]">
+                                        <span
+                                            class="inline-flex rounded-full px-2 py-0.5 font-semibold uppercase tracking-wide"
+                                            :class="voice.gender === 'female'
+                                                ? 'bg-pink-100 text-pink-700 dark:bg-pink-900/30 dark:text-pink-300'
+                                                : voice.gender === 'male'
+                                                    ? 'bg-sky-100 text-sky-700 dark:bg-sky-900/30 dark:text-sky-300'
+                                                    : 'bg-zinc-100 text-zinc-700 dark:bg-zinc-900/30 dark:text-zinc-300'"
+                                        >
+                                            {{ voice.gender || 'neutral' }}
+                                        </span>
+                                        <span class="text-muted-foreground">{{ voice.style || 'narration' }}</span>
+                                    </div>
+                                </button>
+                            </div>
                             <p class="text-[11px] text-muted-foreground">
-                                This voice is used as the narration voice profile for AI webinar generation.
+                                Choose a voice profile and click Play to preview before generating your video narration.
                             </p>
                         </div>
                         <div class="grid gap-3 lg:col-span-2 sm:grid-cols-2">

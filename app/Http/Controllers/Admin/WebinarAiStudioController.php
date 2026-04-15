@@ -169,6 +169,69 @@ class WebinarAiStudioController extends Controller
         }
     }
 
+    public function voicePreview(Request $request)
+    {
+        $payload = $request->validate([
+            'voice' => ['required', 'string', 'max:60'],
+            'text' => ['nullable', 'string', 'max:220'],
+        ]);
+
+        $apiKey = (string) config('services.openai.api_key', '');
+        if ($apiKey === '') {
+            return response()->json([
+                'message' => 'OPENAI_API_KEY is not configured.',
+            ], 422);
+        }
+
+        $validVoiceIds = collect($this->openAiVoiceOptions())->pluck('id')->filter()->all();
+        $voice = trim((string) ($payload['voice'] ?? ''));
+        if ($validVoiceIds !== [] && ! in_array($voice, $validVoiceIds, true)) {
+            return response()->json([
+                'message' => 'Selected OpenAI voice is invalid.',
+            ], 422);
+        }
+
+        $sampleText = trim((string) ($payload['text'] ?? ''));
+        if ($sampleText === '') {
+            $sampleText = 'Hi there. This is a sample of my voice for your webinar narration. Choose the one that matches your style best.';
+        }
+
+        try {
+            $model = (string) config('services.openai.tts_model', 'gpt-4o-mini-tts');
+            $response = Http::timeout(45)
+                ->withToken($apiKey)
+                ->accept('audio/mpeg')
+                ->post('https://api.openai.com/v1/audio/speech', [
+                    'model' => $model,
+                    'voice' => $voice,
+                    'input' => $sampleText,
+                    'format' => 'mp3',
+                ]);
+
+            if (! $response->successful()) {
+                return response()->json([
+                    'message' => 'Failed to generate voice preview.',
+                    'provider_status' => $response->status(),
+                ], 502);
+            }
+
+            return response($response->body(), 200, [
+                'Content-Type' => 'audio/mpeg',
+                'Cache-Control' => 'no-store, no-cache, must-revalidate, max-age=0',
+            ]);
+        } catch (\Throwable $e) {
+            Log::warning('webinar.ai.voice_preview.failed', [
+                'user_id' => $request->user()?->id,
+                'voice' => $voice,
+                'message' => $e->getMessage(),
+            ]);
+
+            return response()->json([
+                'message' => 'Failed to generate voice preview due to a server error.',
+            ], 500);
+        }
+    }
+
     public function generateVideo(Request $request): JsonResponse
     {
         $payload = $request->validate([
@@ -1956,17 +2019,17 @@ class WebinarAiStudioController extends Controller
     private function openAiVoiceOptions(): array
     {
         return [
-            ['id' => 'alloy', 'label' => 'Alloy'],
-            ['id' => 'ash', 'label' => 'Ash'],
-            ['id' => 'ballad', 'label' => 'Ballad'],
-            ['id' => 'coral', 'label' => 'Coral'],
-            ['id' => 'echo', 'label' => 'Echo'],
-            ['id' => 'fable', 'label' => 'Fable'],
-            ['id' => 'nova', 'label' => 'Nova'],
-            ['id' => 'onyx', 'label' => 'Onyx'],
-            ['id' => 'sage', 'label' => 'Sage'],
-            ['id' => 'shimmer', 'label' => 'Shimmer'],
-            ['id' => 'verse', 'label' => 'Verse'],
+            ['id' => 'alloy', 'label' => 'Alloy', 'gender' => 'neutral', 'style' => 'balanced'],
+            ['id' => 'ash', 'label' => 'Ash', 'gender' => 'male', 'style' => 'grounded'],
+            ['id' => 'ballad', 'label' => 'Ballad', 'gender' => 'male', 'style' => 'warm'],
+            ['id' => 'coral', 'label' => 'Coral', 'gender' => 'female', 'style' => 'friendly'],
+            ['id' => 'echo', 'label' => 'Echo', 'gender' => 'male', 'style' => 'clear'],
+            ['id' => 'fable', 'label' => 'Fable', 'gender' => 'male', 'style' => 'expressive'],
+            ['id' => 'nova', 'label' => 'Nova', 'gender' => 'female', 'style' => 'energetic'],
+            ['id' => 'onyx', 'label' => 'Onyx', 'gender' => 'male', 'style' => 'deep'],
+            ['id' => 'sage', 'label' => 'Sage', 'gender' => 'female', 'style' => 'calm'],
+            ['id' => 'shimmer', 'label' => 'Shimmer', 'gender' => 'female', 'style' => 'bright'],
+            ['id' => 'verse', 'label' => 'Verse', 'gender' => 'male', 'style' => 'storytelling'],
         ];
     }
 
