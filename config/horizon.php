@@ -98,6 +98,7 @@ return [
 
     'waits' => [
         'redis:default' => 60,
+        'redis:ai-video-compose' => 60,
     ],
 
     /*
@@ -222,6 +223,18 @@ return [
             'timeout' => 120,
             'nice' => 0,
         ],
+        'ai-video-compose-supervisor' => [
+            'connection' => 'redis',
+            'queue' => ['ai-video-compose'],
+            'balance' => 'simple',
+            'maxProcesses' => 1,
+            'maxTime' => 0,
+            'maxJobs' => 0,
+            'memory' => 512,
+            'tries' => 1,
+            'timeout' => 7200,
+            'nice' => 0,
+        ],
     ],
 
     'environments' => [
@@ -234,6 +247,9 @@ return [
             'emails-supervisor' => [
                 'maxProcesses' => 1,
             ],
+            'ai-video-compose-supervisor' => [
+                'maxProcesses' => 2,
+            ],
         ],
 
         'local' => [
@@ -241,6 +257,9 @@ return [
                 'maxProcesses' => 3,
             ],
             'emails-supervisor' => [
+                'maxProcesses' => 1,
+            ],
+            'ai-video-compose-supervisor' => [
                 'maxProcesses' => 1,
             ],
         ],

@@ -1,8 +1,9 @@
 <script setup lang="ts">
+import { computed } from 'vue';
 import { QuillEditor } from '@vueup/vue-quill';
 import '@vueup/vue-quill/dist/vue-quill.snow.css';
 
-withDefaults(defineProps<{
+const props = withDefaults(defineProps<{
     modelValue: string;
     placeholder?: string;
     maxPlainTextLength?: number | null;
@@ -38,23 +39,39 @@ const toSafeParagraphHtml = (value: string): string => {
     return `<p>${escapeHtml(trimmed)}</p>`;
 };
 
+const getPlainTextFromDelta = (value: unknown): string => {
+    if (!value || typeof value !== 'object' || !Array.isArray((value as { ops?: unknown[] }).ops)) {
+        return '';
+    }
+
+    return (value as { ops: Array<{ insert?: unknown }> }).ops
+        .map((op) => (typeof op.insert === 'string' ? op.insert : ''))
+        .join('');
+};
+
 const onContentUpdate = (value: unknown): void => {
     const html = typeof value === 'string' ? value : '';
+    const plainFromDelta = getPlainTextFromDelta(value).trim();
+    const plain = html ? getPlainTextFromHtml(html) : plainFromDelta;
 
-    if (maxPlainTextLength === null || maxPlainTextLength === undefined) {
-        emit('update:modelValue', html);
+    if (props.maxPlainTextLength === null || props.maxPlainTextLength === undefined) {
+        emit('update:modelValue', html || toSafeParagraphHtml(plain));
         return;
     }
 
-    const plain = getPlainTextFromHtml(html);
-    if (plain.length <= maxPlainTextLength) {
-        emit('update:modelValue', html);
+    if (plain.length <= props.maxPlainTextLength) {
+        emit('update:modelValue', html || toSafeParagraphHtml(plain));
         return;
     }
 
-    const clamped = plain.slice(0, maxPlainTextLength);
+    const clamped = plain.slice(0, props.maxPlainTextLength);
     emit('update:modelValue', toSafeParagraphHtml(clamped));
 };
+
+const editorContent = computed({
+    get: () => props.modelValue ?? '',
+    set: (value: unknown) => onContentUpdate(value),
+});
 
 const toolbar = [
     ['bold', 'italic', 'underline'],
@@ -67,12 +84,11 @@ const toolbar = [
 <template>
     <div class="rounded-md border">
         <QuillEditor
-            :content="modelValue ?? ''"
+            v-model:content="editorContent"
             content-type="html"
             theme="snow"
             :toolbar="toolbar"
-            :placeholder="placeholder"
-            @update:content="onContentUpdate"
+            :placeholder="props.placeholder"
         />
     </div>
 </template>

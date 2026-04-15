@@ -1012,7 +1012,7 @@ class WebinarAiStudioController extends Controller
             'mode' => 'after_response_job',
         ]);
 
-        ComposeWebinarAiVideoJob::dispatch($videoId, $introVideoUrl)->afterResponse();
+        ComposeWebinarAiVideoJob::dispatch($videoId, $introVideoUrl);
 
         return null;
     }
