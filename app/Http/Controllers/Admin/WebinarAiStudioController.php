@@ -740,6 +740,30 @@ class WebinarAiStudioController extends Controller
             ->timeout(120)
             ->post($endpoint, $multipart);
 
+        if (
+            ! $response->successful()
+            && $uploadPreset !== ''
+            && $apiKey !== ''
+            && $apiSecret !== ''
+            && str_contains(strtolower((string) $response->body()), 'upload preset not found')
+        ) {
+            $timestamp = time();
+            $signatureBase = "timestamp={$timestamp}";
+            if ($folder !== '') {
+                $signatureBase = "folder={$folder}&{$signatureBase}";
+            }
+            $signature = sha1($signatureBase.$apiSecret);
+
+            $multipart = array_values(array_filter($multipart, fn (array $item): bool => ($item['name'] ?? '') !== 'upload_preset'));
+            $multipart[] = ['name' => 'api_key', 'contents' => $apiKey];
+            $multipart[] = ['name' => 'timestamp', 'contents' => (string) $timestamp];
+            $multipart[] = ['name' => 'signature', 'contents' => $signature];
+
+            $response = Http::asMultipart()
+                ->timeout(120)
+                ->post($endpoint, $multipart);
+        }
+
         if (! $response->successful()) {
             Log::warning('Cloudinary upload failed for HeyGen fallback', [
                 'status' => $response->status(),
@@ -872,6 +896,29 @@ class WebinarAiStudioController extends Controller
 
         $endpoint = sprintf('https://api.cloudinary.com/v1_1/%s/video/upload', $cloudName);
         $response = Http::asMultipart()->timeout(120)->post($endpoint, $multipart);
+
+        if (
+            ! $response->successful()
+            && $uploadPreset !== ''
+            && $apiKey !== ''
+            && $apiSecret !== ''
+            && str_contains(strtolower((string) $response->body()), 'upload preset not found')
+        ) {
+            $timestamp = time();
+            $signatureBase = "timestamp={$timestamp}";
+            if ($uploadFolder !== '') {
+                $signatureBase = "folder={$uploadFolder}&{$signatureBase}";
+            }
+            $signature = sha1($signatureBase.$apiSecret);
+
+            $multipart = array_values(array_filter($multipart, fn (array $item): bool => ($item['name'] ?? '') !== 'upload_preset'));
+            $multipart[] = ['name' => 'api_key', 'contents' => $apiKey];
+            $multipart[] = ['name' => 'timestamp', 'contents' => (string) $timestamp];
+            $multipart[] = ['name' => 'signature', 'contents' => $signature];
+
+            $response = Http::asMultipart()->timeout(120)->post($endpoint, $multipart);
+        }
+
         if (! $response->successful()) {
             Log::warning('Cloudinary upload failed for OpenAI narration audio', [
                 'status' => $response->status(),
@@ -1219,6 +1266,28 @@ class WebinarAiStudioController extends Controller
         }
 
         $response = Http::asMultipart()->timeout(240)->post($endpoint, $multipart);
+        if (
+            ! $response->successful()
+            && $uploadPreset !== ''
+            && $apiKey !== ''
+            && $apiSecret !== ''
+            && str_contains(strtolower((string) $response->body()), 'upload preset not found')
+        ) {
+            $timestamp = time();
+            $signatureBase = "timestamp={$timestamp}";
+            if ($folder !== '') {
+                $signatureBase = 'folder='.$folder.'/merged&'.$signatureBase;
+            }
+            $signature = sha1($signatureBase.$apiSecret);
+
+            $multipart = array_values(array_filter($multipart, fn (array $item): bool => ($item['name'] ?? '') !== 'upload_preset'));
+            $multipart[] = ['name' => 'api_key', 'contents' => $apiKey];
+            $multipart[] = ['name' => 'timestamp', 'contents' => (string) $timestamp];
+            $multipart[] = ['name' => 'signature', 'contents' => $signature];
+
+            $response = Http::asMultipart()->timeout(240)->post($endpoint, $multipart);
+        }
+
         if (! $response->successful()) {
             Log::warning('Cloudinary upload failed for merged webinar video', [
                 'video_id' => $videoId,
