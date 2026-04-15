@@ -178,6 +178,14 @@ class WebinarAiStudioController extends Controller
             'intro_duration_seconds' => ['nullable', 'integer', 'min:20', 'max:60'],
             'aspect_ratio' => ['nullable', 'in:16:9,9:16,1:1'],
             'background_color' => ['nullable', 'regex:/^#[0-9A-Fa-f]{6}$/'],
+            'slide_style' => ['nullable', 'array'],
+            'slide_style.font_size' => ['nullable', 'integer', 'min:24', 'max:72'],
+            'slide_style.text_color' => ['nullable', 'regex:/^#[0-9A-Fa-f]{6}$/'],
+            'slide_style.accent_color' => ['nullable', 'regex:/^#[0-9A-Fa-f]{6}$/'],
+            'slide_style.overlay_color' => ['nullable', 'regex:/^#[0-9A-Fa-f]{6}$/'],
+            'slide_style.overlay_alpha' => ['nullable', 'numeric', 'min:0', 'max:1'],
+            'slide_style.background_color' => ['nullable', 'regex:/^#[0-9A-Fa-f]{6}$/'],
+            'slide_style.background_image_url' => ['nullable', 'url', 'max:2048'],
         ]);
 
         $apiKey = $this->resolveHeygenApiKey();
@@ -326,6 +334,7 @@ class WebinarAiStudioController extends Controller
                 'slide_plan' => $slidePlan,
                 'openai_voice' => (string) ($payload['openai_voice'] ?? ''),
                 'aspect_ratio' => (string) ($payload['aspect_ratio'] ?? '16:9'),
+                'slide_style' => $this->normalizeSlideStyle($payload['slide_style'] ?? null),
             ], now()->addHours(6));
 
             return response()->json([
@@ -987,6 +996,7 @@ class WebinarAiStudioController extends Controller
             $slidePlan = is_array($meta['slide_plan'] ?? null) ? $meta['slide_plan'] : [];
             $aspectRatio = (string) ($meta['aspect_ratio'] ?? '16:9');
             $title = (string) ($meta['title'] ?? 'Webinar');
+            $slideStyle = $this->normalizeSlideStyle($meta['slide_style'] ?? null);
 
             $mergedUrl = $this->composeLongFormVideoFromIntroAndSlides(
                 $videoId,
@@ -995,7 +1005,8 @@ class WebinarAiStudioController extends Controller
                 $slidePlan,
                 $voice,
                 $aspectRatio,
-                $title
+                $title,
+                $slideStyle
             );
 
             if ($mergedUrl !== null) {
@@ -1022,6 +1033,7 @@ class WebinarAiStudioController extends Controller
 
     /**
      * @param array<int, array{title?: string, bullets?: array<int, string>}> $slidePlan
+     * @param array<string, mixed> $slideStyle
      */
     private function composeLongFormVideoFromIntroAndSlides(
         string $videoId,
@@ -1030,7 +1042,8 @@ class WebinarAiStudioController extends Controller
         array $slidePlan,
         string $voice,
         string $aspectRatio,
-        string $title
+        string $title,
+        array $slideStyle
     ): ?string {
         $tmpRoot = storage_path('app/tmp/webinar-ai');
         File::ensureDirectoryExists($tmpRoot);
@@ -1053,23 +1066,37 @@ class WebinarAiStudioController extends Controller
             $durationSeconds = max(20, (int) round((max(1, str_word_count($remainingScript)) / 130) * 60));
 
             $assPath = $workDir.'/slides.ass';
-            File::put($assPath, $this->buildSlideAss($slidePlan, $durationSeconds, $title));
+            File::put($assPath, $this->buildSlideAss($slidePlan, $durationSeconds, $title, $slideStyle));
 
             $slidesPath = $workDir.'/slides.mp4';
             $ffmpeg = (string) env('FFMPEG_BIN', 'ffmpeg');
             $assArg = str_replace('\\', '/', $assPath);
+            $accentColor = (string) ($slideStyle['accent_color'] ?? '#6366F1');
+            $overlayColor = (string) ($slideStyle['overlay_color'] ?? '#0b1020');
+            $overlayAlpha = (float) ($slideStyle['overlay_alpha'] ?? 0.22);
+            $overlayAlpha = max(0.0, min(1.0, $overlayAlpha));
             $baseFilter = sprintf(
-                "drawbox=x=0:y=%d:w=%d:h=16:color=0x6366f1@0.95:t=fill,drawbox=x=0:y=0:w=%d:h=%d:color=0x0b1020@0.22:t=fill,ass='%s'",
+                "drawbox=x=0:y=%d:w=%d:h=16:color=%s@0.95:t=fill,drawbox=x=0:y=0:w=%d:h=%d:color=%s@%.2f:t=fill,ass='%s'",
                 max(0, $height - 16),
                 $width,
+                $this->ffmpegColor($accentColor),
                 $width,
                 $height,
+                $this->ffmpegColor($overlayColor),
+                $overlayAlpha,
                 $assArg
+            );
+            $backgroundInput = sprintf(
+                'color=c=%s:s=%dx%d:d=%d',
+                $this->ffmpegColor((string) ($slideStyle['background_color'] ?? '#0f172a')),
+                $width,
+                $height,
+                $durationSeconds
             );
             $slideCmd = sprintf(
                 '%s -y -f lavfi -i %s -i %s -vf %s -c:v libx264 -pix_fmt yuv420p -c:a aac -shortest %s',
                 escapeshellarg($ffmpeg),
-                escapeshellarg(sprintf('color=c=0x0f172a:s=%dx%d:d=%d', $width, $height, $durationSeconds)),
+                escapeshellarg($backgroundInput),
                 escapeshellarg($remainingAudioPath),
                 escapeshellarg($baseFilter),
                 escapeshellarg($slidesPath)
@@ -1129,7 +1156,7 @@ class WebinarAiStudioController extends Controller
     /**
      * @param array<int, array{title?: string, bullets?: array<int, string>}> $slidePlan
      */
-    private function buildSlideAss(array $slidePlan, int $durationSeconds, string $title): string
+    private function buildSlideAss(array $slidePlan, int $durationSeconds, string $title, array $slideStyle = []): string
     {
         $slides = collect($slidePlan)
             ->map(function ($slide): ?string {
@@ -1150,7 +1177,7 @@ class WebinarAiStudioController extends Controller
 
                 $lines = [];
                 if ($slideTitle !== '') {
-                    $lines[] = '\b1'.$this->escapeAssText($slideTitle).'\b0';
+                    $lines[] = '{\\b1}'.$this->escapeAssText($slideTitle).'{\\b0}';
                 }
                 foreach ($bullets as $bullet) {
                     $lines[] = '• '.$this->escapeAssText($bullet);
@@ -1163,7 +1190,7 @@ class WebinarAiStudioController extends Controller
             ->all();
 
         if ($slides === []) {
-            $slides = ['\b1'.$this->escapeAssText($title !== '' ? $title : 'Webinar').'\b0\N• Main concept\N• Practical steps\N• Next action'];
+            $slides = ['{\\b1}'.$this->escapeAssText($title !== '' ? $title : 'Webinar').'{\\b0}\N• Main concept\N• Practical steps\N• Next action'];
         }
 
         $count = max(1, count($slides));
@@ -1186,6 +1213,11 @@ class WebinarAiStudioController extends Controller
             $cursor = $end;
         }
 
+        $fontSize = (int) ($slideStyle['font_size'] ?? 44);
+        $fontSize = max(24, min(72, $fontSize));
+        $primaryColor = $this->assColor((string) ($slideStyle['text_color'] ?? '#FFFFFF'));
+        $outlineColor = $this->assColor((string) ($slideStyle['outline_color'] ?? '#101820'));
+
         return implode("\n", [
             '[Script Info]',
             'ScriptType: v4.00+',
@@ -1196,7 +1228,7 @@ class WebinarAiStudioController extends Controller
             '',
             '[V4+ Styles]',
             'Format: Name,Fontname,Fontsize,PrimaryColour,SecondaryColour,OutlineColour,BackColour,Bold,Italic,Underline,StrikeOut,ScaleX,ScaleY,Spacing,Angle,BorderStyle,Outline,Shadow,Alignment,MarginL,MarginR,MarginV,Encoding',
-            'Style: SlideText,Arial,44,&H00FFFFFF,&H000000FF,&H00101820,&H7F000000,0,0,0,0,100,100,0,0,1,2.5,0,7,90,90,110,1',
+            sprintf('Style: SlideText,Arial,%d,%s,&H000000FF,%s,&H7F000000,0,0,0,0,100,100,0,0,1,2.5,0,7,90,90,110,1', $fontSize, $primaryColor, $outlineColor),
             '',
             '[Events]',
             'Format: Layer,Start,End,Style,Name,MarginL,MarginR,MarginV,Effect,Text',
@@ -1221,6 +1253,30 @@ class WebinarAiStudioController extends Controller
         $value = str_replace("\n", '\N', $value);
 
         return trim($value);
+    }
+
+    private function ffmpegColor(string $hex): string
+    {
+        $normalized = strtoupper(trim($hex));
+        if (! preg_match('/^#[0-9A-F]{6}$/', $normalized)) {
+            return '0x0F172A';
+        }
+
+        return '0x'.substr($normalized, 1);
+    }
+
+    private function assColor(string $hex): string
+    {
+        $normalized = strtoupper(trim($hex));
+        if (! preg_match('/^#[0-9A-F]{6}$/', $normalized)) {
+            return '&H00FFFFFF';
+        }
+
+        $rr = substr($normalized, 1, 2);
+        $gg = substr($normalized, 3, 2);
+        $bb = substr($normalized, 5, 2);
+
+        return '&H00'.$bb.$gg.$rr;
     }
 
     private function runShellCommand(string $command, string $errorMessage): void
@@ -1382,6 +1438,28 @@ class WebinarAiStudioController extends Controller
         ]);
 
         return 'https://example.com/video-processing';
+    }
+
+    /**
+     * @param mixed $input
+     * @return array<string, mixed>
+     */
+    private function normalizeSlideStyle(mixed $input): array
+    {
+        $style = is_array($input) ? $input : [];
+        $fontSize = (int) ($style['font_size'] ?? 44);
+        $overlayAlpha = (float) ($style['overlay_alpha'] ?? 0.22);
+
+        return [
+            'font_size' => max(24, min(72, $fontSize)),
+            'text_color' => (string) ($style['text_color'] ?? '#FFFFFF'),
+            'outline_color' => (string) ($style['outline_color'] ?? '#101820'),
+            'accent_color' => (string) ($style['accent_color'] ?? '#6366F1'),
+            'overlay_color' => (string) ($style['overlay_color'] ?? '#0b1020'),
+            'overlay_alpha' => max(0.0, min(1.0, $overlayAlpha)),
+            'background_color' => (string) ($style['background_color'] ?? '#0f172a'),
+            'background_image_url' => trim((string) ($style['background_image_url'] ?? '')),
+        ];
     }
 
     /**

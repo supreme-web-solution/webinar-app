@@ -143,6 +143,7 @@ const toneOptions = [
 const selectedAvatarOption = ref('__custom__');
 const customAvatarId = ref('');
 const selectedOpenAiVoiceOption = ref('');
+const advancedSlideSettingsOpen = ref(false);
 const selectedWebinarTypeOption = ref('Sales Webinar');
 const customWebinarType = ref('');
 const selectedAudienceOption = ref('__custom__');
@@ -165,6 +166,16 @@ const aiBrief = reactive({
     intro_duration_seconds: 45,
     aspect_ratio: '16:9' as '16:9' | '9:16' | '1:1',
     background_color: '#F8FAFC',
+    slide_style: {
+        font_size: 44,
+        text_color: '#FFFFFF',
+        outline_color: '#101820',
+        accent_color: '#6366F1',
+        overlay_color: '#0B1020',
+        overlay_alpha: 0.22,
+        background_color: '#0F172A',
+        background_image_url: '',
+    },
 });
 
 const aiCanGenerateScript = computed(() => {
@@ -222,6 +233,7 @@ const resetAiState = (): void => {
     aiIntroScript.value = '';
     aiRemainingScript.value = '';
     aiSlidePlan.value = [];
+    advancedSlideSettingsOpen.value = false;
     aiLoadingScript.value = false;
     aiLoadingVideo.value = false;
     aiCreatingWebinar.value = false;
@@ -233,6 +245,30 @@ const resetAiState = (): void => {
     if (aiPollTimer !== null) {
         window.clearTimeout(aiPollTimer);
         aiPollTimer = null;
+    }
+};
+
+const AI_SLIDE_STYLE_CACHE_KEY = 'webinar-ai:slide-style:v1';
+
+const loadSlideStyleCache = (): void => {
+    try {
+        const raw = window.sessionStorage.getItem(AI_SLIDE_STYLE_CACHE_KEY);
+        if (!raw) return;
+        const parsed = JSON.parse(raw) as Partial<typeof aiBrief.slide_style>;
+        aiBrief.slide_style = {
+            ...aiBrief.slide_style,
+            ...parsed,
+        };
+    } catch {
+        // ignore cache errors
+    }
+};
+
+const saveSlideStyleCache = (): void => {
+    try {
+        window.sessionStorage.setItem(AI_SLIDE_STYLE_CACHE_KEY, JSON.stringify(aiBrief.slide_style));
+    } catch {
+        // ignore cache errors
     }
 };
 
@@ -253,6 +289,16 @@ const openAiModal = (): void => {
     aiBrief.intro_duration_seconds = 45;
     aiBrief.aspect_ratio = '16:9';
     aiBrief.background_color = '#F8FAFC';
+    aiBrief.slide_style = {
+        font_size: 44,
+        text_color: '#FFFFFF',
+        outline_color: '#101820',
+        accent_color: '#6366F1',
+        overlay_color: '#0B1020',
+        overlay_alpha: 0.22,
+        background_color: '#0F172A',
+        background_image_url: '',
+    };
     selectedAvatarOption.value = '__custom__';
     customAvatarId.value = '';
     selectedOpenAiVoiceOption.value = '';
@@ -263,6 +309,7 @@ const openAiModal = (): void => {
     selectedToneOption.value = 'authoritative and persuasive';
     customTone.value = '';
     aiModalOpen.value = true;
+    loadSlideStyleCache();
     void loadAiOptions();
 };
 
@@ -560,6 +607,7 @@ const generateVideo = async (): Promise<void> => {
                 intro_duration_seconds: aiBrief.intro_duration_seconds,
                 aspect_ratio: aiBrief.aspect_ratio,
                 background_color: aiBrief.background_color,
+                slide_style: aiBrief.slide_style,
             }),
         });
 
@@ -621,6 +669,7 @@ const createWebinarFromAi = async (): Promise<void> => {
             showToast('Webinar draft saved. Video will be linked when rendering finishes.');
         } else {
             showToast('Webinar created from AI. Redirecting to editor...');
+            window.sessionStorage.removeItem(AI_SLIDE_STYLE_CACHE_KEY);
         }
         router.visit(payload.edit_url);
     } catch {
@@ -702,6 +751,10 @@ watch(customAvatarId, (value) => {
 watch(selectedOpenAiVoiceOption, (value) => {
     aiBrief.openai_voice = value.trim();
 });
+
+watch(() => aiBrief.slide_style, () => {
+    saveSlideStyleCache();
+}, { deep: true });
 
 watch(selectedWebinarTypeOption, (value) => {
     if (value === '__custom__') {
@@ -1332,6 +1385,47 @@ const videoSourceIcon = (source: string): string => {
                             <div class="space-y-1.5">
                                 <label class="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Background Color</label>
                                 <input v-model="aiBrief.background_color" type="text" class="w-full rounded-md border bg-background px-3 py-2 text-sm" placeholder="#F8FAFC" />
+                            </div>
+                        </div>
+
+                        <div class="lg:col-span-2 rounded-lg border border-border/70 bg-background p-3">
+                            <button
+                                type="button"
+                                class="flex w-full items-center justify-between text-left text-xs font-semibold uppercase tracking-wide text-muted-foreground"
+                                @click="advancedSlideSettingsOpen = !advancedSlideSettingsOpen"
+                            >
+                                <span>Advanced Slide Settings</span>
+                                <Icon :icon="advancedSlideSettingsOpen ? 'solar:alt-arrow-up-bold' : 'solar:alt-arrow-down-bold'" class="size-4" />
+                            </button>
+                            <div v-if="advancedSlideSettingsOpen" class="mt-3 grid gap-3 sm:grid-cols-2">
+                                <div class="space-y-1.5">
+                                    <label class="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Font Size</label>
+                                    <input v-model.number="aiBrief.slide_style.font_size" type="number" min="24" max="72" class="w-full rounded-md border bg-background px-3 py-2 text-sm" />
+                                </div>
+                                <div class="space-y-1.5">
+                                    <label class="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Text Color</label>
+                                    <input v-model="aiBrief.slide_style.text_color" type="text" class="w-full rounded-md border bg-background px-3 py-2 text-sm" placeholder="#FFFFFF" />
+                                </div>
+                                <div class="space-y-1.5">
+                                    <label class="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Accent Color</label>
+                                    <input v-model="aiBrief.slide_style.accent_color" type="text" class="w-full rounded-md border bg-background px-3 py-2 text-sm" placeholder="#6366F1" />
+                                </div>
+                                <div class="space-y-1.5">
+                                    <label class="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Overlay Color</label>
+                                    <input v-model="aiBrief.slide_style.overlay_color" type="text" class="w-full rounded-md border bg-background px-3 py-2 text-sm" placeholder="#0B1020" />
+                                </div>
+                                <div class="space-y-1.5">
+                                    <label class="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Overlay Opacity (0-1)</label>
+                                    <input v-model.number="aiBrief.slide_style.overlay_alpha" type="number" step="0.05" min="0" max="1" class="w-full rounded-md border bg-background px-3 py-2 text-sm" />
+                                </div>
+                                <div class="space-y-1.5">
+                                    <label class="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Slide Background Color</label>
+                                    <input v-model="aiBrief.slide_style.background_color" type="text" class="w-full rounded-md border bg-background px-3 py-2 text-sm" placeholder="#0F172A" />
+                                </div>
+                                <div class="space-y-1.5 sm:col-span-2">
+                                    <label class="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Background Image URL (optional)</label>
+                                    <input v-model="aiBrief.slide_style.background_image_url" type="url" class="w-full rounded-md border bg-background px-3 py-2 text-sm" placeholder="https://..." />
+                                </div>
                             </div>
                         </div>
                     </div>

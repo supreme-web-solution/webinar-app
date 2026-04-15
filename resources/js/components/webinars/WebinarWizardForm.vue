@@ -1195,10 +1195,11 @@ const submit = (): void => {
     if (form.playback_settings.exit_popup_enabled) {
         const heading = form.playback_settings.exit_popup_heading.trim();
         const bodyPlain = getPlainTextFromHtml(form.playback_settings.exit_popup_body || '');
+        const bodyRaw = (form.playback_settings.exit_popup_body || '').replace(/<[^>]*>/g, '').trim();
         const ctaText = form.playback_settings.exit_popup_cta_text.trim();
         const ctaUrl = form.playback_settings.exit_popup_cta_url.trim();
 
-        if (!heading || !bodyPlain || !ctaText || !ctaUrl) {
+        if (!heading || (!bodyPlain && !bodyRaw) || !ctaText || !ctaUrl) {
             activeStep.value = 5;
             showToast('Fill all exit popup fields before saving.');
             return;
