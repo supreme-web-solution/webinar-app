@@ -186,6 +186,8 @@ class WebinarAiStudioController extends Controller
             'slide_style.overlay_alpha' => ['nullable', 'numeric', 'min:0', 'max:1'],
             'slide_style.background_color' => ['nullable', 'regex:/^#[0-9A-Fa-f]{6}$/'],
             'slide_style.background_image_url' => ['nullable', 'url', 'max:2048'],
+            'slide_style.generate_images' => ['nullable', 'boolean'],
+            'slide_style.image_style' => ['nullable', 'in:realistic,illustration,minimal'],
         ]);
 
         $apiKey = $this->resolveHeygenApiKey();
@@ -1107,7 +1109,34 @@ class WebinarAiStudioController extends Controller
                 }
             }
 
-            if ($backgroundImagePath !== null) {
+            $generatedSlideImages = [];
+            if ((bool) ($slideStyle['generate_images'] ?? false)) {
+                $generatedSlideImages = $this->generateSlideImagesForPlan(
+                    $slidePlan,
+                    $title,
+                    $workDir,
+                    $width,
+                    $height,
+                    $slideStyle
+                );
+            }
+
+            if ($generatedSlideImages !== []) {
+                $slideshowListPath = $this->buildImageConcatList(
+                    $generatedSlideImages,
+                    max(5, (int) floor($durationSeconds / max(1, count($generatedSlideImages)))),
+                    $workDir
+                );
+                $imageFilter = sprintf('scale=%d:%d:force_original_aspect_ratio=increase,crop=%d:%d,%s', $width, $height, $width, $height, $baseFilter);
+                $slideCmd = sprintf(
+                    '%s -y -f concat -safe 0 -i %s -i %s -vf %s -c:v libx264 -pix_fmt yuv420p -c:a aac -shortest %s',
+                    escapeshellarg($ffmpeg),
+                    escapeshellarg($slideshowListPath),
+                    escapeshellarg($remainingAudioPath),
+                    escapeshellarg($imageFilter),
+                    escapeshellarg($slidesPath)
+                );
+            } elseif ($backgroundImagePath !== null) {
                 $imageFilter = sprintf('scale=%d:%d,%s', $width, $height, $baseFilter);
                 $slideCmd = sprintf(
                     '%s -y -loop 1 -i %s -i %s -vf %s -c:v libx264 -pix_fmt yuv420p -c:a aac -shortest %s',
@@ -1485,7 +1514,118 @@ class WebinarAiStudioController extends Controller
             'overlay_alpha' => max(0.0, min(1.0, $overlayAlpha)),
             'background_color' => (string) ($style['background_color'] ?? '#0f172a'),
             'background_image_url' => trim((string) ($style['background_image_url'] ?? '')),
+            'generate_images' => (bool) ($style['generate_images'] ?? false),
+            'image_style' => (string) ($style['image_style'] ?? 'realistic'),
         ];
+    }
+
+    /**
+     * @param array<int, array{title?: string, bullets?: array<int, string>}> $slidePlan
+     * @param array<string, mixed> $slideStyle
+     * @return array<int, string>
+     */
+    private function generateSlideImagesForPlan(
+        array $slidePlan,
+        string $title,
+        string $workDir,
+        int $width,
+        int $height,
+        array $slideStyle
+    ): array {
+        $apiKey = (string) config('services.openai.api_key', '');
+        if ($apiKey === '') {
+            return [];
+        }
+
+        $style = strtolower(trim((string) ($slideStyle['image_style'] ?? 'realistic')));
+        $size = $width >= $height ? '1536x1024' : '1024x1536';
+        $slides = collect($slidePlan)->take(10)->values()->all();
+        if ($slides === []) {
+            $slides = [[
+                'title' => $title !== '' ? $title : 'Webinar Slide',
+                'bullets' => ['Core idea', 'Practical takeaway'],
+            ]];
+        }
+
+        $generatedPaths = [];
+
+        foreach ($slides as $index => $slide) {
+            $slideTitle = trim((string) ($slide['title'] ?? ''));
+            $bullets = collect($slide['bullets'] ?? [])
+                ->map(fn ($b): string => trim((string) $b))
+                ->filter(fn (string $b): bool => $b !== '')
+                ->take(3)
+                ->values()
+                ->all();
+
+            $prompt = implode("\n", [
+                'Create a clean webinar slide background image without any text.',
+                'Topic: '.($title !== '' ? $title : 'Webinar'),
+                'Section: '.($slideTitle !== '' ? $slideTitle : 'Key Point'),
+                'Key points: '.($bullets !== [] ? implode('; ', $bullets) : 'general concept'),
+                'Style: '.$style,
+                'Requirements: high contrast for overlaid white text, professional, modern.',
+            ]);
+
+            try {
+                $resp = Http::timeout(90)
+                    ->withToken($apiKey)
+                    ->post('https://api.openai.com/v1/images/generations', [
+                        'model' => 'gpt-image-1',
+                        'prompt' => $prompt,
+                        'size' => $size,
+                        'response_format' => 'b64_json',
+                    ]);
+
+                if (! $resp->successful()) {
+                    continue;
+                }
+
+                $b64 = (string) data_get($resp->json(), 'data.0.b64_json', '');
+                if ($b64 === '') {
+                    continue;
+                }
+
+                $binary = base64_decode($b64, true);
+                if (! is_string($binary) || $binary === '') {
+                    continue;
+                }
+
+                $path = $workDir.'/slide-image-'.($index + 1).'.png';
+                File::put($path, $binary);
+                $generatedPaths[] = $path;
+            } catch (\Throwable) {
+                continue;
+            }
+        }
+
+        return $generatedPaths;
+    }
+
+    /**
+     * @param array<int, string> $images
+     */
+    private function buildImageConcatList(array $images, int $chunkSeconds, string $workDir): string
+    {
+        $chunk = max(5, $chunkSeconds);
+        $lines = [];
+        foreach ($images as $imagePath) {
+            $escaped = str_replace("'", "'\\''", $imagePath);
+            $lines[] = "file '{$escaped}'";
+            $lines[] = 'duration '.$chunk;
+        }
+
+        // ffmpeg concat image lists require the last file repeated.
+        $last = end($images);
+        if (is_string($last) && $last !== '') {
+            $escapedLast = str_replace("'", "'\\''", $last);
+            $lines[] = "file '{$escapedLast}'";
+        }
+
+        $listPath = $workDir.'/slides-images.txt';
+        File::put($listPath, implode("\n", $lines)."\n");
+
+        return $listPath;
     }
 
     /**

@@ -175,6 +175,8 @@ const aiBrief = reactive({
         overlay_alpha: 0.22,
         background_color: '#0F172A',
         background_image_url: '',
+        generate_images: false,
+        image_style: 'realistic',
     },
 });
 
@@ -298,6 +300,8 @@ const openAiModal = (): void => {
         overlay_alpha: 0.22,
         background_color: '#0F172A',
         background_image_url: '',
+        generate_images: false,
+        image_style: 'realistic',
     };
     selectedAvatarOption.value = '__custom__';
     customAvatarId.value = '';
@@ -1425,6 +1429,20 @@ const videoSourceIcon = (source: string): string => {
                                 <div class="space-y-1.5 sm:col-span-2">
                                     <label class="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Background Image URL (optional)</label>
                                     <input v-model="aiBrief.slide_style.background_image_url" type="url" class="w-full rounded-md border bg-background px-3 py-2 text-sm" placeholder="https://..." />
+                                </div>
+                                <div class="space-y-1.5 sm:col-span-2">
+                                    <label class="inline-flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                                        <input v-model="aiBrief.slide_style.generate_images" type="checkbox" class="rounded border-border" />
+                                        Generate slide images with GPT Image
+                                    </label>
+                                </div>
+                                <div v-if="aiBrief.slide_style.generate_images" class="space-y-1.5 sm:col-span-2">
+                                    <label class="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Image Style</label>
+                                    <select v-model="aiBrief.slide_style.image_style" class="w-full rounded-md border bg-background px-3 py-2 text-sm">
+                                        <option value="realistic">Realistic</option>
+                                        <option value="illustration">Illustration</option>
+                                        <option value="minimal">Minimal</option>
+                                    </select>
                                 </div>
                             </div>
                         </div>
