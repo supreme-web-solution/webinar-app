@@ -106,15 +106,29 @@ const openAiVoiceOptions = ref<OpenAiVoiceOption[]>([]);
 const aiAvatarPage = ref(1);
 const aiOptionsPageSize = 20;
 const aiVideoOverlayMessages = [
-    'Preparing your avatar and voice...',
-    'Generating first video frames...',
-    'Syncing script with voice delivery...',
-    'Finalizing render on HeyGen...',
+    'Analyzing your script...',
+    'Structuring content into scenes...',
+    'Generating webinar outline...',
+    'Preparing slides from your content...',
+    'Designing slide layouts...',
+    'Optimizing script for voice delivery...',
+    'Generating voice narration...',
+    'Splitting audio into segments...',
+    'Preparing avatar intro...',
+    'Syncing avatar with voice...',
+    'Rendering intro video...',
+    'Rendering slide visuals...',
+    'Merging slides with narration...',
+    'Applying transitions and timing...',
+    'Finalizing video composition...',
+    'Optimizing video quality...',
+    'Almost ready...',
 ];
 const aiVideoOverlayMessageIndex = ref(0);
 const aiIntroScript = ref('');
 const aiRemainingScript = ref('');
 const aiSlidePlan = ref<SlidePlanItem[]>([]);
+const aiStatusReadFailureCount = ref(0);
 
 const webinarTypeOptions = [
     { label: 'Sales Webinar', value: 'Sales Webinar' },
@@ -251,6 +265,12 @@ const resetAiState = (): void => {
 };
 
 const AI_SLIDE_STYLE_CACHE_KEY = 'webinar-ai:slide-style:v1';
+const AI_VIDEO_RUNTIME_CACHE_KEY = 'webinar-ai:video-runtime:v1';
+
+type AiVideoRuntimeCache = {
+    video_id: string;
+    webinar_id: number | null;
+};
 
 const loadSlideStyleCache = (): void => {
     try {
@@ -271,6 +291,54 @@ const saveSlideStyleCache = (): void => {
         window.sessionStorage.setItem(AI_SLIDE_STYLE_CACHE_KEY, JSON.stringify(aiBrief.slide_style));
     } catch {
         // ignore cache errors
+    }
+};
+
+const saveAiVideoRuntimeCache = (): void => {
+    if (!aiVideoId.value) {
+        return;
+    }
+
+    try {
+        const payload: AiVideoRuntimeCache = {
+            video_id: aiVideoId.value,
+            webinar_id: aiWebinarId.value,
+        };
+        window.sessionStorage.setItem(AI_VIDEO_RUNTIME_CACHE_KEY, JSON.stringify(payload));
+    } catch {
+        // ignore cache errors
+    }
+};
+
+const clearAiVideoRuntimeCache = (): void => {
+    try {
+        window.sessionStorage.removeItem(AI_VIDEO_RUNTIME_CACHE_KEY);
+    } catch {
+        // ignore cache errors
+    }
+};
+
+const restoreAiVideoRuntimeCache = (): boolean => {
+    try {
+        const raw = window.sessionStorage.getItem(AI_VIDEO_RUNTIME_CACHE_KEY);
+        if (!raw) {
+            return false;
+        }
+
+        const parsed = JSON.parse(raw) as Partial<AiVideoRuntimeCache>;
+        const videoId = String(parsed.video_id || '').trim();
+        if (!videoId) {
+            return false;
+        }
+
+        aiVideoId.value = videoId;
+        aiWebinarId.value = typeof parsed.webinar_id === 'number' ? parsed.webinar_id : null;
+        aiStep.value = 'video';
+        aiVideoStatus.value = 'pending';
+        aiVideoMessage.value = 'Resuming generation status after refresh. Long videos can take a while.';
+        return true;
+    } catch {
+        return false;
     }
 };
 
@@ -315,6 +383,9 @@ const openAiModal = (): void => {
     aiModalOpen.value = true;
     loadSlideStyleCache();
     void loadAiOptions();
+    if (restoreAiVideoRuntimeCache()) {
+        void pollVideoStatus();
+    }
 };
 
 const closeConfirmationMessage = computed((): string => {
@@ -517,8 +588,9 @@ const pollVideoStatus = async (): Promise<void> => {
             aiVideoStatus.value = 'completed';
             aiVideoUrl.value = payload.video_url ?? null;
             aiVideoProvider.value = payload.cloudinary_uploaded ? 'cloudinary' : 'heygen';
+            aiStatusReadFailureCount.value = 0;
             if (payload.composing_long_form && !aiVideoUrl.value) {
-                aiVideoMessage.value = 'Composing full webinar video (intro + slides). This can take a few minutes...';
+                aiVideoMessage.value = 'Composing full webinar video (intro + slides). This may take longer for long scripts...';
             } else {
                 aiVideoMessage.value = aiVideoUrl.value
                     ? 'Video completed successfully.'
@@ -526,6 +598,7 @@ const pollVideoStatus = async (): Promise<void> => {
             }
 
             if (aiVideoUrl.value) {
+                clearAiVideoRuntimeCache();
                 void upsertAiWebinarDraft({
                     videoUrl: aiVideoUrl.value,
                     source: aiVideoProvider.value || 'heygen',
@@ -544,6 +617,7 @@ const pollVideoStatus = async (): Promise<void> => {
         if (normalized === 'failed' || normalized === 'error') {
             aiVideoStatus.value = 'failed';
             aiVideoMessage.value = 'Video rendering failed on provider.';
+            clearAiVideoRuntimeCache();
             void upsertAiWebinarDraft({
                 videoUrl: null,
                 source: 'heygen_pending',
@@ -554,14 +628,21 @@ const pollVideoStatus = async (): Promise<void> => {
         }
 
         aiVideoStatus.value = normalized === 'processing' ? 'processing' : 'pending';
-        aiVideoMessage.value = 'Rendering in progress. This can take a few minutes.';
+        aiStatusReadFailureCount.value = 0;
+        aiVideoMessage.value = 'Rendering in progress. Long scripts may take much longer. You can refresh and resume.';
 
         aiPollTimer = window.setTimeout(() => {
             void pollVideoStatus();
         }, 8000);
     } catch {
-        aiVideoStatus.value = 'failed';
-        aiVideoMessage.value = 'Failed to read video status.';
+        aiStatusReadFailureCount.value += 1;
+        aiVideoStatus.value = 'processing';
+        aiVideoMessage.value = aiStatusReadFailureCount.value >= 3
+            ? 'Status check is delayed, but generation may still be running. Retrying automatically...'
+            : 'Temporary status read issue. Retrying automatically...';
+        aiPollTimer = window.setTimeout(() => {
+            void pollVideoStatus();
+        }, 10000);
     }
 };
 
@@ -628,6 +709,7 @@ const generateVideo = async (): Promise<void> => {
             slide_plan?: SlidePlanItem[];
         };
         aiVideoId.value = payload.video_id;
+        saveAiVideoRuntimeCache();
         aiIntroScript.value = payload.intro_script ?? '';
         aiRemainingScript.value = payload.remaining_script ?? '';
         aiSlidePlan.value = Array.isArray(payload.slide_plan) ? payload.slide_plan : [];
@@ -674,6 +756,7 @@ const createWebinarFromAi = async (): Promise<void> => {
         } else {
             showToast('Webinar created from AI. Redirecting to editor...');
             window.sessionStorage.removeItem(AI_SLIDE_STYLE_CACHE_KEY);
+            clearAiVideoRuntimeCache();
         }
         router.visit(payload.edit_url);
     } catch {
@@ -861,7 +944,7 @@ watch(showVideoOverlay, (active) => {
 
     aiVideoOverlayTimer = window.setInterval(() => {
         aiVideoOverlayMessageIndex.value = (aiVideoOverlayMessageIndex.value + 1) % aiVideoOverlayMessages.length;
-    }, 2200);
+    }, 5500);
 });
 
 const showToast = (message: string, type: 'success' | 'info' = 'success'): void => {
@@ -1174,7 +1257,7 @@ const videoSourceIcon = (source: string): string => {
                         </div>
                         <p class="text-sm font-semibold text-foreground">Rendering in progress</p>
                         <p class="mt-1 text-sm text-muted-foreground">{{ activeVideoOverlayMessage }}</p>
-                        <p class="mt-2 text-xs text-muted-foreground">This can take a few minutes. Please keep this window open.</p>
+                        <p class="mt-2 text-xs text-muted-foreground">Long scripts can take much longer. You can safely refresh; generation will resume when you reopen this modal.</p>
                     </div>
                 </div>
                 <button
