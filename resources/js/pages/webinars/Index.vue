@@ -73,26 +73,48 @@ const aiVideoStatus = ref<AiVideoStatus>('idle');
 const aiVideoId = ref<string | null>(null);
 const aiVideoUrl = ref<string | null>(null);
 const aiVideoProvider = ref<'heygen' | 'cloudinary' | null>(null);
+const aiWebinarId = ref<number | null>(null);
 const aiVideoMessage = ref<string | null>(null);
 const aiLoadingScript = ref(false);
 const aiLoadingVideo = ref(false);
 const aiCreatingWebinar = ref(false);
+const aiLoadingHeygenOptions = ref(false);
+const aiHeygenOptionsError = ref<string | null>(null);
 const allowAiModalClose = ref(false);
 let aiPollTimer: number | null = null;
+let aiVideoOverlayTimer: number | null = null;
 
-const avatarOptions = [
-    { label: 'Business Presenter (Default)', value: 'avatar_business_presenter' },
-    { label: 'Sales Coach', value: 'avatar_sales_coach' },
-    { label: 'Corporate Host', value: 'avatar_corporate_host' },
-    { label: 'Type custom avatar id...', value: '__custom__' },
-];
+type HeygenAvatarOption = {
+    id: string;
+    name: string;
+    preview_url?: string | null;
+    gender?: string | null;
+};
 
-const voiceOptions = [
-    { label: 'Default voice (from HeyGen avatar)', value: '' },
-    { label: 'Professional English Voice', value: 'voice_pro_english' },
-    { label: 'Warm Conversational Voice', value: 'voice_warm_conversational' },
-    { label: 'Type custom voice id...', value: '__custom__' },
+type OpenAiVoiceOption = {
+    id: string;
+    label: string;
+};
+
+type SlidePlanItem = {
+    title: string;
+    bullets: string[];
+};
+
+const avatarOptions = ref<HeygenAvatarOption[]>([]);
+const openAiVoiceOptions = ref<OpenAiVoiceOption[]>([]);
+const aiAvatarPage = ref(1);
+const aiOptionsPageSize = 20;
+const aiVideoOverlayMessages = [
+    'Preparing your avatar and voice...',
+    'Generating first video frames...',
+    'Syncing script with voice delivery...',
+    'Finalizing render on HeyGen...',
 ];
+const aiVideoOverlayMessageIndex = ref(0);
+const aiIntroScript = ref('');
+const aiRemainingScript = ref('');
+const aiSlidePlan = ref<SlidePlanItem[]>([]);
 
 const webinarTypeOptions = [
     { label: 'Sales Webinar', value: 'Sales Webinar' },
@@ -120,8 +142,7 @@ const toneOptions = [
 
 const selectedAvatarOption = ref('__custom__');
 const customAvatarId = ref('');
-const selectedVoiceOption = ref('');
-const customVoiceId = ref('');
+const selectedOpenAiVoiceOption = ref('');
 const selectedWebinarTypeOption = ref('Sales Webinar');
 const customWebinarType = ref('');
 const selectedAudienceOption = ref('__custom__');
@@ -140,7 +161,8 @@ const aiBrief = reactive({
     language: 'English',
     host_name: '',
     avatar_id: '',
-    voice_id: '',
+    openai_voice: '',
+    intro_duration_seconds: 45,
     aspect_ratio: '16:9' as '16:9' | '9:16' | '1:1',
     background_color: '#F8FAFC',
 });
@@ -151,12 +173,13 @@ const aiCanGenerateScript = computed(() => {
         && aiBrief.webinar_type.trim() !== ''
         && aiBrief.audience.trim() !== ''
         && aiBrief.goal.trim() !== ''
-        && aiBrief.host_name.trim() !== ''
         && aiBrief.duration_minutes >= 20;
 });
 
 const aiCanGenerateVideo = computed(() => {
-    return aiScript.value.trim().length >= 300 && aiBrief.avatar_id.trim() !== '';
+    return aiScript.value.trim().length >= 300
+        && aiBrief.avatar_id.trim() !== ''
+        && aiBrief.openai_voice.trim() !== '';
 });
 
 const estimatedDurationSeconds = computed(() => {
@@ -170,7 +193,20 @@ const estimatedDurationSeconds = computed(() => {
 
 const csrfToken = (): string => {
     const tokenTag = document.querySelector('meta[name="csrf-token"]') as HTMLMetaElement | null;
-    return tokenTag?.content ?? '';
+    if (tokenTag?.content) {
+        return tokenTag.content;
+    }
+
+    const xsrfCookie = document.cookie
+        .split(';')
+        .map((part) => part.trim())
+        .find((part) => part.startsWith('XSRF-TOKEN='));
+
+    if (!xsrfCookie) {
+        return '';
+    }
+
+    return decodeURIComponent(xsrfCookie.substring('XSRF-TOKEN='.length));
 };
 
 const resetAiState = (): void => {
@@ -181,10 +217,19 @@ const resetAiState = (): void => {
     aiVideoId.value = null;
     aiVideoUrl.value = null;
     aiVideoProvider.value = null;
+    aiWebinarId.value = null;
     aiVideoMessage.value = null;
+    aiIntroScript.value = '';
+    aiRemainingScript.value = '';
+    aiSlidePlan.value = [];
     aiLoadingScript.value = false;
     aiLoadingVideo.value = false;
     aiCreatingWebinar.value = false;
+    aiVideoOverlayMessageIndex.value = 0;
+    if (aiVideoOverlayTimer !== null) {
+        window.clearInterval(aiVideoOverlayTimer);
+        aiVideoOverlayTimer = null;
+    }
     if (aiPollTimer !== null) {
         window.clearTimeout(aiPollTimer);
         aiPollTimer = null;
@@ -204,9 +249,13 @@ const openAiModal = (): void => {
     aiBrief.language = 'English';
     aiBrief.host_name = '';
     aiBrief.avatar_id = '';
-    aiBrief.voice_id = '';
+    aiBrief.openai_voice = '';
+    aiBrief.intro_duration_seconds = 45;
     aiBrief.aspect_ratio = '16:9';
     aiBrief.background_color = '#F8FAFC';
+    selectedAvatarOption.value = '__custom__';
+    customAvatarId.value = '';
+    selectedOpenAiVoiceOption.value = '';
     selectedWebinarTypeOption.value = 'Sales Webinar';
     customWebinarType.value = '';
     selectedAudienceOption.value = '__custom__';
@@ -214,6 +263,7 @@ const openAiModal = (): void => {
     selectedToneOption.value = 'authoritative and persuasive';
     customTone.value = '';
     aiModalOpen.value = true;
+    void loadAiOptions();
 };
 
 const closeConfirmationMessage = computed((): string => {
@@ -262,6 +312,79 @@ const parseErrorMessage = async (response: Response, fallback: string): Promise<
     }
 };
 
+const loadAiOptions = async (): Promise<void> => {
+    aiLoadingHeygenOptions.value = true;
+    aiHeygenOptionsError.value = null;
+
+    try {
+        const response = await fetch('/admin/webinars/ai/options', {
+            headers: {
+                Accept: 'application/json',
+            },
+        });
+
+        if (!response.ok) {
+            aiHeygenOptionsError.value = await parseErrorMessage(response, 'Failed to load AI options.');
+            return;
+        }
+
+        const payload = await response.json() as {
+            avatars?: Array<{ id: string; name: string; preview_url?: string | null; gender?: string | null }>;
+            openai_voices?: Array<{ id: string; label?: string }>;
+            message?: string;
+            stale?: boolean;
+        };
+
+        const avatars = Array.isArray(payload.avatars) ? payload.avatars : [];
+        const openAiVoices = Array.isArray(payload.openai_voices) ? payload.openai_voices : [];
+
+        avatarOptions.value = avatars.map((item) => ({
+            id: item.id,
+            name: item.name || item.id,
+            preview_url: item.preview_url ?? null,
+            gender: item.gender ?? null,
+        }));
+
+        openAiVoiceOptions.value = openAiVoices.map((item) => ({
+            id: item.id,
+            label: item.label || item.id,
+        }));
+        aiAvatarPage.value = 1;
+
+        if (avatars.length > 0) {
+            selectedAvatarOption.value = avatars[0].id;
+            aiBrief.avatar_id = avatars[0].id;
+        } else {
+            selectedAvatarOption.value = '__custom__';
+            aiBrief.avatar_id = '';
+        }
+
+        if (openAiVoices.length > 0) {
+            selectedOpenAiVoiceOption.value = openAiVoices[0].id;
+            aiBrief.openai_voice = openAiVoices[0].id;
+        } else {
+            selectedOpenAiVoiceOption.value = '';
+            aiBrief.openai_voice = '';
+        }
+
+        if (payload.message) {
+            aiHeygenOptionsError.value = payload.message;
+        }
+    } catch {
+        aiHeygenOptionsError.value = 'Failed to load AI options.';
+    } finally {
+        aiLoadingHeygenOptions.value = false;
+    }
+};
+
+const totalAvatarPages = computed(() => Math.max(1, Math.ceil(avatarOptions.value.length / aiOptionsPageSize)));
+
+const paginatedAvatarOptions = computed(() => {
+    const start = (aiAvatarPage.value - 1) * aiOptionsPageSize;
+    return avatarOptions.value.slice(start, start + aiOptionsPageSize);
+});
+
+
 const generateScript = async (): Promise<void> => {
     if (!aiCanGenerateScript.value || aiLoadingScript.value) {
         return;
@@ -272,10 +395,12 @@ const generateScript = async (): Promise<void> => {
     try {
         const response = await fetch('/admin/webinars/ai/script', {
             method: 'POST',
+            credentials: 'same-origin',
             headers: {
                 Accept: 'application/json',
                 'Content-Type': 'application/json',
                 'X-CSRF-TOKEN': csrfToken(),
+                'X-Requested-With': 'XMLHttpRequest',
             },
             body: JSON.stringify({
                 topic: aiBrief.topic,
@@ -285,6 +410,7 @@ const generateScript = async (): Promise<void> => {
                 tone: aiBrief.tone,
                 duration_minutes: aiBrief.duration_minutes,
                 language: aiBrief.language,
+                host_name: aiBrief.host_name.trim() || null,
             }),
         });
 
@@ -331,6 +457,8 @@ const pollVideoStatus = async (): Promise<void> => {
             status: string;
             video_url?: string | null;
             cloudinary_uploaded?: boolean;
+            composing_long_form?: boolean;
+            compose_status?: string;
         };
 
         const normalized = String(payload.status || '').toLowerCase();
@@ -338,15 +466,39 @@ const pollVideoStatus = async (): Promise<void> => {
             aiVideoStatus.value = 'completed';
             aiVideoUrl.value = payload.video_url ?? null;
             aiVideoProvider.value = payload.cloudinary_uploaded ? 'cloudinary' : 'heygen';
-            aiVideoMessage.value = aiVideoUrl.value
-                ? 'Video completed successfully.'
-                : 'Video is completed but URL is still unavailable. Check again shortly.';
+            if (payload.composing_long_form && !aiVideoUrl.value) {
+                aiVideoMessage.value = 'Composing full webinar video (intro + slides). This can take a few minutes...';
+            } else {
+                aiVideoMessage.value = aiVideoUrl.value
+                    ? 'Video completed successfully.'
+                    : 'Video is completed but URL is still unavailable. Check again shortly.';
+            }
+
+            if (aiVideoUrl.value) {
+                void upsertAiWebinarDraft({
+                    videoUrl: aiVideoUrl.value,
+                    source: aiVideoProvider.value || 'heygen',
+                    heygenVideoId: aiVideoId.value,
+                    generationStatus: 'completed',
+                });
+            }
+            if (!aiVideoUrl.value || payload.composing_long_form) {
+                aiPollTimer = window.setTimeout(() => {
+                    void pollVideoStatus();
+                }, 8000);
+            }
             return;
         }
 
         if (normalized === 'failed' || normalized === 'error') {
             aiVideoStatus.value = 'failed';
             aiVideoMessage.value = 'Video rendering failed on provider.';
+            void upsertAiWebinarDraft({
+                videoUrl: null,
+                source: 'heygen_pending',
+                heygenVideoId: aiVideoId.value,
+                generationStatus: 'failed',
+            });
             return;
         }
 
@@ -379,18 +531,33 @@ const generateVideo = async (): Promise<void> => {
     aiVideoProvider.value = null;
 
     try {
+        const draftPayload = await upsertAiWebinarDraft({
+            videoUrl: null,
+            source: 'heygen_pending',
+            heygenVideoId: aiVideoId.value,
+            generationStatus: 'requesting',
+        });
+        if (!draftPayload) {
+            aiVideoStatus.value = 'failed';
+            aiVideoMessage.value = 'Failed to create webinar draft before rendering.';
+            return;
+        }
+
         const response = await fetch('/admin/webinars/ai/video', {
             method: 'POST',
+            credentials: 'same-origin',
             headers: {
                 Accept: 'application/json',
                 'Content-Type': 'application/json',
                 'X-CSRF-TOKEN': csrfToken(),
+                'X-Requested-With': 'XMLHttpRequest',
             },
             body: JSON.stringify({
                 title: aiBrief.title,
                 script: aiScript.value,
                 avatar_id: aiBrief.avatar_id,
-                voice_id: aiBrief.voice_id || null,
+                openai_voice: aiBrief.openai_voice,
+                intro_duration_seconds: aiBrief.intro_duration_seconds,
                 aspect_ratio: aiBrief.aspect_ratio,
                 background_color: aiBrief.background_color,
             }),
@@ -402,10 +569,24 @@ const generateVideo = async (): Promise<void> => {
             return;
         }
 
-        const payload = await response.json() as { video_id: string };
+        const payload = await response.json() as {
+            video_id: string;
+            intro_script?: string;
+            remaining_script?: string;
+            slide_plan?: SlidePlanItem[];
+        };
         aiVideoId.value = payload.video_id;
+        aiIntroScript.value = payload.intro_script ?? '';
+        aiRemainingScript.value = payload.remaining_script ?? '';
+        aiSlidePlan.value = Array.isArray(payload.slide_plan) ? payload.slide_plan : [];
         aiVideoStatus.value = 'pending';
         aiVideoMessage.value = 'Video request accepted. Polling status...';
+        void upsertAiWebinarDraft({
+            videoUrl: null,
+            source: 'heygen_pending',
+            heygenVideoId: aiVideoId.value,
+            generationStatus: 'pending',
+        });
 
         void pollVideoStatus();
     } catch {
@@ -417,49 +598,90 @@ const generateVideo = async (): Promise<void> => {
 };
 
 const createWebinarFromAi = async (): Promise<void> => {
-    if (!aiVideoUrl.value || aiCreatingWebinar.value) {
+    if (aiCreatingWebinar.value) {
         return;
     }
 
     aiCreatingWebinar.value = true;
 
     try {
-        const response = await fetch('/admin/webinars/ai/create', {
-            method: 'POST',
-            headers: {
-                Accept: 'application/json',
-                'Content-Type': 'application/json',
-                'X-CSRF-TOKEN': csrfToken(),
-            },
-            body: JSON.stringify({
-                title: aiBrief.title,
-                host_name: aiBrief.host_name,
-                description: aiBrief.topic,
-                script: aiScript.value,
-                video_url: aiVideoUrl.value,
-                video_duration_seconds: estimatedDurationSeconds.value,
-                source: aiVideoProvider.value || 'heygen',
-                avatar_id: aiBrief.avatar_id,
-                voice_id: aiBrief.voice_id || null,
-                webinar_type: aiBrief.webinar_type,
-                audience: aiBrief.audience,
-                goal: aiBrief.goal,
-            }),
+        const payload = await upsertAiWebinarDraft({
+            videoUrl: aiVideoUrl.value,
+            source: aiVideoProvider.value || (aiVideoUrl.value ? 'heygen' : 'heygen_pending'),
+            heygenVideoId: aiVideoId.value,
+            generationStatus: aiVideoUrl.value ? 'completed' : aiVideoStatus.value,
         });
 
-        if (!response.ok) {
-            showToast(await parseErrorMessage(response, 'Failed to create webinar from AI output.'), 'info');
+        if (!payload) {
+            showToast('Failed to create webinar draft from AI output.', 'info');
             return;
         }
 
-        const payload = await response.json() as { edit_url: string };
-        showToast('Webinar created from AI. Redirecting to editor...');
+        if (!aiVideoUrl.value) {
+            showToast('Webinar draft saved. Video will be linked when rendering finishes.');
+        } else {
+            showToast('Webinar created from AI. Redirecting to editor...');
+        }
         router.visit(payload.edit_url);
     } catch {
-        showToast('Failed to create webinar from AI output.', 'info');
+        showToast('Failed to create webinar draft from AI output.', 'info');
     } finally {
         aiCreatingWebinar.value = false;
     }
+};
+
+const upsertAiWebinarDraft = async ({
+    videoUrl,
+    source,
+    heygenVideoId,
+    generationStatus,
+}: {
+    videoUrl: string | null;
+    source: string;
+    heygenVideoId: string | null;
+    generationStatus: string;
+}): Promise<{ webinar_id: number; edit_url: string } | null> => {
+    const response = await fetch('/admin/webinars/ai/create', {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: {
+            Accept: 'application/json',
+            'Content-Type': 'application/json',
+            'X-CSRF-TOKEN': csrfToken(),
+            'X-Requested-With': 'XMLHttpRequest',
+        },
+        body: JSON.stringify({
+            webinar_id: aiWebinarId.value,
+            title: aiBrief.title,
+            host_name: aiBrief.host_name,
+            description: aiBrief.topic,
+            script: aiScript.value,
+            video_url: videoUrl || undefined,
+            video_duration_seconds: videoUrl ? estimatedDurationSeconds.value : undefined,
+            source,
+            avatar_id: aiBrief.avatar_id,
+            voice_id: aiBrief.openai_voice || null,
+            intro_script: aiIntroScript.value || undefined,
+            remaining_script: aiRemainingScript.value || undefined,
+            slide_plan: aiSlidePlan.value.length > 0 ? aiSlidePlan.value : undefined,
+            intro_duration_seconds: aiBrief.intro_duration_seconds,
+            webinar_type: aiBrief.webinar_type,
+            audience: aiBrief.audience,
+            goal: aiBrief.goal,
+            heygen_video_id: heygenVideoId || undefined,
+            video_generation_status: generationStatus,
+        }),
+    });
+
+    if (!response.ok) {
+        showToast(await parseErrorMessage(response, 'Failed to save webinar draft.'), 'info');
+        return null;
+    }
+
+    const payload = await response.json() as { webinar_id: number; edit_url: string };
+    aiWebinarId.value = payload.webinar_id;
+
+    return payload;
 };
 
 watch(selectedAvatarOption, (value) => {
@@ -477,19 +699,8 @@ watch(customAvatarId, (value) => {
     }
 });
 
-watch(selectedVoiceOption, (value) => {
-    if (value === '__custom__') {
-        aiBrief.voice_id = customVoiceId.value.trim();
-        return;
-    }
-
-    aiBrief.voice_id = value;
-});
-
-watch(customVoiceId, (value) => {
-    if (selectedVoiceOption.value === '__custom__') {
-        aiBrief.voice_id = value.trim();
-    }
+watch(selectedOpenAiVoiceOption, (value) => {
+    aiBrief.openai_voice = value.trim();
 });
 
 watch(selectedWebinarTypeOption, (value) => {
@@ -546,6 +757,11 @@ watch(aiModalOpen, (open) => {
         window.clearTimeout(aiPollTimer);
         aiPollTimer = null;
     }
+
+    if (aiVideoOverlayTimer !== null) {
+        window.clearInterval(aiVideoOverlayTimer);
+        aiVideoOverlayTimer = null;
+    }
 });
 
 const videoStatusClass = computed((): string => {
@@ -558,6 +774,37 @@ const videoStatusClass = computed((): string => {
     }
 
     return 'border-sky-200 bg-sky-50 text-sky-700 dark:border-sky-800 dark:bg-sky-950/40 dark:text-sky-300';
+});
+
+const showVideoOverlay = computed((): boolean => {
+    return ['requesting', 'pending', 'processing'].includes(aiVideoStatus.value);
+});
+
+const activeVideoOverlayMessage = computed((): string => {
+    if (!showVideoOverlay.value) {
+        return '';
+    }
+
+    return aiVideoOverlayMessages[aiVideoOverlayMessageIndex.value % aiVideoOverlayMessages.length];
+});
+
+watch(showVideoOverlay, (active) => {
+    if (!active) {
+        if (aiVideoOverlayTimer !== null) {
+            window.clearInterval(aiVideoOverlayTimer);
+            aiVideoOverlayTimer = null;
+        }
+        aiVideoOverlayMessageIndex.value = 0;
+        return;
+    }
+
+    if (aiVideoOverlayTimer !== null) {
+        window.clearInterval(aiVideoOverlayTimer);
+    }
+
+    aiVideoOverlayTimer = window.setInterval(() => {
+        aiVideoOverlayMessageIndex.value = (aiVideoOverlayMessageIndex.value + 1) % aiVideoOverlayMessages.length;
+    }, 2200);
 });
 
 const showToast = (message: string, type: 'success' | 'info' = 'success'): void => {
@@ -631,7 +878,7 @@ const videoSourceIcon = (source: string): string => {
                         <Link href="/admin/webinars/create">
                             <Icon icon="solar:add-circle-bold" class="size-4" />
                             New Webinar
-                        </Link>
+                </Link>
                     </Button>
                 </div>
             </div>
@@ -675,7 +922,7 @@ const videoSourceIcon = (source: string): string => {
                     </div>
 
                     <div v-else class="overflow-x-auto">
-                        <table class="w-full text-sm">
+                <table class="w-full text-sm">
                             <thead>
                                 <tr class="border-b border-border/50">
                                     <th class="px-5 pb-2.5 pt-3 text-left text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
@@ -696,9 +943,9 @@ const videoSourceIcon = (source: string): string => {
                                     <th class="px-5 pb-2.5 pt-3 text-right text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
                                         Actions
                                     </th>
-                                </tr>
-                            </thead>
-                            <tbody>
+                        </tr>
+                    </thead>
+                    <tbody>
                                 <tr
                                     v-for="webinar in webinars.data"
                                     :key="webinar.id"
@@ -713,7 +960,7 @@ const videoSourceIcon = (source: string): string => {
                                             <div class="min-w-0">
                                                 <p class="font-semibold text-foreground leading-snug">{{ webinar.title }}</p>
                                                 <div class="mt-1 flex flex-wrap items-center gap-1.5">
-                                                    <span
+                                    <span
                                                         class="inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-medium"
                                                         :class="webinar.schedule_mode === 'auto'
                                                             ? 'bg-sky-100 text-sky-700 dark:bg-sky-950/50 dark:text-sky-400'
@@ -723,8 +970,8 @@ const videoSourceIcon = (source: string): string => {
                                                             :icon="webinar.schedule_mode === 'auto' ? 'solar:infinity-bold' : 'solar:calendar-bold'"
                                                             class="mr-0.5 size-2.5"
                                                         />
-                                                        {{ webinar.schedule_mode === 'auto' ? 'Auto' : 'Scheduled' }}
-                                                    </span>
+                                        {{ webinar.schedule_mode === 'auto' ? 'Auto' : 'Scheduled' }}
+                                    </span>
                                                     <span
                                                         v-if="webinar.schedule_mode === 'scheduled' && webinar.scheduled_at_label"
                                                         class="text-[11px] text-muted-foreground"
@@ -733,7 +980,7 @@ const videoSourceIcon = (source: string): string => {
                                                     </span>
                                                     <span class="text-[10px] text-muted-foreground/60 font-mono hidden lg:inline">
                                                         {{ webinar.uuid }}
-                                                    </span>
+                                    </span>
                                                 </div>
                                                 <p class="mt-0.5 text-xs text-muted-foreground">
                                                     <Icon icon="solar:user-linear" class="inline size-3 mr-0.5" />
@@ -749,27 +996,27 @@ const videoSourceIcon = (source: string): string => {
                                             <Icon :icon="videoSourceIcon(webinar.video_source)" class="size-3.5 text-muted-foreground/60" />
                                             {{ webinar.video_source }}
                                         </span>
-                                    </td>
+                            </td>
 
                                     <!-- Status -->
                                     <td class="px-4 py-3.5 align-middle">
-                                        <span
+                                <span
                                             class="inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs font-semibold"
-                                            :class="
-                                                webinar.has_ended
+                                    :class="
+                                        webinar.has_ended
                                                     ? 'bg-rose-100 text-rose-700 dark:bg-rose-950/50 dark:text-rose-400'
-                                                    : webinar.is_published
+                                            : webinar.is_published
                                                         ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950/50 dark:text-emerald-400'
                                                         : 'bg-amber-100 text-amber-700 dark:bg-amber-950/50 dark:text-amber-400'
-                                            "
-                                        >
+                                    "
+                                >
                                             <span
                                                 class="h-1 w-1 rounded-full"
                                                 :class="webinar.has_ended ? 'bg-rose-500' : webinar.is_published ? 'bg-emerald-500' : 'bg-amber-500'"
                                             />
-                                            {{ webinar.has_ended ? 'Ended' : webinar.is_published ? 'Published' : 'Draft' }}
-                                        </span>
-                                    </td>
+                                    {{ webinar.has_ended ? 'Ended' : webinar.is_published ? 'Published' : 'Draft' }}
+                                </span>
+                            </td>
 
                                     <!-- Registrants -->
                                     <td class="px-4 py-3.5 align-middle text-right">
@@ -789,8 +1036,8 @@ const videoSourceIcon = (source: string): string => {
                                             <Button as-child variant="ghost" size="sm" class="h-7 px-2.5 text-xs font-medium text-primary hover:text-primary/80">
                                                 <Link :href="`/admin/webinars/${webinar.id}/edit`">
                                                     <Icon icon="solar:pen-bold" class="mr-1 size-3" />
-                                                    Edit
-                                                </Link>
+                                        Edit
+                                    </Link>
                                             </Button>
 
                                             <DropdownMenu>
@@ -803,34 +1050,34 @@ const videoSourceIcon = (source: string): string => {
                                                 <DropdownMenuContent align="end" class="w-52 rounded-xl border-border/60 shadow-lg">
                                                     <DropdownMenuItem
                                                         class="cursor-pointer gap-2 text-xs"
-                                                        @click="copyLink(webinar.registration_link, 'Registration link')"
-                                                    >
+                                        @click="copyLink(webinar.registration_link, 'Registration link')"
+                                    >
                                                         <Icon icon="solar:copy-linear" class="size-3.5 text-muted-foreground" />
-                                                        Copy Registration Link
+                                        Copy Registration Link
                                                     </DropdownMenuItem>
                                                     <DropdownMenuItem
                                                         class="cursor-pointer gap-2 text-xs"
-                                                        @click="copyLink(webinar.room_link, 'Room link')"
-                                                    >
+                                        @click="copyLink(webinar.room_link, 'Room link')"
+                                    >
                                                         <Icon icon="solar:link-linear" class="size-3.5 text-muted-foreground" />
-                                                        Copy Join Link
+                                        Copy Join Link
                                                     </DropdownMenuItem>
                                                     <DropdownMenuItem as-child class="gap-2 text-xs">
                                                         <Link :href="webinar.chat_link" class="cursor-pointer">
                                                             <Icon icon="solar:chat-round-dots-linear" class="size-3.5 text-muted-foreground" />
                                                             Moderate Chat
-                                                        </Link>
+                                    </Link>
                                                     </DropdownMenuItem>
                                                     <DropdownMenuItem as-child class="gap-2 text-xs">
-                                                        <Link
-                                                            :href="webinar.notify_link"
-                                                            method="post"
-                                                            as="button"
+                                    <Link
+                                        :href="webinar.notify_link"
+                                        method="post"
+                                        as="button"
                                                             class="w-full cursor-pointer"
-                                                        >
+                                    >
                                                             <Icon icon="solar:bell-bing-linear" class="size-3.5 text-muted-foreground" />
                                                             Notify All Registrants
-                                                        </Link>
+                                    </Link>
                                                     </DropdownMenuItem>
                                                     <DropdownMenuSeparator />
                                                     <DropdownMenuItem
@@ -842,12 +1089,12 @@ const videoSourceIcon = (source: string): string => {
                                                     </DropdownMenuItem>
                                                 </DropdownMenuContent>
                                             </DropdownMenu>
-                                        </div>
-                                    </td>
-                                </tr>
-                            </tbody>
-                        </table>
-                    </div>
+                                </div>
+                            </td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
                 </CardContent>
             </Card>
 
@@ -855,11 +1102,24 @@ const videoSourceIcon = (source: string): string => {
 
         <Dialog :open="aiModalOpen" @update:open="onAiModalOpenChange">
             <DialogContent
-                class="sm:max-w-4xl"
+                class="flex max-h-[90vh] flex-col overflow-hidden sm:max-w-5xl"
                 :show-close-button="false"
                 @interact-outside.prevent
                 @escape-key-down.prevent
             >
+                <div
+                    v-if="showVideoOverlay"
+                    class="absolute inset-0 z-20 flex items-center justify-center bg-background/65 backdrop-blur-sm"
+                >
+                    <div class="mx-4 w-full max-w-md rounded-xl border border-border bg-background p-5 text-center shadow-lg">
+                        <div class="mx-auto mb-3 flex h-14 w-14 items-center justify-center rounded-full bg-primary/10 text-primary">
+                            <Icon icon="svg-spinners:3-dots-fade" class="size-8" />
+                        </div>
+                        <p class="text-sm font-semibold text-foreground">Rendering in progress</p>
+                        <p class="mt-1 text-sm text-muted-foreground">{{ activeVideoOverlayMessage }}</p>
+                        <p class="mt-2 text-xs text-muted-foreground">This can take a few minutes. Please keep this window open.</p>
+                    </div>
+                </div>
                 <button
                     type="button"
                     class="absolute right-4 top-4 inline-flex h-8 w-8 items-center justify-center rounded-md border border-border text-muted-foreground transition hover:bg-muted hover:text-foreground"
@@ -878,21 +1138,22 @@ const videoSourceIcon = (source: string): string => {
                     </DialogDescription>
                 </DialogHeader>
 
-                <div class="flex items-center gap-2 text-xs font-semibold">
-                    <span class="inline-flex h-6 items-center rounded-full px-2"
-                        :class="aiStep === 'brief' ? 'bg-primary/15 text-primary' : 'bg-muted text-muted-foreground'"
-                    >1. Brief</span>
-                    <span class="h-px flex-1 bg-border" />
-                    <span class="inline-flex h-6 items-center rounded-full px-2"
-                        :class="aiStep === 'script' ? 'bg-primary/15 text-primary' : 'bg-muted text-muted-foreground'"
-                    >2. Script</span>
-                    <span class="h-px flex-1 bg-border" />
-                    <span class="inline-flex h-6 items-center rounded-full px-2"
-                        :class="aiStep === 'video' ? 'bg-primary/15 text-primary' : 'bg-muted text-muted-foreground'"
-                    >3. Video and Create</span>
-                </div>
+                <div class="min-h-0 flex-1 overflow-y-auto pr-1">
+                    <div class="flex items-center gap-2 text-xs font-semibold">
+                        <span class="inline-flex h-6 items-center rounded-full px-2"
+                            :class="aiStep === 'brief' ? 'bg-primary/15 text-primary' : 'bg-muted text-muted-foreground'"
+                        >1. Brief</span>
+                        <span class="h-px flex-1 bg-border" />
+                        <span class="inline-flex h-6 items-center rounded-full px-2"
+                            :class="aiStep === 'script' ? 'bg-primary/15 text-primary' : 'bg-muted text-muted-foreground'"
+                        >2. Script</span>
+                        <span class="h-px flex-1 bg-border" />
+                        <span class="inline-flex h-6 items-center rounded-full px-2"
+                            :class="aiStep === 'video' ? 'bg-primary/15 text-primary' : 'bg-muted text-muted-foreground'"
+                        >3. Video and Create</span>
+                    </div>
 
-                <div v-if="aiStep === 'brief'" class="grid gap-4 py-2 sm:grid-cols-2">
+                    <div v-if="aiStep === 'brief'" class="grid gap-4 py-2 sm:grid-cols-2">
                     <div class="space-y-1.5">
                         <label class="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Webinar Title</label>
                         <input v-model="aiBrief.title" type="text" class="w-full rounded-md border bg-background px-3 py-2 text-sm" placeholder="High-Ticket Offer Masterclass" />
@@ -948,13 +1209,9 @@ const videoSourceIcon = (source: string): string => {
                             placeholder="Type your tone"
                         />
                     </div>
-                    <div class="space-y-1.5">
-                        <label class="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Duration (minutes)</label>
-                        <input v-model.number="aiBrief.duration_minutes" type="number" min="20" max="120" class="w-full rounded-md border bg-background px-3 py-2 text-sm" />
                     </div>
-                </div>
 
-                <div v-else-if="aiStep === 'script'" class="space-y-3 py-2">
+                    <div v-else-if="aiStep === 'script'" class="space-y-3 py-2">
                     <div class="flex flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground">
                         <span>Review and edit the generated script before creating video.</span>
                         <span v-if="aiScriptModel">Model: {{ aiScriptModel }}</span>
@@ -965,51 +1222,121 @@ const videoSourceIcon = (source: string): string => {
                         class="w-full rounded-md border bg-background px-3 py-2 text-sm leading-6"
                         placeholder="Generated script will appear here"
                     />
-                </div>
+                    </div>
 
-                <div v-else class="space-y-3 py-2">
-                    <div class="grid gap-3 rounded-lg border border-border/70 bg-muted/15 p-3 sm:grid-cols-2">
-                        <div class="space-y-1.5">
-                            <label class="text-xs font-semibold uppercase tracking-wide text-muted-foreground">HeyGen Avatar</label>
-                            <select v-model="selectedAvatarOption" class="w-full rounded-md border bg-background px-3 py-2 text-sm">
-                                <option v-for="option in avatarOptions" :key="option.value" :value="option.value">{{ option.label }}</option>
-                            </select>
-                            <input
-                                v-if="selectedAvatarOption === '__custom__'"
-                                v-model="customAvatarId"
-                                type="text"
-                                class="w-full rounded-md border bg-background px-3 py-2 text-sm"
-                                placeholder="avatar_xxx"
-                            />
+                    <div v-else class="space-y-3 py-2">
+                    <div v-if="aiLoadingHeygenOptions" class="rounded-md border border-sky-200 bg-sky-50 px-3 py-2 text-xs text-sky-700">
+                        Loading HeyGen avatars and OpenAI voices...
+                    </div>
+                    <div v-else-if="aiHeygenOptionsError" class="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-700">
+                        <div class="flex flex-wrap items-center justify-between gap-2">
+                            <span>{{ aiHeygenOptionsError }}</span>
+                            <Button
+                                type="button"
+                                variant="outline"
+                                size="sm"
+                                class="h-7 border-amber-300 bg-amber-50 px-2 text-[11px] text-amber-700 hover:bg-amber-100"
+                                :disabled="aiLoadingHeygenOptions"
+                                @click="loadAiOptions"
+                            >
+                                <Icon v-if="aiLoadingHeygenOptions" icon="svg-spinners:3-dots-fade" class="mr-1 size-3.5" />
+                                {{ aiLoadingHeygenOptions ? 'Retrying...' : 'Retry loading options' }}
+                            </Button>
                         </div>
-                        <div class="space-y-1.5">
-                            <label class="text-xs font-semibold uppercase tracking-wide text-muted-foreground">HeyGen Voice (optional)</label>
-                            <select v-model="selectedVoiceOption" class="w-full rounded-md border bg-background px-3 py-2 text-sm">
-                                <option v-for="option in voiceOptions" :key="option.value || 'default-voice'" :value="option.value">{{ option.label }}</option>
-                            </select>
-                            <input
-                                v-if="selectedVoiceOption === '__custom__'"
-                                v-model="customVoiceId"
-                                type="text"
-                                class="w-full rounded-md border bg-background px-3 py-2 text-sm"
-                                placeholder="voice_xxx"
-                            />
+                    </div>
+                    <div class="grid gap-3 rounded-lg border border-border/70 bg-muted/15 p-3 lg:grid-cols-2">
+                        <div class="space-y-2">
+                            <div class="flex items-center justify-between">
+                                <label class="text-xs font-semibold uppercase tracking-wide text-muted-foreground">HeyGen Avatar</label>
+                                <div class="flex items-center gap-2 text-xs">
+                                    <Button type="button" variant="outline" size="sm" class="h-7 px-2 text-[11px]" :disabled="aiAvatarPage <= 1" @click="aiAvatarPage--">Prev</Button>
+                                    <span class="text-muted-foreground">Page {{ aiAvatarPage }} / {{ totalAvatarPages }}</span>
+                                    <Button type="button" variant="outline" size="sm" class="h-7 px-2 text-[11px]" :disabled="aiAvatarPage >= totalAvatarPages" @click="aiAvatarPage++">Next</Button>
+                                </div>
+                            </div>
+                            <div class="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+                                <button
+                                    v-for="avatar in paginatedAvatarOptions"
+                                    :key="avatar.id"
+                                    type="button"
+                                    class="rounded-lg border bg-background p-2 text-left transition hover:border-primary/50"
+                                    :class="selectedAvatarOption === avatar.id ? 'border-primary ring-1 ring-primary/40' : 'border-border/70'"
+                                    @click="selectedAvatarOption = avatar.id"
+                                >
+                                    <img
+                                        v-if="avatar.preview_url"
+                                        :src="avatar.preview_url"
+                                        :alt="avatar.name"
+                                        class="mb-2 h-20 w-full rounded object-cover"
+                                    />
+                                    <div v-else class="mb-2 flex h-20 w-full items-center justify-center rounded bg-muted text-xs text-muted-foreground">No preview</div>
+                                    <p class="line-clamp-2 text-xs font-semibold">{{ avatar.name }}</p>
+                                    <span
+                                        v-if="avatar.gender"
+                                        class="mt-1 inline-flex rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide"
+                                        :class="avatar.gender === 'female'
+                                            ? 'bg-pink-100 text-pink-700 dark:bg-pink-900/30 dark:text-pink-300'
+                                            : 'bg-sky-100 text-sky-700 dark:bg-sky-900/30 dark:text-sky-300'"
+                                    >
+                                        {{ avatar.gender }}
+                                    </span>
+                                </button>
+                            </div>
+                            <div class="flex items-center gap-2">
+                                <Button type="button" variant="outline" size="sm" class="h-8 text-xs" @click="selectedAvatarOption = '__custom__'">Use Custom Avatar ID</Button>
+                                <input
+                                    v-if="selectedAvatarOption === '__custom__'"
+                                    v-model="customAvatarId"
+                                    type="text"
+                                    class="w-full rounded-md border bg-background px-3 py-2 text-sm"
+                                    placeholder="avatar_xxx"
+                                />
+                            </div>
                         </div>
-                        <div class="space-y-1.5">
-                            <label class="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Aspect Ratio</label>
-                            <select v-model="aiBrief.aspect_ratio" class="w-full rounded-md border bg-background px-3 py-2 text-sm">
-                                <option value="16:9">16:9 (Webinar)</option>
-                                <option value="1:1">1:1</option>
-                                <option value="9:16">9:16</option>
+                        <div class="space-y-2">
+                            <div class="flex items-center justify-between">
+                                <label class="text-xs font-semibold uppercase tracking-wide text-muted-foreground">OpenAI Voice</label>
+                            </div>
+                            <select v-model="selectedOpenAiVoiceOption" class="w-full rounded-md border bg-background px-3 py-2 text-sm">
+                                <option disabled value="">Select a voice</option>
+                                <option v-for="voice in openAiVoiceOptions" :key="voice.id" :value="voice.id">
+                                    {{ voice.label }}
+                                </option>
                             </select>
+                            <p class="text-[11px] text-muted-foreground">
+                                This voice is used as the narration voice profile for AI webinar generation.
+                            </p>
                         </div>
-                        <div class="space-y-1.5">
-                            <label class="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Background Color</label>
-                            <input v-model="aiBrief.background_color" type="text" class="w-full rounded-md border bg-background px-3 py-2 text-sm" placeholder="#F8FAFC" />
+                        <div class="grid gap-3 lg:col-span-2 sm:grid-cols-2">
+                            <div class="space-y-1.5">
+                                <label class="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Avatar Intro (seconds)</label>
+                                <input
+                                    v-model.number="aiBrief.intro_duration_seconds"
+                                    type="number"
+                                    min="20"
+                                    max="60"
+                                    class="w-full rounded-md border bg-background px-3 py-2 text-sm"
+                                />
+                                <p class="text-[11px] text-muted-foreground">
+                                    First 20-60 seconds uses avatar lip-sync. Remaining script becomes slide plan.
+                                </p>
+                            </div>
+                            <div class="space-y-1.5">
+                                <label class="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Aspect Ratio</label>
+                                <select v-model="aiBrief.aspect_ratio" class="w-full rounded-md border bg-background px-3 py-2 text-sm">
+                                    <option value="16:9">16:9 (Webinar)</option>
+                                    <option value="1:1">1:1</option>
+                                    <option value="9:16">9:16</option>
+                                </select>
+                            </div>
+                            <div class="space-y-1.5">
+                                <label class="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Background Color</label>
+                                <input v-model="aiBrief.background_color" type="text" class="w-full rounded-md border bg-background px-3 py-2 text-sm" placeholder="#F8FAFC" />
+                            </div>
                         </div>
                     </div>
 
-                    <div class="grid gap-2 rounded-lg border bg-muted/20 p-3 text-xs sm:grid-cols-3">
+                    <div class="grid gap-2 rounded-lg border bg-muted/20 p-3 text-xs sm:grid-cols-4">
                         <div>
                             <p class="text-muted-foreground">Title</p>
                             <p class="font-semibold text-foreground">{{ aiBrief.title || '-' }}</p>
@@ -1021,6 +1348,20 @@ const videoSourceIcon = (source: string): string => {
                         <div>
                             <p class="text-muted-foreground">Estimated Duration</p>
                             <p class="font-semibold text-foreground">{{ estimatedDurationSeconds ? Math.round(estimatedDurationSeconds / 60) + ' min' : '-' }}</p>
+                        </div>
+                        <div>
+                            <p class="text-muted-foreground">Slides Planned</p>
+                            <p class="font-semibold text-foreground">{{ aiSlidePlan.length || 0 }}</p>
+                        </div>
+                    </div>
+
+                    <div v-if="aiSlidePlan.length > 0" class="space-y-2 rounded-lg border border-border/70 bg-background p-3">
+                        <p class="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Auto Slide Plan Preview</p>
+                        <div class="max-h-44 space-y-2 overflow-auto pr-1">
+                            <div v-for="(slide, index) in aiSlidePlan.slice(0, 5)" :key="`${slide.title}-${index}`" class="rounded-md border border-border/60 bg-muted/20 p-2">
+                                <p class="text-xs font-semibold text-foreground">{{ index + 1 }}. {{ slide.title }}</p>
+                                <p class="mt-1 text-[11px] text-muted-foreground">{{ slide.bullets.slice(0, 2).join(' | ') }}</p>
+                            </div>
                         </div>
                     </div>
 
@@ -1039,6 +1380,7 @@ const videoSourceIcon = (source: string): string => {
                             {{ aiVideoUrl }}
                         </a>
                         <p class="text-xs text-muted-foreground">Provider: {{ aiVideoProvider || 'heygen' }}</p>
+                    </div>
                     </div>
                 </div>
 
@@ -1064,6 +1406,14 @@ const videoSourceIcon = (source: string): string => {
                         >
                             <Icon v-if="aiLoadingScript" icon="svg-spinners:3-dots-fade" class="mr-1 size-4" />
                             Generate Script
+                        </Button>
+                        <Button
+                            v-if="aiStep === 'brief'"
+                            type="button"
+                            variant="outline"
+                            @click="aiStep = 'script'"
+                        >
+                            Skip to Script (Temporary)
                         </Button>
 
                         <template v-else-if="aiStep === 'script'">
@@ -1097,11 +1447,11 @@ const videoSourceIcon = (source: string): string => {
                             </Button>
                             <Button
                                 type="button"
-                                :disabled="!aiVideoUrl || aiCreatingWebinar"
+                                :disabled="aiCreatingWebinar || (aiWebinarId === null && !aiCanGenerateVideo)"
                                 @click="createWebinarFromAi"
                             >
                                 <Icon v-if="aiCreatingWebinar" icon="svg-spinners:3-dots-fade" class="mr-1 size-4" />
-                                Create Webinar
+                                {{ aiVideoUrl ? 'Create Webinar' : (aiWebinarId ? 'Open Webinar Draft' : 'Save Webinar Draft') }}
                             </Button>
                         </template>
                     </div>

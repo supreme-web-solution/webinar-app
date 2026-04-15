@@ -40,6 +40,7 @@ Route::middleware(['auth', 'verified'])->group(function () {
         Route::delete('webinars/{webinar}/ai/sources/{source}', [WebinarAiKnowledgeController::class, 'destroy'])->name('webinars.ai.sources.delete');
         Route::post('webinars/{webinar}/ai/sources/delete-bulk', [WebinarAiKnowledgeController::class, 'bulkDestroy'])->name('webinars.ai.sources.delete.bulk');
         Route::post('webinars/ai/script', [WebinarAiStudioController::class, 'generateScript'])->name('webinars.ai.script');
+        Route::get('webinars/ai/options', [WebinarAiStudioController::class, 'options'])->name('webinars.ai.options');
         Route::post('webinars/ai/video', [WebinarAiStudioController::class, 'generateVideo'])->name('webinars.ai.video');
         Route::get('webinars/ai/video/status', [WebinarAiStudioController::class, 'videoStatus'])->name('webinars.ai.video.status');
         Route::post('webinars/ai/create', [WebinarAiStudioController::class, 'createWebinar'])->name('webinars.ai.create');

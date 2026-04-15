@@ -62,6 +62,7 @@ return [
     'openai' => [
         'api_key' => env('OPENAI_API_KEY'),
         'chat_model' => env('OPENAI_CHAT_MODEL', 'gpt-4o-mini'),
+        'tts_model' => env('OPENAI_TTS_MODEL', 'gpt-4o-mini-tts'),
         'embedding_model' => env('OPENAI_EMBEDDING_MODEL', 'text-embedding-3-small'),
         'transcription_model' => env('OPENAI_TRANSCRIPTION_MODEL', 'whisper-1'),
     ],

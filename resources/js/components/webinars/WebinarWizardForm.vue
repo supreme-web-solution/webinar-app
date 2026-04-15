@@ -1265,20 +1265,20 @@ const stepMeta: Array<{ icon: string; color: string }> = [
                 <div class="flex-1">
                     <p class="text-sm text-rose-800 dark:text-rose-300">{{ confirmToastMessage }}</p>
                     <div class="mt-3 flex items-center gap-2">
-                        <button
-                            type="button"
+                <button
+                    type="button"
                             class="inline-flex h-7 items-center rounded-lg bg-rose-600 px-3 text-xs font-semibold text-white hover:bg-rose-700"
-                            @click="continueConfirmToast"
-                        >
+                    @click="continueConfirmToast"
+                >
                             Confirm
-                        </button>
-                        <button
-                            type="button"
+                </button>
+                <button
+                    type="button"
                             class="inline-flex h-7 items-center rounded-lg border border-rose-200 bg-white px-3 text-xs font-medium text-rose-700 hover:bg-rose-50 dark:bg-transparent dark:text-rose-300"
-                            @click="cancelConfirmToast"
-                        >
-                            Cancel
-                        </button>
+                    @click="cancelConfirmToast"
+                >
+                    Cancel
+                </button>
                     </div>
                 </div>
             </div>
@@ -1478,8 +1478,8 @@ const stepMeta: Array<{ icon: string; color: string }> = [
                         </select>
                         <InputError :message="form.errors.scheduled_timezone" />
                     </div>
+                    </div>
                 </div>
-            </div>
             </div>
 
             <div v-if="activeStep === 1" class="rounded-2xl border border-border/60 bg-card shadow-sm overflow-hidden">
@@ -1557,7 +1557,7 @@ const stepMeta: Array<{ icon: string; color: string }> = [
                     </p>
                     <InputError :message="form.errors.video_duration_seconds" />
                 </div>
-            </div>
+                </div>
             </div>
 
             <div v-if="activeStep === 2" class="rounded-2xl border border-border/60 bg-card shadow-sm overflow-hidden">
@@ -1653,10 +1653,10 @@ const stepMeta: Array<{ icon: string; color: string }> = [
                                     {{ button.is_primary ? 'Primary' : 'Set Primary' }}
                                 </button>
                             </div>
+                            </div>
                         </div>
                     </div>
                 </div>
-            </div>
             </div>
 
             <div v-if="activeStep === 3" class="rounded-2xl border border-border/60 bg-card shadow-sm overflow-hidden">
@@ -1862,8 +1862,8 @@ const stepMeta: Array<{ icon: string; color: string }> = [
                             </tbody>
                         </table>
                     </div>
+                    </div>
                 </div>
-            </div>
             </div>
 
             <Dialog :open="apolloModalOpen" @update:open="apolloModalOpen = $event">
@@ -1995,7 +1995,7 @@ const stepMeta: Array<{ icon: string; color: string }> = [
                     </button>
                     <Label for="show_fake_viewers">Enable fake live viewer count</Label>
                 </div>
-            </div>
+                </div>
             </div>
 
             <div v-if="activeStep === 5" class="rounded-2xl border border-border/60 bg-card shadow-sm overflow-hidden">
@@ -2174,7 +2174,7 @@ const stepMeta: Array<{ icon: string; color: string }> = [
                         Add Offer
                     </Button>
                 </div>
-            </div>
+                </div>
             </div>
 
             <!-- ── Step 6: AI Assistant ── -->
@@ -2786,7 +2786,7 @@ const stepMeta: Array<{ icon: string; color: string }> = [
                         <span class="text-sm">Send follow-up email</span>
                     </label>
                 </div>
-            </div>
+                </div>
             </div>
 
             <div v-if="activeStep === 8" class="rounded-2xl border border-border/60 bg-card shadow-sm overflow-hidden">
