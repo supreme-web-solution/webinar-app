@@ -417,6 +417,11 @@ class WebinarAiStudioController extends Controller
                 'data.status',
                 'status',
             ]) ?? 'unknown'));
+            Log::info('webinar.ai.video.status.provider_payload', [
+                'user_id' => $request->user()?->id,
+                'video_id' => $payload['video_id'],
+                'provider_status' => $status,
+            ]);
 
             $videoUrl = $this->extractValue($statusJson, [
                 'data.video_url',
@@ -462,6 +467,8 @@ class WebinarAiStudioController extends Controller
             $composeState = Cache::get($this->composeStateCacheKey($payload['video_id']));
             $composeStatus = is_array($composeState) ? (string) ($composeState['status'] ?? '') : '';
             $composingLongForm = $composeStatus === 'processing';
+            $phase = $this->resolveVideoPhase($status, $composeStatus, $videoUrl);
+            $progressPercent = $this->resolveVideoProgressPercent($status, $composeStatus, $videoUrl);
 
             $cloudinaryUploaded = false;
 
@@ -489,6 +496,8 @@ class WebinarAiStudioController extends Controller
                 'has_video_url' => $videoUrl !== null,
                 'cloudinary_uploaded' => $cloudinaryUploaded,
                 'compose_status' => $composeStatus,
+                'phase' => $phase,
+                'progress_percent' => $progressPercent,
             ]);
 
             return response()->json([
@@ -498,6 +507,8 @@ class WebinarAiStudioController extends Controller
                 'cloudinary_uploaded' => $cloudinaryUploaded,
                 'composing_long_form' => $composingLongForm,
                 'compose_status' => $composeStatus,
+                'phase' => $phase,
+                'progress_percent' => $progressPercent,
             ]);
         } catch (\Throwable $e) {
             Log::warning('Webinar AI HeyGen status failed', [
@@ -992,6 +1003,9 @@ class WebinarAiStudioController extends Controller
         }
 
         Cache::put($stateKey, ['status' => 'processing'], now()->addHours(6));
+        Log::info('webinar.ai.video.compose.started', [
+            'video_id' => $videoId,
+        ]);
 
         try {
             $voice = trim((string) ($meta['openai_voice'] ?? 'alloy'));
@@ -1016,11 +1030,18 @@ class WebinarAiStudioController extends Controller
                     'status' => 'completed',
                     'video_url' => $mergedUrl,
                 ], now()->addHours(24));
+                Log::info('webinar.ai.video.compose.completed', [
+                    'video_id' => $videoId,
+                    'has_video_url' => true,
+                ]);
 
                 return $mergedUrl;
             }
 
             Cache::put($stateKey, ['status' => 'failed'], now()->addHours(2));
+            Log::warning('webinar.ai.video.compose.failed_without_url', [
+                'video_id' => $videoId,
+            ]);
             return $introVideoUrl;
         } catch (\Throwable $e) {
             Log::warning('webinar.ai.video.compose.failed', [
@@ -1063,6 +1084,10 @@ class WebinarAiStudioController extends Controller
             $remainingAudioBinary = $this->generateOpenAiNarrationAudioBinary($remainingScript, $voice);
             $remainingAudioPath = $workDir.'/remaining.mp3';
             File::put($remainingAudioPath, $remainingAudioBinary);
+            Log::info('webinar.ai.video.compose.remaining_audio_ready', [
+                'video_id' => $videoId,
+                'bytes' => File::size($remainingAudioPath),
+            ]);
 
             [$width, $height] = $this->resolveVideoDimensions($aspectRatio);
             $durationSeconds = max(20, (int) round((max(1, str_word_count($remainingScript)) / 130) * 60));
@@ -1157,6 +1182,11 @@ class WebinarAiStudioController extends Controller
                 );
             }
             $this->runShellCommand($slideCmd, 'Failed to render slide video.');
+            Log::info('webinar.ai.video.compose.slides_rendered', [
+                'video_id' => $videoId,
+                'slides_path' => $slidesPath,
+                'duration_seconds' => $durationSeconds,
+            ]);
 
             $mergedPath = $workDir.'/merged.mp4';
             $concatCmd = sprintf(
@@ -1170,6 +1200,10 @@ class WebinarAiStudioController extends Controller
                 escapeshellarg($mergedPath)
             );
             $this->runShellCommand($concatCmd, 'Failed to merge intro and slides video.');
+            Log::info('webinar.ai.video.compose.merge_completed', [
+                'video_id' => $videoId,
+                'merged_path' => $mergedPath,
+            ]);
 
             return $this->uploadLocalVideoFileToCloudinary($mergedPath, $videoId);
         } finally {
@@ -1493,6 +1527,56 @@ class WebinarAiStudioController extends Controller
         ]);
 
         return 'https://example.com/video-processing';
+    }
+
+    private function resolveVideoPhase(string $status, string $composeStatus, mixed $videoUrl): string
+    {
+        if ($composeStatus === 'failed' || $status === 'failed' || $status === 'error') {
+            return 'failed';
+        }
+
+        if (is_string($videoUrl) && trim($videoUrl) !== '' && $composeStatus !== 'processing') {
+            return 'completed';
+        }
+
+        if ($composeStatus === 'processing') {
+            return 'composing';
+        }
+
+        if ($status === 'waiting' || $status === 'pending') {
+            return 'queued';
+        }
+
+        if ($status === 'processing') {
+            return 'rendering_intro';
+        }
+
+        return 'unknown';
+    }
+
+    private function resolveVideoProgressPercent(string $status, string $composeStatus, mixed $videoUrl): int
+    {
+        if ($composeStatus === 'failed' || $status === 'failed' || $status === 'error') {
+            return 0;
+        }
+
+        if (is_string($videoUrl) && trim($videoUrl) !== '' && $composeStatus !== 'processing') {
+            return 100;
+        }
+
+        if ($composeStatus === 'processing') {
+            return 82;
+        }
+
+        if ($status === 'waiting' || $status === 'pending') {
+            return 12;
+        }
+
+        if ($status === 'processing') {
+            return 55;
+        }
+
+        return 20;
     }
 
     /**

@@ -75,6 +75,8 @@ const aiVideoUrl = ref<string | null>(null);
 const aiVideoProvider = ref<'heygen' | 'cloudinary' | null>(null);
 const aiWebinarId = ref<number | null>(null);
 const aiVideoMessage = ref<string | null>(null);
+const aiVideoPhase = ref<string>('idle');
+const aiVideoProgressPercent = ref(0);
 const aiLoadingScript = ref(false);
 const aiLoadingVideo = ref(false);
 const aiCreatingWebinar = ref(false);
@@ -246,6 +248,8 @@ const resetAiState = (): void => {
     aiVideoProvider.value = null;
     aiWebinarId.value = null;
     aiVideoMessage.value = null;
+    aiVideoPhase.value = 'idle';
+    aiVideoProgressPercent.value = 0;
     aiIntroScript.value = '';
     aiRemainingScript.value = '';
     aiSlidePlan.value = [];
@@ -570,8 +574,14 @@ const pollVideoStatus = async (): Promise<void> => {
         });
 
         if (!response.ok) {
-            aiVideoStatus.value = 'failed';
-            aiVideoMessage.value = await parseErrorMessage(response, 'Failed to read video status.');
+            aiStatusReadFailureCount.value += 1;
+            aiVideoStatus.value = 'processing';
+            aiVideoMessage.value = aiStatusReadFailureCount.value >= 4
+                ? 'Status API is slow, but generation may still be running. Retrying...'
+                : await parseErrorMessage(response, 'Temporary status read issue. Retrying...');
+            aiPollTimer = window.setTimeout(() => {
+                void pollVideoStatus();
+            }, 10000);
             return;
         }
 
@@ -581,9 +591,13 @@ const pollVideoStatus = async (): Promise<void> => {
             cloudinary_uploaded?: boolean;
             composing_long_form?: boolean;
             compose_status?: string;
+            phase?: string;
+            progress_percent?: number;
         };
 
         const normalized = String(payload.status || '').toLowerCase();
+        aiVideoPhase.value = String(payload.phase || '').toLowerCase() || normalized || 'processing';
+        aiVideoProgressPercent.value = Math.max(0, Math.min(100, Number(payload.progress_percent ?? aiVideoProgressPercent.value)));
         if (normalized === 'completed' || normalized === 'success') {
             aiVideoStatus.value = 'completed';
             aiVideoUrl.value = payload.video_url ?? null;
@@ -591,10 +605,15 @@ const pollVideoStatus = async (): Promise<void> => {
             aiStatusReadFailureCount.value = 0;
             if (payload.composing_long_form && !aiVideoUrl.value) {
                 aiVideoMessage.value = 'Composing full webinar video (intro + slides). This may take longer for long scripts...';
+                aiVideoProgressPercent.value = Math.max(aiVideoProgressPercent.value, 82);
             } else {
                 aiVideoMessage.value = aiVideoUrl.value
                     ? 'Video completed successfully.'
                     : 'Video is completed but URL is still unavailable. Check again shortly.';
+                if (aiVideoUrl.value) {
+                    aiVideoProgressPercent.value = 100;
+                    aiVideoPhase.value = 'completed';
+                }
             }
 
             if (aiVideoUrl.value) {
@@ -616,6 +635,8 @@ const pollVideoStatus = async (): Promise<void> => {
 
         if (normalized === 'failed' || normalized === 'error') {
             aiVideoStatus.value = 'failed';
+            aiVideoPhase.value = 'failed';
+            aiVideoProgressPercent.value = 0;
             aiVideoMessage.value = 'Video rendering failed on provider.';
             clearAiVideoRuntimeCache();
             void upsertAiWebinarDraft({
@@ -630,6 +651,11 @@ const pollVideoStatus = async (): Promise<void> => {
         aiVideoStatus.value = normalized === 'processing' ? 'processing' : 'pending';
         aiStatusReadFailureCount.value = 0;
         aiVideoMessage.value = 'Rendering in progress. Long scripts may take much longer. You can refresh and resume.';
+        if (aiVideoStatus.value === 'pending') {
+            aiVideoProgressPercent.value = Math.max(aiVideoProgressPercent.value, 12);
+        } else {
+            aiVideoProgressPercent.value = Math.max(aiVideoProgressPercent.value, 55);
+        }
 
         aiPollTimer = window.setTimeout(() => {
             void pollVideoStatus();
@@ -658,6 +684,8 @@ const generateVideo = async (): Promise<void> => {
 
     aiLoadingVideo.value = true;
     aiVideoStatus.value = 'requesting';
+    aiVideoPhase.value = 'queued';
+    aiVideoProgressPercent.value = 6;
     aiVideoMessage.value = 'Submitting video generation request...';
     aiVideoUrl.value = null;
     aiVideoProvider.value = null;
@@ -714,6 +742,8 @@ const generateVideo = async (): Promise<void> => {
         aiRemainingScript.value = payload.remaining_script ?? '';
         aiSlidePlan.value = Array.isArray(payload.slide_plan) ? payload.slide_plan : [];
         aiVideoStatus.value = 'pending';
+        aiVideoPhase.value = 'queued';
+        aiVideoProgressPercent.value = Math.max(aiVideoProgressPercent.value, 12);
         aiVideoMessage.value = 'Video request accepted. Polling status...';
         void upsertAiWebinarDraft({
             videoUrl: null,
@@ -918,6 +948,16 @@ const videoStatusClass = computed((): string => {
 
 const showVideoOverlay = computed((): boolean => {
     return ['requesting', 'pending', 'processing'].includes(aiVideoStatus.value);
+});
+
+const videoProgressLabel = computed((): string => {
+    const phase = aiVideoPhase.value;
+    if (phase === 'queued') return 'Queued';
+    if (phase === 'rendering_intro') return 'Rendering HeyGen intro';
+    if (phase === 'composing') return 'Composing slides and merge';
+    if (phase === 'completed') return 'Completed';
+    if (phase === 'failed') return 'Failed';
+    return 'Processing';
 });
 
 const activeVideoOverlayMessage = computed((): string => {
@@ -1257,6 +1297,18 @@ const videoSourceIcon = (source: string): string => {
                         </div>
                         <p class="text-sm font-semibold text-foreground">Rendering in progress</p>
                         <p class="mt-1 text-sm text-muted-foreground">{{ activeVideoOverlayMessage }}</p>
+                        <div class="mt-3">
+                            <div class="mb-1 flex items-center justify-between text-[11px] text-muted-foreground">
+                                <span>{{ videoProgressLabel }}</span>
+                                <span>{{ aiVideoProgressPercent }}%</span>
+                            </div>
+                            <div class="h-2 w-full overflow-hidden rounded-full bg-muted">
+                                <div
+                                    class="h-full rounded-full bg-primary transition-all duration-500"
+                                    :style="{ width: `${aiVideoProgressPercent}%` }"
+                                />
+                            </div>
+                        </div>
                         <p class="mt-2 text-xs text-muted-foreground">Long scripts can take much longer. You can safely refresh; generation will resume when you reopen this modal.</p>
                     </div>
                 </div>
@@ -1566,6 +1618,13 @@ const videoSourceIcon = (source: string): string => {
                         :class="videoStatusClass"
                     >
                         <p class="font-semibold capitalize">Status: {{ aiVideoStatus }}</p>
+                        <p class="mt-1 text-xs font-medium">Stage: {{ videoProgressLabel }} ({{ aiVideoProgressPercent }}%)</p>
+                        <div class="mt-1.5 h-1.5 w-full overflow-hidden rounded-full bg-background/70">
+                            <div
+                                class="h-full rounded-full bg-current transition-all duration-500"
+                                :style="{ width: `${aiVideoProgressPercent}%` }"
+                            />
+                        </div>
                         <p class="mt-1">{{ aiVideoMessage }}</p>
                     </div>
 
