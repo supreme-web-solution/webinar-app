@@ -1093,14 +1093,40 @@ class WebinarAiStudioController extends Controller
                 $height,
                 $durationSeconds
             );
-            $slideCmd = sprintf(
-                '%s -y -f lavfi -i %s -i %s -vf %s -c:v libx264 -pix_fmt yuv420p -c:a aac -shortest %s',
-                escapeshellarg($ffmpeg),
-                escapeshellarg($backgroundInput),
-                escapeshellarg($remainingAudioPath),
-                escapeshellarg($baseFilter),
-                escapeshellarg($slidesPath)
-            );
+            $backgroundImagePath = null;
+            $backgroundImageUrl = trim((string) ($slideStyle['background_image_url'] ?? ''));
+            if ($backgroundImageUrl !== '') {
+                try {
+                    $imgResponse = Http::timeout(45)->get($backgroundImageUrl);
+                    if ($imgResponse->successful()) {
+                        $backgroundImagePath = $workDir.'/slide-bg-image';
+                        File::put($backgroundImagePath, $imgResponse->body());
+                    }
+                } catch (\Throwable) {
+                    $backgroundImagePath = null;
+                }
+            }
+
+            if ($backgroundImagePath !== null) {
+                $imageFilter = sprintf('scale=%d:%d,%s', $width, $height, $baseFilter);
+                $slideCmd = sprintf(
+                    '%s -y -loop 1 -i %s -i %s -vf %s -c:v libx264 -pix_fmt yuv420p -c:a aac -shortest %s',
+                    escapeshellarg($ffmpeg),
+                    escapeshellarg($backgroundImagePath),
+                    escapeshellarg($remainingAudioPath),
+                    escapeshellarg($imageFilter),
+                    escapeshellarg($slidesPath)
+                );
+            } else {
+                $slideCmd = sprintf(
+                    '%s -y -f lavfi -i %s -i %s -vf %s -c:v libx264 -pix_fmt yuv420p -c:a aac -shortest %s',
+                    escapeshellarg($ffmpeg),
+                    escapeshellarg($backgroundInput),
+                    escapeshellarg($remainingAudioPath),
+                    escapeshellarg($baseFilter),
+                    escapeshellarg($slidesPath)
+                );
+            }
             $this->runShellCommand($slideCmd, 'Failed to render slide video.');
 
             $mergedPath = $workDir.'/merged.mp4';
