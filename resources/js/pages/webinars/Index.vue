@@ -48,7 +48,7 @@ type WebinarListItem = {
     updated_at: string | null;
 };
 
-defineProps<{
+const props = defineProps<{
     webinars: {
         data: WebinarListItem[];
     };
@@ -61,6 +61,11 @@ const breadcrumbs: BreadcrumbItem[] = [
 
 const toastMessage = ref<string | null>(null);
 const toastType = ref<'success' | 'info'>('success');
+const selectedWebinarIds = ref<number[]>([]);
+const allSelectedOnPage = computed<boolean>(() =>
+    props.webinars.data.length > 0
+    && props.webinars.data.every((webinar) => selectedWebinarIds.value.includes(webinar.id)),
+);
 
 type AiStep = 'brief' | 'script' | 'video';
 type AiVideoStatus = 'idle' | 'requesting' | 'pending' | 'processing' | 'completed' | 'failed';
@@ -1036,6 +1041,54 @@ const deleteWebinar = (webinarId: number, title: string): void => {
     router.delete(`/admin/webinars/${webinarId}`);
 };
 
+const toggleWebinarSelection = (webinarId: number, checked: boolean): void => {
+    if (checked) {
+        if (!selectedWebinarIds.value.includes(webinarId)) {
+            selectedWebinarIds.value.push(webinarId);
+        }
+        return;
+    }
+
+    selectedWebinarIds.value = selectedWebinarIds.value.filter((id) => id !== webinarId);
+};
+
+const toggleSelectAllOnPage = (checked: boolean): void => {
+    if (checked) {
+        selectedWebinarIds.value = props.webinars.data.map((webinar) => webinar.id);
+        return;
+    }
+
+    selectedWebinarIds.value = [];
+};
+
+const bulkDeleteWebinars = (): void => {
+    if (selectedWebinarIds.value.length === 0) {
+        showToast('Select at least one webinar to delete.', 'info');
+        return;
+    }
+
+    const ok = window.confirm(
+        `Delete ${selectedWebinarIds.value.length} selected webinar(s) and all related data?`,
+    );
+    if (!ok) return;
+
+    router.post('/admin/webinars/delete-bulk', {
+        webinar_ids: selectedWebinarIds.value,
+    }, {
+        preserveScroll: true,
+        onSuccess: () => {
+            selectedWebinarIds.value = [];
+        },
+    });
+};
+
+watch(
+    () => props.webinars.data.map((webinar) => webinar.id),
+    (currentIds) => {
+        selectedWebinarIds.value = selectedWebinarIds.value.filter((id) => currentIds.includes(id));
+    },
+);
+
 const videoSourceIcon = (source: string): string => {
     if (source === 'youtube') return 'solar:playback-speed-bold-duotone';
     if (source === 'vimeo') return 'solar:play-circle-bold-duotone';
@@ -1099,6 +1152,16 @@ const videoSourceIcon = (source: string): string => {
                         </CardDescription>
                     </div>
                     <div class="flex items-center gap-2">
+                        <Button
+                            variant="destructive"
+                            size="sm"
+                            class="h-7 gap-1.5 px-2.5 text-xs"
+                            :disabled="selectedWebinarIds.length === 0"
+                            @click="bulkDeleteWebinars"
+                        >
+                            <Icon icon="solar:trash-bin-2-linear" class="size-3.5" />
+                            Delete Selected ({{ selectedWebinarIds.length }})
+                        </Button>
                         <Button variant="outline" size="sm" class="h-7 gap-1.5 px-2.5 text-xs border-border/60">
                             <Icon icon="solar:filter-linear" class="size-3" />
                             Filter
@@ -1131,6 +1194,15 @@ const videoSourceIcon = (source: string): string => {
                 <table class="w-full text-sm">
                             <thead>
                                 <tr class="border-b border-border/50">
+                                    <th class="px-3 pb-2.5 pt-3 text-left text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+                                        <input
+                                            type="checkbox"
+                                            :checked="allSelectedOnPage"
+                                            :aria-label="allSelectedOnPage ? 'Unselect all webinars on this page' : 'Select all webinars on this page'"
+                                            class="h-4 w-4 rounded border-border"
+                                            @change="toggleSelectAllOnPage(($event.target as HTMLInputElement).checked)"
+                                        />
+                                    </th>
                                     <th class="px-5 pb-2.5 pt-3 text-left text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
                                         Webinar
                                     </th>
@@ -1157,6 +1229,15 @@ const videoSourceIcon = (source: string): string => {
                                     :key="webinar.id"
                                     class="border-b border-border/30 last:border-0 hover:bg-muted/30 transition-colors"
                                 >
+                                    <td class="px-3 py-3.5 align-middle">
+                                        <input
+                                            type="checkbox"
+                                            :checked="selectedWebinarIds.includes(webinar.id)"
+                                            :aria-label="`Select webinar ${webinar.title}`"
+                                            class="h-4 w-4 rounded border-border"
+                                            @change="toggleWebinarSelection(webinar.id, ($event.target as HTMLInputElement).checked)"
+                                        />
+                                    </td>
                                     <!-- Title + meta -->
                                     <td class="px-5 py-3.5 align-middle">
                                         <div class="flex items-start gap-3">

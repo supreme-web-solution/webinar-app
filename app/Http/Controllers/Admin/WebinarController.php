@@ -8,6 +8,7 @@ use App\Http\Requests\Webinar\UpdateWebinarRequest;
 use App\Models\Webinar;
 use App\Models\WebinarOffer;
 use App\Models\EmailUnsubscribe;
+use Illuminate\Http\Request;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Auth;
@@ -318,6 +319,50 @@ class WebinarController extends Controller
         return redirect()
             ->route('admin.webinars.index')
             ->with('success', 'Webinar deleted (including attendees, chats, and tracking).');
+    }
+
+    public function bulkDestroy(Request $request): RedirectResponse
+    {
+        $payload = $request->validate([
+            'webinar_ids' => ['required', 'array', 'min:1'],
+            'webinar_ids.*' => ['integer', 'distinct'],
+        ]);
+
+        $ids = collect($payload['webinar_ids'])
+            ->map(fn (mixed $id): int => (int) $id)
+            ->filter(fn (int $id): bool => $id > 0)
+            ->values()
+            ->all();
+
+        if ($ids === []) {
+            return back()->with('error', 'No webinars selected for deletion.');
+        }
+
+        DB::transaction(function () use ($ids): void {
+            $webinars = Webinar::query()
+                ->where('user_id', Auth::id())
+                ->whereIn('id', $ids)
+                ->get(['id']);
+
+            if ($webinars->isEmpty()) {
+                return;
+            }
+
+            $webinarIds = $webinars->pluck('id')->all();
+
+            EmailUnsubscribe::query()
+                ->whereIn('webinar_id', $webinarIds)
+                ->delete();
+
+            Webinar::query()
+                ->where('user_id', Auth::id())
+                ->whereIn('id', $webinarIds)
+                ->delete();
+        });
+
+        return redirect()
+            ->route('admin.webinars.index')
+            ->with('success', 'Selected webinars deleted (including attendees, chats, and tracking).');
     }
 
     /**

@@ -23,6 +23,7 @@ Route::middleware(['auth', 'verified'])->group(function () {
     Route::prefix('admin')->name('admin.')->group(function () {
         // Keep show disabled, but enable destroy so hosts can remove a webinar + all related data.
         Route::resource('webinars', WebinarController::class)->except(['show']);
+        Route::post('webinars/delete-bulk', [WebinarController::class, 'bulkDestroy'])->name('webinars.bulk-destroy');
         Route::post('webinars/{webinar}/attendees/import', [WebinarAttendeeController::class, 'importCsv'])->name('webinars.attendees.import');
         Route::post('webinars/{webinar}/attendees/apollo-preview', [WebinarAttendeeController::class, 'previewFromApollo'])->name('webinars.attendees.apollo.preview');
         Route::post('webinars/{webinar}/attendees/apollo-fetch', [WebinarAttendeeController::class, 'fetchFromApollo'])->name('webinars.attendees.apollo.fetch');
