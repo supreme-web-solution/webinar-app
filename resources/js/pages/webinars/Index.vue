@@ -76,6 +76,7 @@ const aiVideoProvider = ref<'heygen' | 'cloudinary' | null>(null);
 const aiWebinarId = ref<number | null>(null);
 const aiVideoMessage = ref<string | null>(null);
 const aiVideoPhase = ref<string>('idle');
+const aiComposeStage = ref<string>('');
 const aiVideoProgressPercent = ref(0);
 const aiLoadingScript = ref(false);
 const aiLoadingVideo = ref(false);
@@ -249,6 +250,7 @@ const resetAiState = (): void => {
     aiWebinarId.value = null;
     aiVideoMessage.value = null;
     aiVideoPhase.value = 'idle';
+    aiComposeStage.value = '';
     aiVideoProgressPercent.value = 0;
     aiIntroScript.value = '';
     aiRemainingScript.value = '';
@@ -591,12 +593,14 @@ const pollVideoStatus = async (): Promise<void> => {
             cloudinary_uploaded?: boolean;
             composing_long_form?: boolean;
             compose_status?: string;
+            compose_stage?: string;
             phase?: string;
             progress_percent?: number;
         };
 
         const normalized = String(payload.status || '').toLowerCase();
         aiVideoPhase.value = String(payload.phase || '').toLowerCase() || normalized || 'processing';
+        aiComposeStage.value = String(payload.compose_stage || '').toLowerCase();
         aiVideoProgressPercent.value = Math.max(0, Math.min(100, Number(payload.progress_percent ?? aiVideoProgressPercent.value)));
         if (normalized === 'completed' || normalized === 'success') {
             aiVideoStatus.value = 'completed';
@@ -954,7 +958,15 @@ const videoProgressLabel = computed((): string => {
     const phase = aiVideoPhase.value;
     if (phase === 'queued') return 'Queued';
     if (phase === 'rendering_intro') return 'Rendering HeyGen intro';
-    if (phase === 'composing') return 'Composing slides and merge';
+    if (phase === 'composing') {
+        if (aiComposeStage.value === 'queued') return 'Compose queued';
+        if (aiComposeStage.value === 'composing') return 'Preparing long-form compose';
+        if (aiComposeStage.value === 'generating_images') return 'Generating slide images';
+        if (aiComposeStage.value === 'rendering_slides') return 'Rendering slide video';
+        if (aiComposeStage.value === 'merging') return 'Merging intro and slides';
+        if (aiComposeStage.value === 'uploading') return 'Uploading final video';
+        return 'Composing slides and merge';
+    }
     if (phase === 'completed') return 'Completed';
     if (phase === 'failed') return 'Failed';
     return 'Processing';

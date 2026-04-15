@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Admin;
 
 use App\Http\Controllers\Controller;
+use App\Jobs\ComposeWebinarAiVideoJob;
 use App\Models\Webinar;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Client\Response;
@@ -458,7 +459,7 @@ class WebinarAiStudioController extends Controller
             }
 
             if (($status === 'completed' || $status === 'success') && is_string($videoUrl) && trim($videoUrl) !== '') {
-                $composed = $this->resolveOrComposeLongFormVideo($payload['video_id'], $videoUrl);
+                $composed = $this->resolveOrQueueLongFormVideoCompose($payload['video_id'], $videoUrl);
                 if (is_string($composed) && trim($composed) !== '') {
                     $videoUrl = $composed;
                 }
@@ -466,9 +467,10 @@ class WebinarAiStudioController extends Controller
 
             $composeState = Cache::get($this->composeStateCacheKey($payload['video_id']));
             $composeStatus = is_array($composeState) ? (string) ($composeState['status'] ?? '') : '';
+            $composeStage = is_array($composeState) ? (string) ($composeState['stage'] ?? '') : '';
             $composingLongForm = $composeStatus === 'processing';
             $phase = $this->resolveVideoPhase($status, $composeStatus, $videoUrl);
-            $progressPercent = $this->resolveVideoProgressPercent($status, $composeStatus, $videoUrl);
+            $progressPercent = $this->resolveVideoProgressPercent($status, $composeStatus, $composeStage, $videoUrl);
 
             $cloudinaryUploaded = false;
 
@@ -496,6 +498,7 @@ class WebinarAiStudioController extends Controller
                 'has_video_url' => $videoUrl !== null,
                 'cloudinary_uploaded' => $cloudinaryUploaded,
                 'compose_status' => $composeStatus,
+                'compose_stage' => $composeStage,
                 'phase' => $phase,
                 'progress_percent' => $progressPercent,
             ]);
@@ -507,6 +510,7 @@ class WebinarAiStudioController extends Controller
                 'cloudinary_uploaded' => $cloudinaryUploaded,
                 'composing_long_form' => $composingLongForm,
                 'compose_status' => $composeStatus,
+                'compose_stage' => $composeStage,
                 'phase' => $phase,
                 'progress_percent' => $progressPercent,
             ]);
@@ -980,7 +984,7 @@ class WebinarAiStudioController extends Controller
         return is_string($secureUrl) && $secureUrl !== '' ? $secureUrl : null;
     }
 
-    private function resolveOrComposeLongFormVideo(string $videoId, string $introVideoUrl): ?string
+    private function resolveOrQueueLongFormVideoCompose(string $videoId, string $introVideoUrl): ?string
     {
         $stateKey = $this->composeStateCacheKey($videoId);
         $state = Cache::get($stateKey);
@@ -1002,10 +1006,35 @@ class WebinarAiStudioController extends Controller
             return $introVideoUrl;
         }
 
-        Cache::put($stateKey, ['status' => 'processing'], now()->addHours(6));
+        Cache::put($stateKey, ['status' => 'processing', 'stage' => 'queued'], now()->addHours(6));
         Log::info('webinar.ai.video.compose.started', [
             'video_id' => $videoId,
+            'mode' => 'after_response_job',
         ]);
+
+        ComposeWebinarAiVideoJob::dispatch($videoId, $introVideoUrl)->afterResponse();
+
+        return null;
+    }
+
+    public function runQueuedLongFormCompose(string $videoId, string $introVideoUrl): void
+    {
+        $stateKey = $this->composeStateCacheKey($videoId);
+        $meta = Cache::get($this->composeMetaCacheKey($videoId));
+        if (! is_array($meta)) {
+            Cache::put($stateKey, ['status' => 'failed', 'stage' => 'missing_meta'], now()->addHours(2));
+            return;
+        }
+
+        $remainingScript = trim((string) ($meta['remaining_script'] ?? ''));
+        if ($remainingScript === '') {
+            Cache::put($stateKey, [
+                'status' => 'completed',
+                'stage' => 'no_remaining_script',
+                'video_url' => $introVideoUrl,
+            ], now()->addHours(24));
+            return;
+        }
 
         try {
             $voice = trim((string) ($meta['openai_voice'] ?? 'alloy'));
@@ -1013,6 +1042,7 @@ class WebinarAiStudioController extends Controller
             $aspectRatio = (string) ($meta['aspect_ratio'] ?? '16:9');
             $title = (string) ($meta['title'] ?? 'Webinar');
             $slideStyle = $this->normalizeSlideStyle($meta['slide_style'] ?? null);
+            Cache::put($stateKey, ['status' => 'processing', 'stage' => 'composing'], now()->addHours(6));
 
             $mergedUrl = $this->composeLongFormVideoFromIntroAndSlides(
                 $videoId,
@@ -1028,6 +1058,7 @@ class WebinarAiStudioController extends Controller
             if ($mergedUrl !== null) {
                 Cache::put($stateKey, [
                     'status' => 'completed',
+                    'stage' => 'done',
                     'video_url' => $mergedUrl,
                 ], now()->addHours(24));
                 Log::info('webinar.ai.video.compose.completed', [
@@ -1035,22 +1066,19 @@ class WebinarAiStudioController extends Controller
                     'has_video_url' => true,
                 ]);
 
-                return $mergedUrl;
+                return;
             }
 
-            Cache::put($stateKey, ['status' => 'failed'], now()->addHours(2));
+            Cache::put($stateKey, ['status' => 'failed', 'stage' => 'no_merged_url'], now()->addHours(2));
             Log::warning('webinar.ai.video.compose.failed_without_url', [
                 'video_id' => $videoId,
             ]);
-            return $introVideoUrl;
         } catch (\Throwable $e) {
             Log::warning('webinar.ai.video.compose.failed', [
                 'video_id' => $videoId,
                 'message' => $e->getMessage(),
             ]);
-            Cache::put($stateKey, ['status' => 'failed'], now()->addHours(2));
-
-            return $introVideoUrl;
+            Cache::put($stateKey, ['status' => 'failed', 'stage' => 'exception'], now()->addHours(2));
         }
     }
 
@@ -1136,6 +1164,7 @@ class WebinarAiStudioController extends Controller
 
             $generatedSlideImages = [];
             if ((bool) ($slideStyle['generate_images'] ?? false)) {
+                Cache::put($this->composeStateCacheKey($videoId), ['status' => 'processing', 'stage' => 'generating_images'], now()->addHours(6));
                 $generatedSlideImages = $this->generateSlideImagesForPlan(
                     $slidePlan,
                     $title,
@@ -1181,6 +1210,14 @@ class WebinarAiStudioController extends Controller
                     escapeshellarg($slidesPath)
                 );
             }
+            Cache::put(
+                $this->composeStateCacheKey($videoId),
+                [
+                    'status' => 'processing',
+                    'stage' => 'rendering_slides',
+                ],
+                now()->addHours(6)
+            );
             $this->runShellCommand($slideCmd, 'Failed to render slide video.');
             Log::info('webinar.ai.video.compose.slides_rendered', [
                 'video_id' => $videoId,
@@ -1199,12 +1236,28 @@ class WebinarAiStudioController extends Controller
                 escapeshellarg('[a]'),
                 escapeshellarg($mergedPath)
             );
+            Cache::put(
+                $this->composeStateCacheKey($videoId),
+                [
+                    'status' => 'processing',
+                    'stage' => 'merging',
+                ],
+                now()->addHours(6)
+            );
             $this->runShellCommand($concatCmd, 'Failed to merge intro and slides video.');
             Log::info('webinar.ai.video.compose.merge_completed', [
                 'video_id' => $videoId,
                 'merged_path' => $mergedPath,
             ]);
 
+            Cache::put(
+                $this->composeStateCacheKey($videoId),
+                [
+                    'status' => 'processing',
+                    'stage' => 'uploading',
+                ],
+                now()->addHours(6)
+            );
             return $this->uploadLocalVideoFileToCloudinary($mergedPath, $videoId);
         } finally {
             File::deleteDirectory($workDir);
@@ -1554,7 +1607,7 @@ class WebinarAiStudioController extends Controller
         return 'unknown';
     }
 
-    private function resolveVideoProgressPercent(string $status, string $composeStatus, mixed $videoUrl): int
+    private function resolveVideoProgressPercent(string $status, string $composeStatus, string $composeStage, mixed $videoUrl): int
     {
         if ($composeStatus === 'failed' || $status === 'failed' || $status === 'error') {
             return 0;
@@ -1565,7 +1618,15 @@ class WebinarAiStudioController extends Controller
         }
 
         if ($composeStatus === 'processing') {
-            return 82;
+            return match ($composeStage) {
+                'queued' => 60,
+                'composing' => 66,
+                'generating_images' => 74,
+                'rendering_slides' => 84,
+                'merging' => 92,
+                'uploading' => 96,
+                default => 82,
+            };
         }
 
         if ($status === 'waiting' || $status === 'pending') {
