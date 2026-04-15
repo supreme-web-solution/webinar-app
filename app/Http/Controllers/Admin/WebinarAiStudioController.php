@@ -712,13 +712,18 @@ class WebinarAiStudioController extends Controller
             }
 
             $timestamp = time();
-
-            $signatureBase = "timestamp={$timestamp}";
+            $signParams = [
+                'overwrite' => 'true',
+                'public_id' => 'webinar-'.$videoId,
+                'timestamp' => (string) $timestamp,
+            ];
             if ($folder !== '') {
-                $signatureBase = "folder={$folder}&{$signatureBase}";
+                $signParams['folder'] = $folder;
             }
-
-            $signature = sha1($signatureBase.$apiSecret);
+            if ($notificationUrl !== '') {
+                $signParams['notification_url'] = $notificationUrl;
+            }
+            $signature = $this->cloudinarySignature($signParams, $apiSecret);
 
             $multipart[] = [
                 'name' => 'api_key',
@@ -748,11 +753,18 @@ class WebinarAiStudioController extends Controller
             && str_contains(strtolower((string) $response->body()), 'upload preset not found')
         ) {
             $timestamp = time();
-            $signatureBase = "timestamp={$timestamp}";
+            $signParams = [
+                'overwrite' => 'true',
+                'public_id' => 'webinar-'.$videoId,
+                'timestamp' => (string) $timestamp,
+            ];
             if ($folder !== '') {
-                $signatureBase = "folder={$folder}&{$signatureBase}";
+                $signParams['folder'] = $folder;
             }
-            $signature = sha1($signatureBase.$apiSecret);
+            if ($notificationUrl !== '') {
+                $signParams['notification_url'] = $notificationUrl;
+            }
+            $signature = $this->cloudinarySignature($signParams, $apiSecret);
 
             $multipart = array_values(array_filter($multipart, fn (array $item): bool => ($item['name'] ?? '') !== 'upload_preset'));
             $multipart[] = ['name' => 'api_key', 'contents' => $apiKey];
@@ -874,11 +886,15 @@ class WebinarAiStudioController extends Controller
             }
 
             $timestamp = time();
-            $signatureBase = "timestamp={$timestamp}";
+            $signParams = [
+                'overwrite' => 'true',
+                'public_id' => $publicId,
+                'timestamp' => (string) $timestamp,
+            ];
             if ($uploadFolder !== '') {
-                $signatureBase = "folder={$uploadFolder}&{$signatureBase}";
+                $signParams['folder'] = $uploadFolder;
             }
-            $signature = sha1($signatureBase.$apiSecret);
+            $signature = $this->cloudinarySignature($signParams, $apiSecret);
 
             $multipart[] = [
                 'name' => 'api_key',
@@ -905,11 +921,15 @@ class WebinarAiStudioController extends Controller
             && str_contains(strtolower((string) $response->body()), 'upload preset not found')
         ) {
             $timestamp = time();
-            $signatureBase = "timestamp={$timestamp}";
+            $signParams = [
+                'overwrite' => 'true',
+                'public_id' => $publicId,
+                'timestamp' => (string) $timestamp,
+            ];
             if ($uploadFolder !== '') {
-                $signatureBase = "folder={$uploadFolder}&{$signatureBase}";
+                $signParams['folder'] = $uploadFolder;
             }
-            $signature = sha1($signatureBase.$apiSecret);
+            $signature = $this->cloudinarySignature($signParams, $apiSecret);
 
             $multipart = array_values(array_filter($multipart, fn (array $item): bool => ($item['name'] ?? '') !== 'upload_preset'));
             $multipart[] = ['name' => 'api_key', 'contents' => $apiKey];
@@ -1255,11 +1275,15 @@ class WebinarAiStudioController extends Controller
                 return null;
             }
             $timestamp = time();
-            $signatureBase = "timestamp={$timestamp}";
+            $signParams = [
+                'overwrite' => 'true',
+                'public_id' => 'webinar-'.$videoId.'-merged',
+                'timestamp' => (string) $timestamp,
+            ];
             if ($folder !== '') {
-                $signatureBase = 'folder='.$folder.'/merged&'.$signatureBase;
+                $signParams['folder'] = $folder.'/merged';
             }
-            $signature = sha1($signatureBase.$apiSecret);
+            $signature = $this->cloudinarySignature($signParams, $apiSecret);
             $multipart[] = ['name' => 'api_key', 'contents' => $apiKey];
             $multipart[] = ['name' => 'timestamp', 'contents' => (string) $timestamp];
             $multipart[] = ['name' => 'signature', 'contents' => $signature];
@@ -1274,11 +1298,15 @@ class WebinarAiStudioController extends Controller
             && str_contains(strtolower((string) $response->body()), 'upload preset not found')
         ) {
             $timestamp = time();
-            $signatureBase = "timestamp={$timestamp}";
+            $signParams = [
+                'overwrite' => 'true',
+                'public_id' => 'webinar-'.$videoId.'-merged',
+                'timestamp' => (string) $timestamp,
+            ];
             if ($folder !== '') {
-                $signatureBase = 'folder='.$folder.'/merged&'.$signatureBase;
+                $signParams['folder'] = $folder.'/merged';
             }
-            $signature = sha1($signatureBase.$apiSecret);
+            $signature = $this->cloudinarySignature($signParams, $apiSecret);
 
             $multipart = array_values(array_filter($multipart, fn (array $item): bool => ($item['name'] ?? '') !== 'upload_preset'));
             $multipart[] = ['name' => 'api_key', 'contents' => $apiKey];
@@ -1321,6 +1349,23 @@ class WebinarAiStudioController extends Controller
             'vimeo' => 'vimeo',
             default => 'direct',
         };
+    }
+
+    /**
+     * @param array<string, string> $params
+     */
+    private function cloudinarySignature(array $params, string $apiSecret): string
+    {
+        ksort($params);
+        $pairs = [];
+        foreach ($params as $key => $value) {
+            if ($value === '') {
+                continue;
+            }
+            $pairs[] = $key.'='.$value;
+        }
+
+        return sha1(implode('&', $pairs).$apiSecret);
     }
 
     /**
