@@ -526,6 +526,11 @@ class WebinarAiStudioController extends Controller
         ]);
 
         $videoUrl = (string) ($payload['video_url'] ?? 'https://example.com/video-processing');
+        $safeVideoUrl = $this->normalizePersistedVideoUrl(
+            $videoUrl,
+            (string) ($payload['heygen_video_id'] ?? ''),
+            $request->user()?->id
+        );
         $persistedVideoSource = $this->resolvePersistedVideoSource((string) ($payload['source'] ?? 'direct'));
 
         $aiSettings = [
@@ -566,7 +571,7 @@ class WebinarAiStudioController extends Controller
             ];
 
             if (! empty($payload['video_url'])) {
-                $update['video_url'] = $videoUrl;
+                $update['video_url'] = $safeVideoUrl;
                 $update['video_source'] = $persistedVideoSource;
                 $update['video_duration_seconds'] = $payload['video_duration_seconds'] ?? $webinar->video_duration_seconds;
             }
@@ -583,7 +588,7 @@ class WebinarAiStudioController extends Controller
                 'scheduled_at' => Carbon::now()->addDay(),
                 'scheduled_timezone' => config('app.timezone', 'UTC'),
                 'video_source' => $persistedVideoSource,
-                'video_url' => $videoUrl,
+                'video_url' => $safeVideoUrl,
                 'video_duration_seconds' => $payload['video_duration_seconds'] ?? null,
                 'thumbnail_path' => null,
                 'min_viewers' => 80,
@@ -1054,8 +1059,7 @@ class WebinarAiStudioController extends Controller
             $ffmpeg = (string) env('FFMPEG_BIN', 'ffmpeg');
             $assArg = str_replace('\\', '/', $assPath);
             $baseFilter = sprintf(
-                "drawbox=x=0:y=h-16:w='(t/%d)*w':h=16:color=0x6366f1@0.95:t=fill,drawbox=x=0:y=0:w=w:h=h:color=0x0b1020@0.22:t=fill,ass='%s'",
-                max(1, $durationSeconds),
+                "drawbox=x=0:y=h-16:w=w:h=16:color=0x6366f1@0.95:t=fill,drawbox=x=0:y=0:w=w:h=h:color=0x0b1020@0.22:t=fill,ass='%s'",
                 $assArg
             );
             $slideCmd = sprintf(
@@ -1349,6 +1353,31 @@ class WebinarAiStudioController extends Controller
             'vimeo' => 'vimeo',
             default => 'direct',
         };
+    }
+
+    private function normalizePersistedVideoUrl(string $url, string $videoId, ?int $userId = null): string
+    {
+        $trimmed = trim($url);
+        if ($trimmed === '') {
+            return 'https://example.com/video-processing';
+        }
+
+        if (mb_strlen($trimmed) <= 255) {
+            return $trimmed;
+        }
+
+        $fallbackId = $videoId !== '' ? $videoId : 'pending-'.time();
+        $shortened = $this->uploadToCloudinary($trimmed, $fallbackId);
+        if ($shortened !== null && mb_strlen($shortened) <= 255) {
+            return $shortened;
+        }
+
+        Log::warning('webinar.ai.video_url.too_long_fallback', [
+            'user_id' => $userId,
+            'original_length' => mb_strlen($trimmed),
+        ]);
+
+        return 'https://example.com/video-processing';
     }
 
     /**
