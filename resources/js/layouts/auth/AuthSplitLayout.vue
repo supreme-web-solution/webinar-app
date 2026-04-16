@@ -14,7 +14,7 @@ defineProps<{
 const features = [
     {
         icon: 'solar:monitor-camera-bold-duotone',
-        title: 'Live & automated webinars',
+        title: 'Automated webinars',
         desc: 'Host real-time sessions or run fully automated evergreen funnels.',
     },
     {

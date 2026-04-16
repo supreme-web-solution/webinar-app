@@ -116,27 +116,6 @@ defineProps<{
                 Sign in
             </Button>
 
-            <!-- Divider -->
-            <div class="relative">
-                <div class="absolute inset-0 flex items-center">
-                    <div class="w-full border-t border-border" />
-                </div>
-                <div class="relative flex justify-center text-xs uppercase">
-                    <span class="bg-background px-2 text-muted-foreground tracking-wider">New here?</span>
-                </div>
-            </div>
-
-            <!-- Register link -->
-            <div v-if="canRegister" class="text-center text-sm">
-                <span class="text-muted-foreground">Don't have an account? </span>
-                <TextLink
-                    :href="register()"
-                    class="font-semibold text-primary hover:text-primary/80 transition-colors"
-                    :tabindex="6"
-                >
-                    Create one free
-                </TextLink>
-            </div>
         </Form>
     </AuthBase>
 </template>
