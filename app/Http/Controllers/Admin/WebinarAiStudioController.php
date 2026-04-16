@@ -1059,6 +1059,10 @@ class WebinarAiStudioController extends Controller
             return null;
         }
 
+        if (is_array($state) && ($state['status'] ?? null) === 'failed') {
+            return null;
+        }
+
         $meta = Cache::get($this->composeMetaCacheKey($videoId));
         if (! is_array($meta)) {
             return $introVideoUrl;
@@ -1278,6 +1282,7 @@ class WebinarAiStudioController extends Controller
             if ((bool) ($slideStyle['generate_images'] ?? false)) {
                 Cache::put($this->composeStateCacheKey($videoId), ['status' => 'processing', 'stage' => 'generating_images'], now()->addHours(6));
                 $generatedSlideImages = $this->generateSlideImagesForPlan(
+                    $videoId,
                     $slidePlan,
                     $title,
                     $workDir,
@@ -1843,6 +1848,7 @@ class WebinarAiStudioController extends Controller
      * @return array<int, string>
      */
     private function generateSlideImagesForPlan(
+        string $videoId,
         array $slidePlan,
         string $title,
         string $workDir,
