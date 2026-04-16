@@ -8,7 +8,7 @@ use App\Http\Controllers\Controller;
 use App\Models\EmailUnsubscribe;
 use App\Models\Webinar;
 use App\Models\WebinarRegistrant;
-use App\Services\Apollo\ApolloLeadService;
+use App\Services\Leads\LeadProviderManager;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -21,7 +21,7 @@ use PhpOffice\PhpSpreadsheet\IOFactory;
 
 class WebinarAttendeeController extends Controller
 {
-    public function previewFromApollo(Request $request, Webinar $webinar, ApolloLeadService $apolloLeadService): JsonResponse
+    public function previewFromApollo(Request $request, Webinar $webinar, LeadProviderManager $leadProviderManager): JsonResponse
     {
         abort_unless($webinar->user_id === Auth::id(), 403);
 
@@ -45,7 +45,7 @@ class WebinarAttendeeController extends Controller
         $previewCount = min($requestedCount, $configuredMax, 25);
 
         try {
-            $contacts = $apolloLeadService->searchContacts([
+            $contacts = $leadProviderManager->searchContacts([
                 'job_title' => $jobTitle,
                 'industry' => $industry,
                 'location' => $location,
@@ -53,13 +53,14 @@ class WebinarAttendeeController extends Controller
                 'keyword' => $keyword,
             ], $previewCount);
         } catch (\Throwable $e) {
-            Log::warning('apollo.preview.failed', [
+            Log::warning('lead.preview.failed', [
                 'webinar_id' => $webinar->id,
+                'provider' => $leadProviderManager->providerKey(),
                 'message' => $e->getMessage(),
             ]);
 
             return response()->json([
-                'message' => 'Apollo preview failed: '.$e->getMessage(),
+                'message' => strtoupper($leadProviderManager->providerKey()).' preview failed: '.$e->getMessage(),
             ], 502);
         }
 
@@ -69,10 +70,11 @@ class WebinarAttendeeController extends Controller
             'preview_limit' => $previewCount,
             'requested_count' => $requestedCount,
             'configured_max' => $configuredMax,
+            'provider' => $leadProviderManager->providerKey(),
         ]);
     }
 
-    public function fetchFromApollo(Request $request, Webinar $webinar, ApolloLeadService $apolloLeadService): RedirectResponse
+    public function fetchFromApollo(Request $request, Webinar $webinar, LeadProviderManager $leadProviderManager): RedirectResponse
     {
         abort_unless($webinar->user_id === Auth::id(), 403);
 
@@ -101,21 +103,23 @@ class WebinarAttendeeController extends Controller
             'company_size' => $companySize,
             'keyword' => $keyword,
         ];
+        $provider = strtoupper($leadProviderManager->providerKey());
 
         // Fail fast on billing/auth issues before dispatching a background job.
         try {
-            $apolloLeadService->searchContacts($filters, 1);
+            $leadProviderManager->searchContacts($filters, 1);
         } catch (\Throwable $e) {
             $rawMessage = (string) $e->getMessage();
             $normalized = strtolower($rawMessage);
-            $uiMessage = 'Apollo fetch failed before queueing: '.$rawMessage;
+            $uiMessage = $provider.' fetch failed before queueing: '.$rawMessage;
 
             if (str_contains($normalized, 'issue with your payment')) {
-                $uiMessage = 'Apollo account is currently blocked by billing status (provider response: issue with your payment). Please fix billing in Apollo, then try again.';
+                $uiMessage = $provider.' account is currently blocked by billing status (provider response: issue with your payment). Please fix billing, then try again.';
             }
 
-            Log::warning('apollo.fetch.preflight.failed', [
+            Log::warning('lead.fetch.preflight.failed', [
                 'webinar_id' => $webinar->id,
+                'provider' => $leadProviderManager->providerKey(),
                 'message' => $rawMessage,
             ]);
 
@@ -132,8 +136,9 @@ class WebinarAttendeeController extends Controller
         )->onQueue((string) config('services.queues.apollo_fetch', 'apollo-fetch'));
 
         return back()->with('success', sprintf(
-            'Apollo import queued for up to %d contacts. Attendees and emails will be processed in the background.',
-            $fetchCount
+            '%s import queued for up to %d contacts. Attendees and emails will be processed in the background.',
+            $provider,
+            $fetchCount,
         ));
     }
 

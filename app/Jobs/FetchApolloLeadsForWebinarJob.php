@@ -4,7 +4,7 @@ namespace App\Jobs;
 
 use App\Models\Webinar;
 use App\Models\WebinarRegistrant;
-use App\Services\Apollo\ApolloLeadService;
+use App\Services\Leads\LeadProviderManager;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
@@ -33,7 +33,7 @@ class FetchApolloLeadsForWebinarJob implements ShouldQueue
         $this->onQueue((string) config('services.queues.apollo_fetch', 'apollo-fetch'));
     }
 
-    public function handle(ApolloLeadService $apolloLeadService): void
+    public function handle(LeadProviderManager $leadProviderManager): void
     {
         $webinar = Webinar::query()->find($this->webinarId);
         if (! $webinar || (int) $webinar->user_id !== $this->userId) {
@@ -43,11 +43,14 @@ class FetchApolloLeadsForWebinarJob implements ShouldQueue
         $configuredMax = max(1, (int) config('services.apollo.max_fetch', 250));
         $fetchCount = min($this->requestedCount, $configuredMax);
 
+        $provider = $leadProviderManager->providerKey();
+
         try {
-            $contacts = $apolloLeadService->searchContacts($this->filters, $fetchCount);
+            $contacts = $leadProviderManager->searchContacts($this->filters, $fetchCount);
         } catch (\Throwable $exception) {
-            Log::warning('apollo.fetch.job.failed', [
+            Log::warning('lead.fetch.job.failed', [
                 'webinar_id' => $this->webinarId,
+                'provider' => $provider,
                 'requested_count' => $this->requestedCount,
                 'effective_fetch_count' => $fetchCount,
                 'message' => $exception->getMessage(),
@@ -57,8 +60,9 @@ class FetchApolloLeadsForWebinarJob implements ShouldQueue
         }
 
         if ($contacts === []) {
-            Log::info('apollo.fetch.job.no_contacts', [
+            Log::info('lead.fetch.job.no_contacts', [
                 'webinar_id' => $this->webinarId,
+                'provider' => $provider,
                 'requested' => $this->requestedCount,
                 'configured_max' => $configuredMax,
             ]);
@@ -185,8 +189,9 @@ class FetchApolloLeadsForWebinarJob implements ShouldQueue
                 ->delay(now()->addSeconds($delaySeconds));
         }
 
-        Log::info('apollo.fetch.job.completed', [
+        Log::info('lead.fetch.job.completed', [
             'webinar_id' => $webinar->id,
+            'provider' => $provider,
             'requested_count' => $this->requestedCount,
             'effective_fetch_count' => $fetchCount,
             'registered' => count($upsertRows),

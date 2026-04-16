@@ -1682,7 +1682,7 @@ const stepMeta: Array<{ icon: string; color: string }> = [
                         </p>
                         <Button type="button" variant="outline" class="h-8 text-xs" @click="openApolloModal">
                             <Icon icon="solar:database-bold-duotone" class="mr-1 size-4" />
-                            Fetch Emails via Apollo
+                            Fetch Emails via AI
                         </Button>
                     </div>
 
@@ -1872,7 +1872,7 @@ const stepMeta: Array<{ icon: string; color: string }> = [
                     <DialogHeader>
                         <DialogTitle>Fetch Emails for This Webinar</DialogTitle>
                         <DialogDescription>
-                            Select Apollo filters. Matching contacts will be auto-registered and invitation emails queued.
+                            Select filters. Matching contacts will be auto-registered and invitation emails queued.
                         </DialogDescription>
                     </DialogHeader>
 
