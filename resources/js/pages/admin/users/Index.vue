@@ -4,6 +4,7 @@ import { computed, reactive, ref } from 'vue';
 import Heading from '@/components/Heading.vue';
 import InputError from '@/components/InputError.vue';
 import { Button } from '@/components/ui/button';
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import AppLayout from '@/layouts/AppLayout.vue';
@@ -118,6 +119,12 @@ const formatDate = (value: string | null): string => {
     if (! value) return '-';
     return new Date(value).toLocaleString();
 };
+
+const onEditDialogChange = (open: boolean): void => {
+    if (! open) {
+        closeEditor();
+    }
+};
 </script>
 
 <template>
@@ -224,31 +231,37 @@ const formatDate = (value: string | null): string => {
                 </div>
             </div>
 
-            <div v-if="activeUser" class="rounded-xl border border-border/60 bg-card p-4">
-                <h3 class="text-sm font-semibold text-foreground">Edit User</h3>
-                <p class="mb-4 text-xs text-muted-foreground">User ID: {{ activeUser.id }}</p>
-                <form class="grid gap-3 md:grid-cols-2" @submit.prevent="saveUser">
-                    <div class="grid gap-1.5">
-                        <Label for="edit_name">Name</Label>
-                        <Input id="edit_name" v-model="editForm.name" />
-                        <InputError :message="editForm.errors.name" />
-                    </div>
-                    <div class="grid gap-1.5">
-                        <Label for="edit_email">Email</Label>
-                        <Input id="edit_email" v-model="editForm.email" type="email" />
-                        <InputError :message="editForm.errors.email" />
-                    </div>
-                    <div class="grid gap-1.5 md:col-span-2">
-                        <Label for="edit_password">New Password (optional)</Label>
-                        <Input id="edit_password" v-model="editForm.password" type="password" placeholder="Leave blank to keep current password" />
-                        <InputError :message="editForm.errors.password" />
-                    </div>
-                    <div class="md:col-span-2 flex items-center gap-2">
-                        <Button type="submit" :disabled="editForm.processing">Save User</Button>
-                        <Button type="button" variant="outline" @click="closeEditor">Cancel</Button>
-                    </div>
-                </form>
-            </div>
+            <Dialog :open="!!activeUser" @update:open="onEditDialogChange">
+                <DialogContent class="sm:max-w-xl">
+                    <DialogHeader>
+                        <DialogTitle>Edit User</DialogTitle>
+                        <DialogDescription>
+                            <span v-if="activeUser">User ID: {{ activeUser.id }}</span>
+                        </DialogDescription>
+                    </DialogHeader>
+                    <form class="grid gap-3 md:grid-cols-2" @submit.prevent="saveUser">
+                        <div class="grid gap-1.5">
+                            <Label for="edit_name">Name</Label>
+                            <Input id="edit_name" v-model="editForm.name" />
+                            <InputError :message="editForm.errors.name" />
+                        </div>
+                        <div class="grid gap-1.5">
+                            <Label for="edit_email">Email</Label>
+                            <Input id="edit_email" v-model="editForm.email" type="email" />
+                            <InputError :message="editForm.errors.email" />
+                        </div>
+                        <div class="grid gap-1.5 md:col-span-2">
+                            <Label for="edit_password">New Password (optional)</Label>
+                            <Input id="edit_password" v-model="editForm.password" type="password" placeholder="Leave blank to keep current password" />
+                            <InputError :message="editForm.errors.password" />
+                        </div>
+                        <DialogFooter class="md:col-span-2">
+                            <Button type="button" variant="outline" @click="closeEditor">Cancel</Button>
+                            <Button type="submit" :disabled="editForm.processing">Save User</Button>
+                        </DialogFooter>
+                    </form>
+                </DialogContent>
+            </Dialog>
         </div>
     </AppLayout>
 </template>
