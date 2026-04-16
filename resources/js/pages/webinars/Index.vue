@@ -361,10 +361,56 @@ const resetAiState = (): void => {
 
 const AI_SLIDE_STYLE_CACHE_KEY = 'webinar-ai:slide-style:v1';
 const AI_VIDEO_RUNTIME_CACHE_KEY = 'webinar-ai:video-runtime:v1';
+const AI_ACTIVE_VIDEO_GLOBAL_KEY = 'webinar-ai:active-video:v1';
 
 type AiVideoRuntimeCache = {
     video_id: string;
     webinar_id: number | null;
+};
+
+type AiActiveVideoGlobalCache = {
+    video_id: string;
+    updated_at: string;
+};
+
+const globalActiveVideoId = ref<string | null>(null);
+
+const loadGlobalActiveVideoId = (): void => {
+    try {
+        const raw = window.localStorage.getItem(AI_ACTIVE_VIDEO_GLOBAL_KEY);
+        if (!raw) {
+            globalActiveVideoId.value = null;
+            return;
+        }
+        const parsed = JSON.parse(raw) as Partial<AiActiveVideoGlobalCache>;
+        const videoId = String(parsed.video_id || '').trim();
+        globalActiveVideoId.value = videoId || null;
+    } catch {
+        globalActiveVideoId.value = null;
+    }
+};
+
+const saveGlobalActiveVideoId = (videoId: string): void => {
+    try {
+        const payload: AiActiveVideoGlobalCache = {
+            video_id: videoId,
+            updated_at: new Date().toISOString(),
+        };
+        window.localStorage.setItem(AI_ACTIVE_VIDEO_GLOBAL_KEY, JSON.stringify(payload));
+        globalActiveVideoId.value = videoId;
+    } catch {
+        // ignore storage errors
+    }
+};
+
+const clearGlobalActiveVideoId = (): void => {
+    try {
+        window.localStorage.removeItem(AI_ACTIVE_VIDEO_GLOBAL_KEY);
+    } catch {
+        // ignore storage errors
+    } finally {
+        globalActiveVideoId.value = null;
+    }
 };
 
 const loadSlideStyleCache = (): void => {
@@ -437,6 +483,23 @@ const restoreAiVideoRuntimeCache = (): boolean => {
     }
 };
 
+const restoreFromGlobalActiveVideo = (): boolean => {
+    loadGlobalActiveVideoId();
+    const videoId = String(globalActiveVideoId.value || '').trim();
+    if (!videoId) return false;
+    if (aiVideoId.value === videoId && ['requesting', 'pending', 'processing', 'completed'].includes(aiVideoStatus.value)) {
+        return true;
+    }
+
+    aiVideoId.value = videoId;
+    aiWebinarId.value = null;
+    aiStep.value = 'video';
+    aiVideoStatus.value = 'pending';
+    aiVideoPhase.value = 'queued';
+    aiVideoMessage.value = 'A video is already rendering in another tab. Resuming status...';
+    return true;
+};
+
 const openAiModal = (): void => {
     allowAiModalClose.value = false;
     resetAiState();
@@ -478,10 +541,29 @@ const openAiModal = (): void => {
     aiModalOpen.value = true;
     loadSlideStyleCache();
     void loadAiOptions();
-    if (restoreAiVideoRuntimeCache()) {
+    if (restoreAiVideoRuntimeCache() || restoreFromGlobalActiveVideo()) {
         void pollVideoStatus();
     }
 };
+
+window.addEventListener('storage', (e) => {
+    if (e.key !== AI_ACTIVE_VIDEO_GLOBAL_KEY) return;
+    loadGlobalActiveVideoId();
+});
+
+loadGlobalActiveVideoId();
+
+const aiHasActiveVideoElsewhere = computed((): boolean => {
+    const active = String(globalActiveVideoId.value || '').trim();
+    if (!active) return false;
+    return !aiVideoId.value || aiVideoId.value !== active || ['requesting', 'pending', 'processing'].includes(aiVideoStatus.value) === false;
+});
+
+const aiActiveVideoHoverMessage = computed((): string => {
+    const active = String(globalActiveVideoId.value || '').trim();
+    if (!active) return '';
+    return 'An AI video is currently rendering (possibly in another tab). Please wait for it to finish.';
+});
 
 const closeConfirmationMessage = computed((): string => {
     if (['requesting', 'pending', 'processing'].includes(aiVideoStatus.value)) {
@@ -694,7 +776,8 @@ const pollVideoStatus = async (): Promise<void> => {
         const composeInProgress = composeStatus === 'processing';
         aiVideoPhase.value = String(payload.phase || '').toLowerCase() || normalized || 'processing';
         aiComposeStage.value = String(payload.compose_stage || '').toLowerCase();
-        aiVideoProgressPercent.value = Math.max(0, Math.min(100, Number(payload.progress_percent ?? aiVideoProgressPercent.value)));
+        const incomingProgress = Math.max(0, Math.min(100, Number(payload.progress_percent ?? aiVideoProgressPercent.value)));
+        aiVideoProgressPercent.value = Math.max(aiVideoProgressPercent.value, incomingProgress);
 
         if ((normalized === 'completed' || normalized === 'success') && composeInProgress) {
             aiVideoStatus.value = 'processing';
@@ -722,6 +805,7 @@ const pollVideoStatus = async (): Promise<void> => {
                 if (aiVideoUrl.value) {
                     aiVideoProgressPercent.value = 100;
                     aiVideoPhase.value = 'completed';
+                    clearGlobalActiveVideoId();
                 }
             }
 
@@ -748,6 +832,7 @@ const pollVideoStatus = async (): Promise<void> => {
             aiVideoProgressPercent.value = 0;
             aiVideoMessage.value = 'Video rendering failed on provider.';
             clearAiVideoRuntimeCache();
+            clearGlobalActiveVideoId();
             void upsertAiWebinarDraft({
                 videoUrl: null,
                 source: 'heygen_pending',
@@ -786,6 +871,11 @@ const generateVideo = async (): Promise<void> => {
         return;
     }
 
+    if (aiVideoId.value && ['requesting', 'pending', 'processing'].includes(aiVideoStatus.value)) {
+        showToast('A video is already rendering in this modal. Please wait for it to finish (or open a new tab) before starting another.', 'info');
+        return;
+    }
+
     if (aiPollTimer !== null) {
         window.clearTimeout(aiPollTimer);
         aiPollTimer = null;
@@ -800,6 +890,8 @@ const generateVideo = async (): Promise<void> => {
     aiVideoProvider.value = null;
 
     try {
+        clearGlobalActiveVideoId();
+
         const draftPayload = await upsertAiWebinarDraft({
             videoUrl: null,
             source: 'heygen_pending',
@@ -834,8 +926,29 @@ const generateVideo = async (): Promise<void> => {
         });
 
         if (!response.ok) {
+            if (response.status === 409) {
+                try {
+                    const existing = await response.json() as { video_id?: string; message?: string };
+                    const existingId = String(existing.video_id || '').trim();
+                    if (existingId) {
+                        aiVideoId.value = existingId;
+                        saveGlobalActiveVideoId(existingId);
+                        saveAiVideoRuntimeCache();
+                        aiVideoStatus.value = 'pending';
+                        aiVideoPhase.value = 'queued';
+                        aiVideoProgressPercent.value = Math.max(aiVideoProgressPercent.value, 12);
+                        aiVideoMessage.value = existing.message || 'A video is already rendering. Resuming status...';
+                        void pollVideoStatus();
+                        return;
+                    }
+                } catch {
+                    // fall through to default error handling
+                }
+            }
+
             aiVideoStatus.value = 'failed';
             aiVideoMessage.value = await parseErrorMessage(response, 'Failed to start HeyGen generation.');
+            clearGlobalActiveVideoId();
             return;
         }
 
@@ -846,6 +959,7 @@ const generateVideo = async (): Promise<void> => {
             slide_plan?: SlidePlanItem[];
         };
         aiVideoId.value = payload.video_id;
+        saveGlobalActiveVideoId(payload.video_id);
         saveAiVideoRuntimeCache();
         aiIntroScript.value = payload.intro_script ?? '';
         aiRemainingScript.value = payload.remaining_script ?? '';
@@ -865,6 +979,7 @@ const generateVideo = async (): Promise<void> => {
     } catch {
         aiVideoStatus.value = 'failed';
         aiVideoMessage.value = 'Failed to start HeyGen generation.';
+        clearGlobalActiveVideoId();
     } finally {
         aiLoadingVideo.value = false;
     }
@@ -1301,6 +1416,8 @@ const videoSourceIcon = (source: string): string => {
                         variant="outline"
                         size="sm"
                         class="h-9 gap-1.5 px-4 font-semibold"
+                        :disabled="aiHasActiveVideoElsewhere"
+                        :title="aiHasActiveVideoElsewhere ? aiActiveVideoHoverMessage : ''"
                         @click="openAiModal"
                     >
                         <Icon icon="solar:stars-bold-duotone" class="size-4" />

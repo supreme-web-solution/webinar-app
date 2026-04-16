@@ -261,6 +261,22 @@ class WebinarAiStudioController extends Controller
             ], 422);
         }
 
+        $userId = $request->user()?->id;
+        if (is_int($userId) && $userId > 0) {
+            $active = Cache::get($this->activeUserVideoCacheKey($userId));
+            if (is_array($active)) {
+                $activeVideoId = trim((string) ($active['video_id'] ?? ''));
+                $activeStatus = strtolower(trim((string) ($active['status'] ?? '')));
+                if ($activeVideoId !== '' && in_array($activeStatus, ['requesting', 'pending', 'processing', 'composing'], true)) {
+                    return response()->json([
+                        'message' => 'An AI webinar video is already generating for this user. Please wait for it to finish.',
+                        'video_id' => $activeVideoId,
+                        'status' => $activeStatus,
+                    ], 409);
+                }
+            }
+        }
+
         [$width, $height] = $this->resolveVideoDimensions((string) ($payload['aspect_ratio'] ?? '16:9'));
         $background = (string) ($payload['background_color'] ?? '#F8FAFC');
         $scriptLength = mb_strlen((string) $payload['script']);
@@ -323,6 +339,14 @@ class WebinarAiStudioController extends Controller
             ], 502);
         }
 
+        if (is_int($userId) && $userId > 0) {
+            Cache::put($this->activeUserVideoCacheKey($userId), [
+                'video_id' => '',
+                'status' => 'requesting',
+                'updated_at' => now()->toIso8601String(),
+            ], now()->addMinutes(45));
+        }
+
         $videoInput = [
             'character' => [
                 'type' => 'avatar',
@@ -366,6 +390,10 @@ class WebinarAiStudioController extends Controller
                     'provider_body' => substr($response->body(), 0, 2000),
                 ]);
 
+                if (is_int($userId) && $userId > 0) {
+                    Cache::forget($this->activeUserVideoCacheKey($userId));
+                }
+
                 return response()->json([
                     'message' => 'HeyGen rejected the generation request.',
                     'provider_status' => $response->status(),
@@ -382,6 +410,10 @@ class WebinarAiStudioController extends Controller
                     'provider_status' => $response->status(),
                     'provider_body' => substr($response->body(), 0, 2000),
                 ]);
+
+                if (is_int($userId) && $userId > 0) {
+                    Cache::forget($this->activeUserVideoCacheKey($userId));
+                }
 
                 return response()->json([
                     'message' => 'HeyGen did not return a video id.',
@@ -402,6 +434,14 @@ class WebinarAiStudioController extends Controller
                 'aspect_ratio' => (string) ($payload['aspect_ratio'] ?? '16:9'),
                 'slide_style' => $this->normalizeSlideStyle($payload['slide_style'] ?? null),
             ], now()->addHours(6));
+
+            if (is_int($userId) && $userId > 0) {
+                Cache::put($this->activeUserVideoCacheKey($userId), [
+                    'video_id' => $videoId,
+                    'status' => 'pending',
+                    'updated_at' => now()->toIso8601String(),
+                ], now()->addMinutes(45));
+            }
 
             return response()->json([
                 'video_id' => $videoId,
@@ -534,6 +574,31 @@ class WebinarAiStudioController extends Controller
             $composingLongForm = $composeStatus === 'processing';
             $phase = $this->resolveVideoPhase($status, $composeStatus, $videoUrl);
             $progressPercent = $this->resolveVideoProgressPercent($status, $composeStatus, $composeStage, $videoUrl);
+
+            $userId = $request->user()?->id;
+            if (is_int($userId) && $userId > 0) {
+                if ($phase === 'completed') {
+                    $active = Cache::get($this->activeUserVideoCacheKey($userId));
+                    if (is_array($active) && (string) ($active['video_id'] ?? '') === (string) $payload['video_id']) {
+                        Cache::forget($this->activeUserVideoCacheKey($userId));
+                    }
+                } elseif ($phase === 'failed') {
+                    $active = Cache::get($this->activeUserVideoCacheKey($userId));
+                    if (is_array($active) && (string) ($active['video_id'] ?? '') === (string) $payload['video_id']) {
+                        Cache::forget($this->activeUserVideoCacheKey($userId));
+                    }
+                } else {
+                    $active = Cache::get($this->activeUserVideoCacheKey($userId));
+                    $activeVideoId = is_array($active) ? (string) ($active['video_id'] ?? '') : '';
+                    if ($activeVideoId === '' || $activeVideoId === (string) $payload['video_id']) {
+                        Cache::put($this->activeUserVideoCacheKey($userId), [
+                            'video_id' => (string) $payload['video_id'],
+                            'status' => $phase === 'composing' ? 'composing' : ($status !== '' ? $status : 'processing'),
+                            'updated_at' => now()->toIso8601String(),
+                        ], now()->addMinutes(45));
+                    }
+                }
+            }
 
             $cloudinaryUploaded = false;
 
@@ -1664,6 +1729,11 @@ class WebinarAiStudioController extends Controller
         return 'webinar:ai:compose:state:'.$videoId;
     }
 
+    private function activeUserVideoCacheKey(int $userId): string
+    {
+        return 'webinar:ai:active:user:'.$userId;
+    }
+
     private function resolvePersistedVideoSource(string $source): string
     {
         // DB enum supports only youtube|vimeo|direct; AI internal states map to direct.
@@ -1898,7 +1968,6 @@ class WebinarAiStudioController extends Controller
                         'model' => 'gpt-image-1',
                         'prompt' => $prompt,
                         'size' => $size,
-                        'response_format' => 'b64_json',
                     ]);
 
                 if (! $resp->successful()) {
@@ -1911,18 +1980,39 @@ class WebinarAiStudioController extends Controller
                     continue;
                 }
 
+                $binary = null;
                 $b64 = (string) data_get($resp->json(), 'data.0.b64_json', '');
-                if ($b64 === '') {
-                    Log::warning('webinar.ai.video.compose.image_generation_empty_payload', [
-                        'video_id' => $videoId,
-                        'slide_index' => $index + 1,
-                    ]);
-                    continue;
+                if ($b64 !== '') {
+                    $decoded = base64_decode($b64, true);
+                    if (is_string($decoded) && $decoded !== '') {
+                        $binary = $decoded;
+                    } else {
+                        Log::warning('webinar.ai.video.compose.image_generation_invalid_base64', [
+                            'video_id' => $videoId,
+                            'slide_index' => $index + 1,
+                        ]);
+                    }
                 }
 
-                $binary = base64_decode($b64, true);
                 if (! is_string($binary) || $binary === '') {
-                    Log::warning('webinar.ai.video.compose.image_generation_invalid_base64', [
+                    $url = trim((string) data_get($resp->json(), 'data.0.url', ''));
+                    if ($url !== '') {
+                        try {
+                            $img = Http::timeout(60)->get($url);
+                            if ($img->successful()) {
+                                $body = $img->body();
+                                if (is_string($body) && $body !== '') {
+                                    $binary = $body;
+                                }
+                            }
+                        } catch (\Throwable) {
+                            // noop
+                        }
+                    }
+                }
+
+                if (! is_string($binary) || $binary === '') {
+                    Log::warning('webinar.ai.video.compose.image_generation_empty_payload', [
                         'video_id' => $videoId,
                         'slide_index' => $index + 1,
                     ]);
