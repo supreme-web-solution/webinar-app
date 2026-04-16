@@ -1069,37 +1069,77 @@ class WebinarAiStudioController extends Controller
             return $introVideoUrl;
         }
 
-        Cache::put($stateKey, ['status' => 'processing', 'stage' => 'queued'], now()->addHours(6));
-        Log::info('webinar.ai.video.compose.started', [
-            'video_id' => $videoId,
-            'mode' => 'after_response_job',
-        ]);
+        $dispatchLock = Cache::lock('webinar:ai:compose:dispatch:'.$videoId, 90);
+        if (! $dispatchLock->get()) {
+            Log::info('webinar.ai.video.compose.dispatch_skipped_lock_busy', [
+                'video_id' => $videoId,
+            ]);
 
-        ComposeWebinarAiVideoJob::dispatch($videoId, $introVideoUrl);
+            return null;
+        }
+
+        try {
+            $latestState = Cache::get($stateKey);
+            if (is_array($latestState) && ($latestState['status'] ?? null) === 'completed' && is_string($latestState['video_url'] ?? null)) {
+                return (string) $latestState['video_url'];
+            }
+
+            if (is_array($latestState) && ($latestState['status'] ?? null) === 'processing') {
+                return null;
+            }
+
+            Cache::put($stateKey, ['status' => 'processing', 'stage' => 'queued'], now()->addHours(6));
+            Log::info('webinar.ai.video.compose.started', [
+                'video_id' => $videoId,
+                'mode' => 'after_response_job',
+            ]);
+
+            ComposeWebinarAiVideoJob::dispatch($videoId, $introVideoUrl);
+        } finally {
+            try {
+                $dispatchLock->release();
+            } catch (\Throwable) {
+                // Ignore lock release failures (e.g. if store doesn't support it).
+            }
+        }
 
         return null;
     }
 
     public function runQueuedLongFormCompose(string $videoId, string $introVideoUrl): void
     {
+        $runLock = Cache::lock('webinar:ai:compose:run:'.$videoId, 3 * 60 * 60);
+        if (! $runLock->get()) {
+            Log::info('webinar.ai.video.compose.run_skipped_lock_busy', [
+                'video_id' => $videoId,
+            ]);
+
+            return;
+        }
+
         $stateKey = $this->composeStateCacheKey($videoId);
-        $meta = Cache::get($this->composeMetaCacheKey($videoId));
-        if (! is_array($meta)) {
-            Cache::put($stateKey, ['status' => 'failed', 'stage' => 'missing_meta'], now()->addHours(2));
-            return;
-        }
-
-        $remainingScript = trim((string) ($meta['remaining_script'] ?? ''));
-        if ($remainingScript === '') {
-            Cache::put($stateKey, [
-                'status' => 'completed',
-                'stage' => 'no_remaining_script',
-                'video_url' => $introVideoUrl,
-            ], now()->addHours(24));
-            return;
-        }
-
         try {
+            $existingState = Cache::get($stateKey);
+            if (is_array($existingState) && ($existingState['status'] ?? null) === 'completed' && is_string($existingState['video_url'] ?? null)) {
+                return;
+            }
+
+            $meta = Cache::get($this->composeMetaCacheKey($videoId));
+            if (! is_array($meta)) {
+                Cache::put($stateKey, ['status' => 'failed', 'stage' => 'missing_meta'], now()->addHours(2));
+                return;
+            }
+
+            $remainingScript = trim((string) ($meta['remaining_script'] ?? ''));
+            if ($remainingScript === '') {
+                Cache::put($stateKey, [
+                    'status' => 'completed',
+                    'stage' => 'no_remaining_script',
+                    'video_url' => $introVideoUrl,
+                ], now()->addHours(24));
+                return;
+            }
+
             $voice = trim((string) ($meta['openai_voice'] ?? 'alloy'));
             $slidePlan = is_array($meta['slide_plan'] ?? null) ? $meta['slide_plan'] : [];
             $aspectRatio = (string) ($meta['aspect_ratio'] ?? '16:9');
@@ -1145,6 +1185,12 @@ class WebinarAiStudioController extends Controller
             ]);
             Cache::put($stateKey, ['status' => 'failed', 'stage' => 'exception'], now()->addHours(2));
             $this->persistComposeFailureToWebinar($videoId);
+        } finally {
+            try {
+                $runLock->release();
+            } catch (\Throwable) {
+                // Ignore lock release failures (e.g. if store doesn't support it).
+            }
         }
     }
 
@@ -1750,6 +1796,17 @@ class WebinarAiStudioController extends Controller
         }
 
         $aiSettings = is_array($webinar->ai_settings) ? $webinar->ai_settings : [];
+        $currentStatus = strtolower((string) ($aiSettings['video_generation_status'] ?? ''));
+        $currentVideoUrl = (string) ($webinar->video_url ?? '');
+
+        if ($currentStatus === 'completed' && $currentVideoUrl !== '' && ! str_contains($currentVideoUrl, 'example.com/video-processing')) {
+            Log::info('webinar.ai.video.compose.failure_ignored_already_completed', [
+                'video_id' => $videoId,
+                'webinar_id' => $webinar->id,
+            ]);
+            return;
+        }
+
         $aiSettings['video_generation_status'] = 'failed';
         $webinar->update([
             'ai_settings' => $aiSettings,

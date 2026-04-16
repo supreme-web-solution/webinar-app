@@ -5,13 +5,20 @@ namespace App\Jobs;
 use App\Http\Controllers\Admin\WebinarAiStudioController;
 use Illuminate\Bus\Queueable;
 use Illuminate\Foundation\Bus\Dispatchable;
+use Illuminate\Contracts\Queue\ShouldBeUnique;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Queue\SerializesModels;
 
-class ComposeWebinarAiVideoJob implements ShouldQueue
+class ComposeWebinarAiVideoJob implements ShouldQueue, ShouldBeUnique
 {
     use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
+
+    /**
+     * Prevent duplicate compose jobs for the same HeyGen video id.
+     * Keep this window long enough to cover typical compose runtimes.
+     */
+    public int $uniqueFor = 21600;
 
     /**
      * Compose can run for several minutes, and shorter queue retry_after values
@@ -32,5 +39,10 @@ class ComposeWebinarAiVideoJob implements ShouldQueue
     public function handle(WebinarAiStudioController $controller): void
     {
         $controller->runQueuedLongFormCompose($this->videoId, $this->introVideoUrl);
+    }
+
+    public function uniqueId(): string
+    {
+        return $this->videoId;
     }
 }
