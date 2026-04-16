@@ -91,8 +91,6 @@ return [
 
     'd7' => [
         'api_key' => env('D7_API_KEY'),
-        'search_endpoint' => env('D7_SEARCH_ENDPOINT'),
-        'search_method' => env('D7_SEARCH_METHOD', 'get'),
         'timeout_seconds' => (int) env('D7_TIMEOUT_SECONDS', 60),
         'max_fetch' => (int) env('D7_FETCH_MAX_COUNT', 1200),
     ],
