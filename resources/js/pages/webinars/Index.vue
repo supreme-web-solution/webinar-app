@@ -2274,6 +2274,7 @@ const videoSourceIcon = (source: string): string => {
 
                         <template v-else>
                             <Button
+                                v-if="!aiVideoUrl"
                                 type="button"
                                 variant="outline"
                                 :disabled="!aiCanGenerateVideo || aiLoadingVideo"

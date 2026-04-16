@@ -183,7 +183,6 @@ const onEditDialogChange = (open: boolean): void => {
                             <tr>
                                 <th class="px-4 py-2 text-left font-medium">Name</th>
                                 <th class="px-4 py-2 text-left font-medium">Email</th>
-                                <th class="px-4 py-2 text-left font-medium">Status</th>
                                 <th class="px-4 py-2 text-left font-medium">Created</th>
                                 <th class="px-4 py-2 text-left font-medium">Actions</th>
                             </tr>
@@ -192,14 +191,6 @@ const onEditDialogChange = (open: boolean): void => {
                             <tr v-for="user in users.data" :key="user.id" class="border-t">
                                 <td class="px-4 py-2">{{ user.name }}</td>
                                 <td class="px-4 py-2">{{ user.email }}</td>
-                                <td class="px-4 py-2">
-                                    <span
-                                        class="inline-flex rounded-full px-2 py-0.5 text-xs font-medium"
-                                        :class="user.email_verified_at ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'"
-                                    >
-                                        {{ user.email_verified_at ? 'Verified' : 'Unverified' }}
-                                    </span>
-                                </td>
                                 <td class="px-4 py-2 text-muted-foreground">{{ formatDate(user.created_at) }}</td>
                                 <td class="px-4 py-2">
                                     <div class="flex items-center gap-2">
@@ -209,7 +200,7 @@ const onEditDialogChange = (open: boolean): void => {
                                 </td>
                             </tr>
                             <tr v-if="users.data.length === 0">
-                                <td class="px-4 py-8 text-center text-muted-foreground" colspan="5">
+                                <td class="px-4 py-8 text-center text-muted-foreground" colspan="4">
                                     No users found with the selected filters.
                                 </td>
                             </tr>
