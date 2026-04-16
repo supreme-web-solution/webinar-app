@@ -13,7 +13,12 @@ class ComposeWebinarAiVideoJob implements ShouldQueue
 {
     use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
 
-    public int $tries = 1;
+    /**
+     * Compose can run for several minutes, and shorter queue retry_after values
+     * can cause the same job payload to be re-attempted while the original worker
+     * is still processing. Keep tries high to avoid false max-attempt failures.
+     */
+    public int $tries = 25;
 
     public int $timeout = 7200;
 

@@ -1839,23 +1839,42 @@ class WebinarAiStudioController extends Controller
                     ]);
 
                 if (! $resp->successful()) {
+                    Log::warning('webinar.ai.video.compose.image_generation_failed', [
+                        'video_id' => $videoId,
+                        'slide_index' => $index + 1,
+                        'status' => $resp->status(),
+                        'response_excerpt' => mb_substr((string) $resp->body(), 0, 500),
+                    ]);
                     continue;
                 }
 
                 $b64 = (string) data_get($resp->json(), 'data.0.b64_json', '');
                 if ($b64 === '') {
+                    Log::warning('webinar.ai.video.compose.image_generation_empty_payload', [
+                        'video_id' => $videoId,
+                        'slide_index' => $index + 1,
+                    ]);
                     continue;
                 }
 
                 $binary = base64_decode($b64, true);
                 if (! is_string($binary) || $binary === '') {
+                    Log::warning('webinar.ai.video.compose.image_generation_invalid_base64', [
+                        'video_id' => $videoId,
+                        'slide_index' => $index + 1,
+                    ]);
                     continue;
                 }
 
                 $path = $workDir.'/slide-image-'.($index + 1).'.png';
                 File::put($path, $binary);
                 $generatedPaths[] = $path;
-            } catch (\Throwable) {
+            } catch (\Throwable $e) {
+                Log::warning('webinar.ai.video.compose.image_generation_exception', [
+                    'video_id' => $videoId,
+                    'slide_index' => $index + 1,
+                    'message' => $e->getMessage(),
+                ]);
                 continue;
             }
         }
