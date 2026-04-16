@@ -6,6 +6,8 @@ use App\Http\Controllers\Admin\WebinarAttendeeController;
 use App\Http\Controllers\Admin\WebinarChatController as AdminWebinarChatController;
 use App\Http\Controllers\Admin\WebinarAiKnowledgeController;
 use App\Http\Controllers\Admin\WebinarAiStudioController;
+use App\Http\Controllers\Admin\UserManagementController;
+use App\Http\Middleware\EnsureAdminEmail;
 use App\Http\Controllers\UnsubscribeController;
 use App\Http\Controllers\WebinarChatController;
 use App\Http\Controllers\WebinarRegistrationController;
@@ -51,6 +53,12 @@ Route::middleware(['auth', 'verified'])->group(function () {
         Route::post('webinars/{webinar}/chat/{registrant}', [AdminWebinarChatController::class, 'reply'])->name('webinars.chat.reply');
         Route::delete('webinars/{webinar}/chat/{registrant}/messages/{message}', [AdminWebinarChatController::class, 'destroyMessage'])->name('webinars.chat.message.destroy');
         Route::delete('webinars/{webinar}/chat/{registrant}/messages', [AdminWebinarChatController::class, 'destroyAllMessages'])->name('webinars.chat.messages.destroy');
+
+        Route::middleware([EnsureAdminEmail::class])->group(function () {
+            Route::get('users', [UserManagementController::class, 'index'])->name('users.index');
+            Route::put('users/{user}', [UserManagementController::class, 'update'])->name('users.update');
+            Route::delete('users/{user}', [UserManagementController::class, 'destroy'])->name('users.destroy');
+        });
     });
 });
 

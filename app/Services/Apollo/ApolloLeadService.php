@@ -10,7 +10,7 @@ class ApolloLeadService
 {
     /**
      * @param array{job_title?: string, industry?: string, location?: string, company_size?: string, keyword?: string} $filters
-     * @return array<int, array{email: string, name: string}>
+     * @return array<int, array{email: string, name: string, company?: string|null, company_domain?: string|null}>
      */
     public function searchContacts(array $filters, int $limit): array
     {
@@ -131,9 +131,22 @@ class ApolloLeadService
                     $name = ucfirst(str_replace(['.', '_', '-'], ' ', strstr($email, '@', true) ?: 'Lead'));
                 }
 
+                $companyName = trim((string) data_get($person, 'organization.name', ''));
+                if ($companyName === '') {
+                    $companyName = trim((string) data_get($person, 'account.name', ''));
+                }
+
+                $companyDomain = $this->extractCompanyDomain($person);
+                if ($companyDomain === '') {
+                    $companyDomain = strtolower((string) strstr($email, '@') ?: '');
+                    $companyDomain = ltrim($companyDomain, '@');
+                }
+
                 $collected[$email] = [
                     'email' => $email,
                     'name' => $name,
+                    'company' => $companyName !== '' ? $companyName : null,
+                    'company_domain' => $companyDomain !== '' ? $companyDomain : null,
                 ];
 
                 if (count($collected) >= $limit) {
@@ -377,5 +390,38 @@ class ApolloLeadService
         $parts = array_values(array_unique($parts));
 
         return implode(' ', $parts);
+    }
+
+    /**
+     * @param array<string, mixed> $person
+     */
+    private function extractCompanyDomain(array $person): string
+    {
+        $candidates = [
+            trim((string) data_get($person, 'organization.primary_domain', '')),
+            trim((string) data_get($person, 'organization.website_url', '')),
+            trim((string) data_get($person, 'account.primary_domain', '')),
+            trim((string) data_get($person, 'account.website_url', '')),
+            trim((string) ($person['organization_website_url'] ?? '')),
+        ];
+
+        foreach ($candidates as $candidate) {
+            if ($candidate === '') {
+                continue;
+            }
+
+            $normalized = strtolower($candidate);
+            if (str_contains($normalized, '://')) {
+                $host = parse_url($normalized, PHP_URL_HOST);
+                $normalized = is_string($host) ? $host : $normalized;
+            }
+
+            $normalized = preg_replace('/^www\./', '', trim($normalized)) ?? '';
+            if ($normalized !== '') {
+                return $normalized;
+            }
+        }
+
+        return '';
     }
 }

@@ -20,6 +20,7 @@ import { dashboard } from '@/routes';
 const page = usePage();
 const appName = computed(() => (page.props.name as string) ?? 'WebinarPro');
 const { isCurrentUrl } = useCurrentUrl();
+const isAdmin = computed(() => Boolean((page.props.auth as { is_admin?: boolean })?.is_admin));
 
 const mainNavItems = [
     { title: 'Dashboard', href: dashboard(), icon: 'solar:widget-2-bold-duotone' },
@@ -27,12 +28,13 @@ const mainNavItems = [
     { title: 'Chat', href: '/admin/chats', icon: 'solar:chat-round-dots-bold-duotone' },
 ];
 
-const managementNavItems = [
+const managementNavItems = computed(() => [
     // { title: 'Registrants', href: '/admin/registrants', icon: 'solar:users-group-rounded-bold-duotone' },
     // { title: 'Analytics', href: '/admin/analytics', icon: 'solar:chart-2-bold-duotone' },
+    ...(isAdmin.value ? [{ title: 'Users', href: '/admin/users', icon: 'solar:shield-user-bold-duotone' }] : []),
     { title: 'SMTP', href: '/settings/smtp', icon: 'solar:letter-bold-duotone' },
     { title: 'Settings', href: '/settings/profile', icon: 'solar:settings-minimalistic-bold-duotone' },
-];
+]);
 </script>
 
 <template>

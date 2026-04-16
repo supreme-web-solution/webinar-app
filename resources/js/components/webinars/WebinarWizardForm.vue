@@ -1678,7 +1678,7 @@ const stepMeta: Array<{ icon: string; color: string }> = [
                 <div v-else class="space-y-4">
                     <div class="flex flex-wrap items-center justify-between gap-2 rounded-md border border-dashed bg-muted/20 p-3">
                         <p class="text-xs text-muted-foreground">
-                            Fetch targeted contacts from Apollo and auto-register them to this webinar.
+                            Fetch targeted contacts from AI and auto-register them to this webinar.
                         </p>
                         <Button type="button" variant="outline" class="h-8 text-xs" @click="openApolloModal">
                             <Icon icon="solar:database-bold-duotone" class="mr-1 size-4" />

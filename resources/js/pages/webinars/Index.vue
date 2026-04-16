@@ -1642,7 +1642,7 @@ const videoSourceIcon = (source: string): string => {
                                 />
                             </div>
                         </div>
-                        <p class="mt-2 text-xs text-muted-foreground">Long scripts can take much longer. You can safely refresh; generation will resume when you reopen this modal.</p>
+                        <p class="mt-2 text-xs text-muted-foreground">Long scripts can take much longer to generate. </p>
                     </div>
                 </div>
                 <button

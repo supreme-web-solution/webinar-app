@@ -13,6 +13,7 @@ import {
 import { Input } from '@/components/ui/input';
 import { SidebarTrigger } from '@/components/ui/sidebar';
 import UserMenuContent from '@/components/UserMenuContent.vue';
+import { useAppearance } from '@/composables/useAppearance';
 import { useInitials } from '@/composables/useInitials';
 import type { BreadcrumbItem } from '@/types';
 
@@ -29,6 +30,11 @@ const page = usePage();
 const auth = computed(() => page.props.auth as { user: { name: string; email: string; avatar?: string } });
 const { getInitials } = useInitials();
 const searchQuery = ref('');
+const { resolvedAppearance, updateAppearance } = useAppearance();
+
+const toggleTheme = (): void => {
+    updateAppearance(resolvedAppearance.value === 'dark' ? 'light' : 'dark');
+};
 </script>
 
 <template>
@@ -73,9 +79,14 @@ const searchQuery = ref('');
                 <span class="sr-only">Notifications</span>
             </Button>
 
-            <!-- Dark mode toggle placeholder -->
-            <Button variant="ghost" size="icon" class="h-8 w-8 text-muted-foreground hover:text-foreground">
-                <Icon icon="solar:moon-linear" class="size-4" />
+            <!-- Dark mode toggle -->
+            <Button
+                variant="ghost"
+                size="icon"
+                class="h-8 w-8 text-muted-foreground hover:text-foreground"
+                @click="toggleTheme"
+            >
+                <Icon :icon="resolvedAppearance === 'dark' ? 'solar:sun-linear' : 'solar:moon-linear'" class="size-4" />
                 <span class="sr-only">Toggle theme</span>
             </Button>
 

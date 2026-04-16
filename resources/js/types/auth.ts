@@ -11,6 +11,7 @@ export type User = {
 
 export type Auth = {
     user: User;
+    is_admin?: boolean;
 };
 
 export type TwoFactorConfigContent = {
