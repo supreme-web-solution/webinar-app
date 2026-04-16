@@ -324,6 +324,8 @@ const aiSourceMode = ref<'url' | 'transcript' | 'file'>('url');
 const aiVideoTranscriptModalOpen = ref(false);
 const aiVideoTranscriptGenerating = ref(false);
 const aiVideoTranscriptUrlInput = ref('');
+const aiUrlValidationError = ref('');
+const offersUrlValidationErrors = ref<Record<number, string>>({});
 const AI_SOURCE_LIMIT = 3;
 const aiSourcesList = ref(props.aiSources ?? []);
 const aiSourcesMeta = ref({
@@ -595,10 +597,20 @@ const submitAiUrlSource = (): void => {
         return;
     }
 
+    const candidateUrl = aiUrlForm.url.trim();
+    if (!isValidHttpUrl(candidateUrl)) {
+        aiUrlValidationError.value = 'Please enter a valid URL, including http:// or https://';
+        showToast('Please enter a valid website URL before adding source.');
+        return;
+    }
+    aiUrlValidationError.value = '';
+    aiUrlForm.url = candidateUrl;
+
     aiUrlForm.post(props.aiSourceUrls.url, {
         preserveScroll: true,
         onSuccess: () => {
             aiUrlForm.reset();
+            aiUrlValidationError.value = '';
             showToast('Website source queued for ingestion.');
             void loadAiSources(1);
         },
@@ -1212,12 +1224,44 @@ const submit = (): void => {
         }
     }
 
+    const offerUrlErrors: Record<number, string> = {};
+    for (let index = 0; index < form.offers.length; index += 1) {
+        const offer = form.offers[index];
+        const candidateUrl = offer.button_url.trim();
+
+        if (!isValidHttpUrl(candidateUrl)) {
+            offerUrlErrors[index] = 'Enter a valid URL with http:// or https://';
+            continue;
+        }
+
+        offer.button_url = candidateUrl;
+    }
+    offersUrlValidationErrors.value = offerUrlErrors;
+    if (Object.keys(offerUrlErrors).length > 0) {
+        activeStep.value = 5;
+        showToast('Some offer URLs are invalid. Please fix them before saving.');
+        return;
+    }
+
     if (props.method === 'put') {
         form.put(props.actionUrl, { preserveScroll: true });
         return;
     }
 
     form.post(props.actionUrl, { preserveScroll: true });
+};
+
+const isValidHttpUrl = (value: string): boolean => {
+    if (value === '') {
+        return false;
+    }
+
+    try {
+        const parsed = new URL(value);
+        return parsed.protocol === 'http:' || parsed.protocol === 'https:';
+    } catch {
+        return false;
+    }
 };
 
 const stepHeaderBg: string[] = [
@@ -2168,6 +2212,9 @@ const stepMeta: Array<{ icon: string; color: string }> = [
                         <div class="grid gap-2">
                             <Label>Button URL *</Label>
                             <Input v-model="offer.button_url" placeholder="https://checkout.com" />
+                            <p v-if="offersUrlValidationErrors[index]" class="text-xs text-destructive">
+                                {{ offersUrlValidationErrors[index] }}
+                            </p>
                         </div>
                     </div>
 
@@ -2377,6 +2424,9 @@ const stepMeta: Array<{ icon: string; color: string }> = [
                                     <div class="grid gap-1.5">
                                         <Label class="text-xs">{{ markRequired('Page URL') }}</Label>
                                         <Input v-model="aiUrlForm.url" type="url" placeholder="https://example.com/page" />
+                                        <p v-if="aiUrlValidationError" class="text-xs text-destructive">
+                                            {{ aiUrlValidationError }}
+                                        </p>
                                     </div>
                                     <Button type="button" class="bg-violet-600 text-white hover:bg-violet-700" @click="submitAiUrlSource">
                                         <Icon icon="solar:add-circle-bold-duotone" class="mr-1.5 size-4" />

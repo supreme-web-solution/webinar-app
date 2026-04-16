@@ -272,6 +272,11 @@ class WebinarKnowledgeIngestionService
             return false;
         }
 
+        // Skip obvious JS/CSS/runtime boilerplate often present in SPAs.
+        if (preg_match('/\b(function\s*\(|window\.|document\.|matchMedia\(|classList\.|sourceMappingURL|oklch\(|prefers-color-scheme|addEventListener\(|=>)\b/iu', $text)) {
+            return false;
+        }
+
         // Skip CSS/theme/config fragments that often leak from raw HTML.
         if (preg_match('/(--[a-z0-9-]{2,}|\{[^\}]{3,}\}|@media|font-family\s*:|sourceURL|var\(--)/iu', $text)) {
             return false;
