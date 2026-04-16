@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { Head, Link, router } from '@inertiajs/vue3';
 import { Icon } from '@iconify/vue';
-import { computed, reactive, ref, watch } from 'vue';
+import { computed, onBeforeUnmount, reactive, ref, watch } from 'vue';
 import AppLayout from '@/layouts/AppLayout.vue';
 import { Button } from '@/components/ui/button';
 import {
@@ -563,6 +563,43 @@ const aiActiveVideoHoverMessage = computed((): string => {
     const active = String(globalActiveVideoId.value || '').trim();
     if (!active) return '';
     return 'An AI video is currently rendering (possibly in another tab). Please wait for it to finish.';
+});
+
+const aiButtonBusyTexts = ['AI running...', 'Generating...', 'Please wait...'];
+const aiButtonBusyIndex = ref(0);
+let aiButtonBusyTimer: number | null = null;
+
+watch(aiHasActiveVideoElsewhere, (blocked) => {
+    if (!blocked) {
+        aiButtonBusyIndex.value = 0;
+        if (aiButtonBusyTimer !== null) {
+            window.clearInterval(aiButtonBusyTimer);
+            aiButtonBusyTimer = null;
+        }
+        return;
+    }
+
+    if (aiButtonBusyTimer !== null) {
+        return;
+    }
+
+    aiButtonBusyTimer = window.setInterval(() => {
+        aiButtonBusyIndex.value = (aiButtonBusyIndex.value + 1) % aiButtonBusyTexts.length;
+    }, 3000);
+}, { immediate: true });
+
+onBeforeUnmount(() => {
+    if (aiButtonBusyTimer !== null) {
+        window.clearInterval(aiButtonBusyTimer);
+        aiButtonBusyTimer = null;
+    }
+});
+
+const createWithAiButtonText = computed((): string => {
+    if (aiHasActiveVideoElsewhere.value) {
+        return aiButtonBusyTexts[aiButtonBusyIndex.value] || 'AI running...';
+    }
+    return 'Create with AI';
 });
 
 const closeConfirmationMessage = computed((): string => {
@@ -1421,7 +1458,7 @@ const videoSourceIcon = (source: string): string => {
                         @click="openAiModal"
                     >
                         <Icon icon="solar:stars-bold-duotone" class="size-4" />
-                        Create with AI
+                        {{ createWithAiButtonText }}
                     </Button>
                     <Button as-child size="sm" class="h-9 gap-1.5 px-4 font-semibold shadow-sm">
                         <Link href="/admin/webinars/create">
