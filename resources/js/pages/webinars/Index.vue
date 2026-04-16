@@ -209,6 +209,22 @@ const aiBrief = reactive({
     },
 });
 
+const clampNumber = (value: unknown, min: number, max: number, fallback: number): number => {
+    const parsed = Number(value);
+    if (!Number.isFinite(parsed)) {
+        return fallback;
+    }
+
+    return Math.min(max, Math.max(min, parsed));
+};
+
+const clampAiBriefNumericFields = (): void => {
+    aiBrief.duration_minutes = clampNumber(aiBrief.duration_minutes, 20, 120, 45);
+    aiBrief.intro_duration_seconds = clampNumber(aiBrief.intro_duration_seconds, 20, 60, 45);
+    aiBrief.slide_style.font_size = clampNumber(aiBrief.slide_style.font_size, 24, 72, 44);
+    aiBrief.slide_style.overlay_alpha = clampNumber(aiBrief.slide_style.overlay_alpha, 0, 1, 0.22);
+};
+
 const aiCanGenerateScript = computed(() => {
     return aiBrief.title.trim() !== ''
         && aiBrief.topic.trim() !== ''
@@ -1008,6 +1024,34 @@ watch(selectedToneOption, (value) => {
 watch(customTone, (value) => {
     if (selectedToneOption.value === '__custom__') {
         aiBrief.tone = value.trim();
+    }
+});
+
+watch(() => aiBrief.duration_minutes, (value) => {
+    const clamped = clampNumber(value, 20, 120, 45);
+    if (value !== clamped) {
+        aiBrief.duration_minutes = clamped;
+    }
+});
+
+watch(() => aiBrief.intro_duration_seconds, (value) => {
+    const clamped = clampNumber(value, 20, 60, 45);
+    if (value !== clamped) {
+        aiBrief.intro_duration_seconds = clamped;
+    }
+});
+
+watch(() => aiBrief.slide_style.font_size, (value) => {
+    const clamped = clampNumber(value, 24, 72, 44);
+    if (value !== clamped) {
+        aiBrief.slide_style.font_size = clamped;
+    }
+});
+
+watch(() => aiBrief.slide_style.overlay_alpha, (value) => {
+    const clamped = clampNumber(value, 0, 1, 0.22);
+    if (value !== clamped) {
+        aiBrief.slide_style.overlay_alpha = clamped;
     }
 });
 
@@ -1838,6 +1882,7 @@ const videoSourceIcon = (source: string): string => {
                                     min="20"
                                     max="60"
                                     class="w-full rounded-md border bg-background px-3 py-2 text-sm"
+                                    @input="clampAiBriefNumericFields"
                                 />
                                 <p class="text-[11px] text-muted-foreground">
                                     First 20-60 seconds uses avatar lip-sync. Remaining script becomes slide plan.
@@ -1869,7 +1914,15 @@ const videoSourceIcon = (source: string): string => {
                             <div v-if="advancedSlideSettingsOpen" class="mt-3 grid gap-3 sm:grid-cols-2">
                                 <div class="space-y-1.5">
                                     <label class="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Font Size</label>
-                                    <input v-model.number="aiBrief.slide_style.font_size" type="number" min="24" max="72" class="w-full rounded-md border bg-background px-3 py-2 text-sm" />
+                                    <input
+                                        v-model.number="aiBrief.slide_style.font_size"
+                                        type="number"
+                                        min="24"
+                                        max="72"
+                                        class="w-full rounded-md border bg-background px-3 py-2 text-sm"
+                                        @input="clampAiBriefNumericFields"
+                                    />
+                                    <p class="text-[11px] text-muted-foreground">Allowed range: 24-72. Values outside this range auto-adjust.</p>
                                 </div>
                                 <div class="space-y-1.5">
                                     <label class="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Text Color</label>
@@ -1885,7 +1938,16 @@ const videoSourceIcon = (source: string): string => {
                                 </div>
                                 <div class="space-y-1.5">
                                     <label class="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Overlay Opacity (0-1)</label>
-                                    <input v-model.number="aiBrief.slide_style.overlay_alpha" type="number" step="0.05" min="0" max="1" class="w-full rounded-md border bg-background px-3 py-2 text-sm" />
+                                    <input
+                                        v-model.number="aiBrief.slide_style.overlay_alpha"
+                                        type="number"
+                                        step="0.05"
+                                        min="0"
+                                        max="1"
+                                        class="w-full rounded-md border bg-background px-3 py-2 text-sm"
+                                        @input="clampAiBriefNumericFields"
+                                    />
+                                    <p class="text-[11px] text-muted-foreground">Use decimals from 0.00 to 1.00. Values auto-clamp if exceeded.</p>
                                 </div>
                                 <div class="space-y-1.5">
                                     <label class="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Slide Background Color</label>
