@@ -184,7 +184,7 @@ return [
     |
     */
 
-    'memory_limit' => 64,
+    'memory_limit' => 256,
 
     /*
     |--------------------------------------------------------------------------
@@ -241,7 +241,7 @@ return [
     'environments' => [
         'production' => [
             'supervisor-1' => [
-                'maxProcesses' => 10,
+                'maxProcesses' => 2,
                 'balanceMaxShift' => 1,
                 'balanceCooldown' => 3,
             ],
@@ -249,7 +249,7 @@ return [
                 'maxProcesses' => 1,
             ],
             'ai-video-compose-supervisor' => [
-                'maxProcesses' => 2,
+                'maxProcesses' => 4,
             ],
         ],
 
