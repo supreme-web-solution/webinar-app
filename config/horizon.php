@@ -223,6 +223,54 @@ return [
             'timeout' => 120,
             'nice' => 0,
         ],
+        'ai-transcript-supervisor' => [
+            'connection' => 'redis',
+            'queue' => ['ai-transcript'],
+            'balance' => 'simple',
+            'maxProcesses' => 1,
+            'maxTime' => 0,
+            'maxJobs' => 0,
+            'memory' => 256,
+            'tries' => 1,
+            'timeout' => 3600,
+            'nice' => 0,
+        ],
+        'ai-ingest-supervisor' => [
+            'connection' => 'redis',
+            'queue' => ['ai-ingest'],
+            'balance' => 'simple',
+            'maxProcesses' => 2,
+            'maxTime' => 0,
+            'maxJobs' => 0,
+            'memory' => 512,
+            'tries' => 2,
+            'timeout' => 900,
+            'nice' => 0,
+        ],
+        'ai-chat-supervisor' => [
+            'connection' => 'redis',
+            'queue' => ['ai-chat'],
+            'balance' => 'simple',
+            'maxProcesses' => 2,
+            'maxTime' => 0,
+            'maxJobs' => 0,
+            'memory' => 256,
+            'tries' => 2,
+            'timeout' => 180,
+            'nice' => 0,
+        ],
+        'apollo-fetch-supervisor' => [
+            'connection' => 'redis',
+            'queue' => ['apollo-fetch'],
+            'balance' => 'simple',
+            'maxProcesses' => 1,
+            'maxTime' => 0,
+            'maxJobs' => 0,
+            'memory' => 256,
+            'tries' => 3,
+            'timeout' => 120,
+            'nice' => 0,
+        ],
         'ai-video-compose-supervisor' => [
             'connection' => 'redis',
             'queue' => ['ai-video-compose'],
@@ -248,6 +296,18 @@ return [
             'emails-supervisor' => [
                 'maxProcesses' => 1,
             ],
+            'ai-transcript-supervisor' => [
+                'maxProcesses' => 1,
+            ],
+            'ai-ingest-supervisor' => [
+                'maxProcesses' => 2,
+            ],
+            'ai-chat-supervisor' => [
+                'maxProcesses' => 2,
+            ],
+            'apollo-fetch-supervisor' => [
+                'maxProcesses' => 1,
+            ],
             'ai-video-compose-supervisor' => [
                 'maxProcesses' => 4,
             ],
@@ -258,6 +318,18 @@ return [
                 'maxProcesses' => 3,
             ],
             'emails-supervisor' => [
+                'maxProcesses' => 1,
+            ],
+            'ai-transcript-supervisor' => [
+                'maxProcesses' => 1,
+            ],
+            'ai-ingest-supervisor' => [
+                'maxProcesses' => 1,
+            ],
+            'ai-chat-supervisor' => [
+                'maxProcesses' => 1,
+            ],
+            'apollo-fetch-supervisor' => [
                 'maxProcesses' => 1,
             ],
             'ai-video-compose-supervisor' => [
