@@ -12,12 +12,15 @@ use App\Http\Controllers\UnsubscribeController;
 use App\Http\Controllers\WebinarChatController;
 use App\Http\Controllers\WebinarRegistrationController;
 use App\Http\Controllers\WebinarRoomController;
+use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Route;
 use Laravel\Fortify\Features;
 
-Route::inertia('/', 'Welcome', [
-    'canRegister' => Features::enabled(Features::registration()),
-])->name('home');
+Route::get('/', function () {
+    return Auth::check()
+        ? redirect()->route('dashboard')
+        : redirect()->route('login');
+})->name('home');
 
 Route::middleware(['auth', 'verified'])->group(function () {
     Route::get('dashboard', DashboardController::class)->name('dashboard');
