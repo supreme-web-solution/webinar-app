@@ -227,11 +227,12 @@ return [
             'connection' => 'redis',
             'queue' => ['ai-video-compose'],
             'balance' => 'simple',
-            'maxProcesses' => 1,
+            'maxProcesses' => 4,   // ✅ allow up to 4 parallel jobs
+            'minProcesses' => 2,   // ✅ keep at least 2 always running
             'maxTime' => 0,
             'maxJobs' => 0,
-            'memory' => 512,
-            'tries' => 1,
+            'memory' => 1024,      // ⚠️ increase for FFmpeg safety
+            'tries' => 3,          // ✅ avoid job loss
             'timeout' => 7200,
             'nice' => 0,
         ],

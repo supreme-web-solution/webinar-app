@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Head, Link, router } from '@inertiajs/vue3';
+import { Head, Link, router, usePage } from '@inertiajs/vue3';
 import { Icon } from '@iconify/vue';
 import { computed, onBeforeUnmount, reactive, ref, watch } from 'vue';
 import AppLayout from '@/layouts/AppLayout.vue';
@@ -361,7 +361,7 @@ const resetAiState = (): void => {
 
 const AI_SLIDE_STYLE_CACHE_KEY = 'webinar-ai:slide-style:v1';
 const AI_VIDEO_RUNTIME_CACHE_KEY = 'webinar-ai:video-runtime:v1';
-const AI_ACTIVE_VIDEO_GLOBAL_KEY = 'webinar-ai:active-video:v1';
+const AI_ACTIVE_VIDEO_GLOBAL_KEY_PREFIX = 'webinar-ai:active-video:v1';
 
 type AiVideoRuntimeCache = {
     video_id: string;
@@ -371,33 +371,46 @@ type AiVideoRuntimeCache = {
 type AiActiveVideoGlobalCache = {
     video_id: string;
     updated_at: string;
+    progress_percent?: number;
 };
 
 const globalActiveVideoId = ref<string | null>(null);
+const globalActiveVideoProgressPercent = ref(0);
+const page = usePage();
+
+const resolveActiveVideoGlobalKey = (): string => {
+    const userId = Number((page.props as Record<string, any>)?.auth?.user?.id ?? 0);
+    return `${AI_ACTIVE_VIDEO_GLOBAL_KEY_PREFIX}:user:${Number.isFinite(userId) && userId > 0 ? userId : 'guest'}`;
+};
 
 const loadGlobalActiveVideoId = (): void => {
     try {
-        const raw = window.localStorage.getItem(AI_ACTIVE_VIDEO_GLOBAL_KEY);
+        const raw = window.localStorage.getItem(resolveActiveVideoGlobalKey());
         if (!raw) {
             globalActiveVideoId.value = null;
+            globalActiveVideoProgressPercent.value = 0;
             return;
         }
         const parsed = JSON.parse(raw) as Partial<AiActiveVideoGlobalCache>;
         const videoId = String(parsed.video_id || '').trim();
         globalActiveVideoId.value = videoId || null;
+        globalActiveVideoProgressPercent.value = Math.max(0, Math.min(100, Number(parsed.progress_percent ?? 0)));
     } catch {
         globalActiveVideoId.value = null;
+        globalActiveVideoProgressPercent.value = 0;
     }
 };
 
-const saveGlobalActiveVideoId = (videoId: string): void => {
+const saveGlobalActiveVideoId = (videoId: string, progressPercent: number = 0): void => {
     try {
         const payload: AiActiveVideoGlobalCache = {
             video_id: videoId,
             updated_at: new Date().toISOString(),
+            progress_percent: Math.max(0, Math.min(100, Number(progressPercent || 0))),
         };
-        window.localStorage.setItem(AI_ACTIVE_VIDEO_GLOBAL_KEY, JSON.stringify(payload));
+        window.localStorage.setItem(resolveActiveVideoGlobalKey(), JSON.stringify(payload));
         globalActiveVideoId.value = videoId;
+        globalActiveVideoProgressPercent.value = payload.progress_percent ?? 0;
     } catch {
         // ignore storage errors
     }
@@ -405,11 +418,12 @@ const saveGlobalActiveVideoId = (videoId: string): void => {
 
 const clearGlobalActiveVideoId = (): void => {
     try {
-        window.localStorage.removeItem(AI_ACTIVE_VIDEO_GLOBAL_KEY);
+        window.localStorage.removeItem(resolveActiveVideoGlobalKey());
     } catch {
         // ignore storage errors
     } finally {
         globalActiveVideoId.value = null;
+        globalActiveVideoProgressPercent.value = 0;
     }
 };
 
@@ -547,7 +561,7 @@ const openAiModal = (): void => {
 };
 
 window.addEventListener('storage', (e) => {
-    if (e.key !== AI_ACTIVE_VIDEO_GLOBAL_KEY) return;
+    if (e.key !== resolveActiveVideoGlobalKey()) return;
     loadGlobalActiveVideoId();
 });
 
@@ -563,6 +577,13 @@ const aiActiveVideoHoverMessage = computed((): string => {
     const active = String(globalActiveVideoId.value || '').trim();
     if (!active) return '';
     return 'An AI video is currently rendering (possibly in another tab). Please wait for it to finish.';
+});
+
+const aiHeaderProgressPercent = computed((): number => {
+    if (aiHasActiveVideoElsewhere.value) {
+        return Math.max(0, Math.min(100, Number(globalActiveVideoProgressPercent.value || 0)));
+    }
+    return Math.max(0, Math.min(100, Number(aiVideoProgressPercent.value || 0)));
 });
 
 const aiButtonBusyTexts = ['AI running...', 'Generating...', 'Please wait...'];
@@ -815,6 +836,9 @@ const pollVideoStatus = async (): Promise<void> => {
         aiComposeStage.value = String(payload.compose_stage || '').toLowerCase();
         const incomingProgress = Math.max(0, Math.min(100, Number(payload.progress_percent ?? aiVideoProgressPercent.value)));
         aiVideoProgressPercent.value = Math.max(aiVideoProgressPercent.value, incomingProgress);
+        if (aiVideoId.value) {
+            saveGlobalActiveVideoId(aiVideoId.value, aiVideoProgressPercent.value);
+        }
 
         if ((normalized === 'completed' || normalized === 'success') && composeInProgress) {
             aiVideoStatus.value = 'processing';
@@ -974,6 +998,7 @@ const generateVideo = async (): Promise<void> => {
                         aiVideoStatus.value = 'pending';
                         aiVideoPhase.value = 'queued';
                         aiVideoProgressPercent.value = Math.max(aiVideoProgressPercent.value, 12);
+                        saveGlobalActiveVideoId(existingId, aiVideoProgressPercent.value);
                         aiVideoMessage.value = existing.message || 'A video is already rendering. Resuming status...';
                         void pollVideoStatus();
                         return;
@@ -996,7 +1021,7 @@ const generateVideo = async (): Promise<void> => {
             slide_plan?: SlidePlanItem[];
         };
         aiVideoId.value = payload.video_id;
-        saveGlobalActiveVideoId(payload.video_id);
+        saveGlobalActiveVideoId(payload.video_id, aiVideoProgressPercent.value);
         saveAiVideoRuntimeCache();
         aiIntroScript.value = payload.intro_script ?? '';
         aiRemainingScript.value = payload.remaining_script ?? '';
@@ -1448,18 +1473,30 @@ const videoSourceIcon = (source: string): string => {
                     </p>
                 </div>
                 <div class="mt-3 flex items-center gap-2 sm:mt-0">
-                    <Button
-                        type="button"
-                        variant="outline"
-                        size="sm"
-                        class="h-9 gap-1.5 px-4 font-semibold"
-                        :disabled="aiHasActiveVideoElsewhere"
-                        :title="aiHasActiveVideoElsewhere ? aiActiveVideoHoverMessage : ''"
-                        @click="openAiModal"
-                    >
-                        <Icon icon="solar:stars-bold-duotone" class="size-4" />
-                        {{ createWithAiButtonText }}
-                    </Button>
+                    <div class="w-[180px]">
+                        <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            class="h-9 w-full gap-1.5 px-4 font-semibold"
+                            :disabled="aiHasActiveVideoElsewhere"
+                            :title="aiHasActiveVideoElsewhere ? aiActiveVideoHoverMessage : ''"
+                            @click="openAiModal"
+                        >
+                            <Icon icon="solar:stars-bold-duotone" class="size-4" />
+                            {{ createWithAiButtonText }}
+                        </Button>
+                        <div
+                            v-if="aiHasActiveVideoElsewhere"
+                            class="mt-1 h-1 w-full overflow-hidden rounded-full bg-muted"
+                            :title="`AI progress: ${aiHeaderProgressPercent}%`"
+                        >
+                            <div
+                                class="h-full rounded-full bg-sky-500 transition-all duration-500"
+                                :style="{ width: `${aiHeaderProgressPercent}%` }"
+                            />
+                        </div>
+                    </div>
                     <Button as-child size="sm" class="h-9 gap-1.5 px-4 font-semibold shadow-sm">
                         <Link href="/admin/webinars/create">
                             <Icon icon="solar:add-circle-bold" class="size-4" />
