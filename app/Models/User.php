@@ -32,6 +32,7 @@ class User extends Authenticatable
         'smtp_password',
         'smtp_from_address',
         'smtp_from_name',
+        'follow_up_segment_emails',
     ];
 
     /**
@@ -61,6 +62,7 @@ class User extends Authenticatable
             'smtp_enabled' => 'boolean',
             'smtp_port' => 'integer',
             'smtp_password' => 'encrypted',
+            'follow_up_segment_emails' => 'array',
         ];
     }
 

@@ -33,6 +33,7 @@ const managementNavItems = computed(() => [
     // { title: 'Analytics', href: '/admin/analytics', icon: 'solar:chart-2-bold-duotone' },
     ...(isAdmin.value ? [{ title: 'Users', href: '/admin/users', icon: 'solar:shield-user-bold-duotone' }] : []),
     { title: 'SMTP', href: '/settings/smtp', icon: 'solar:letter-bold-duotone' },
+    { title: 'Follow-up emails', href: '/settings/follow-up-emails', icon: 'solar:mailbox-bold-duotone' },
     { title: 'Settings', href: '/settings/profile', icon: 'solar:settings-minimalistic-bold-duotone' },
 ]);
 </script>

@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Controllers\Settings\FollowUpEmailsController;
 use App\Http\Controllers\Settings\ProfileController;
 use App\Http\Controllers\Settings\SecurityController;
 use App\Http\Controllers\Settings\SmtpController;
@@ -26,4 +27,7 @@ Route::middleware(['auth', 'verified'])->group(function () {
     Route::get('settings/smtp', [SmtpController::class, 'edit'])->name('smtp.edit');
     Route::patch('settings/smtp', [SmtpController::class, 'update'])->name('smtp.update');
     Route::post('settings/smtp/test', [SmtpController::class, 'test'])->name('smtp.test');
+
+    Route::get('settings/follow-up-emails', [FollowUpEmailsController::class, 'edit'])->name('follow-up-emails.edit');
+    Route::patch('settings/follow-up-emails', [FollowUpEmailsController::class, 'update'])->name('follow-up-emails.update');
 });

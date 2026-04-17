@@ -27,6 +27,10 @@ const sidebarNavItems: NavItem[] = [
         title: 'SMTP',
         href: '/settings/smtp',
     },
+    {
+        title: 'Follow-up emails',
+        href: '/settings/follow-up-emails',
+    },
 ];
 
 const { isCurrentOrParentUrl } = useCurrentUrl();

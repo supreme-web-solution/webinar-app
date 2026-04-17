@@ -40,7 +40,7 @@ class ResendService
             $sentLookup = array_flip($result['sent_registrant_ids']);
             $remaining = array_values(array_filter(
                 $list,
-                fn (WebinarRegistrant $registrant): bool => !isset($sentLookup[$registrant->id])
+                fn (WebinarRegistrant $registrant): bool => ! isset($sentLookup[$registrant->id])
             ));
 
             if ($remaining !== []) {
@@ -90,7 +90,7 @@ class ResendService
     }
 
     /**
-     * @param array<int, WebinarRegistrant> $registrants
+     * @param  array<int, WebinarRegistrant>  $registrants
      * @return array{sent_registrant_ids: array<int, int>, attempted: int}
      */
     private function sendBatchUsingProvider(
@@ -120,7 +120,7 @@ class ResendService
     }
 
     /**
-     * @param array<int, WebinarRegistrant> $registrants
+     * @param  array<int, WebinarRegistrant>  $registrants
      * @return array{sent_registrant_ids: array<int, int>, attempted: int}
      */
     private function sendBatchViaResend(Webinar $webinar, array $registrants, string $subject, string $intro): array
@@ -191,13 +191,13 @@ class ResendService
         $from = $this->resolveDynamicFrom($configuredFrom, $webinar->host_name);
         try {
             $response = $this->postWithRateLimitRetry($apiKey, 'emails', [
-                    'from' => $from,
-                    'to' => [$registrant->email],
-                    'subject' => $subject,
-                    'html' => $this->buildWebinarEmailHtml($webinar, $registrant, $intro),
-                ]);
+                'from' => $from,
+                'to' => [$registrant->email],
+                'subject' => $subject,
+                'html' => $this->buildWebinarEmailHtml($webinar, $registrant, $intro),
+            ]);
 
-            if (!$response || $response->failed()) {
+            if (! $response || $response->failed()) {
                 Log::warning('Resend API request failed.', [
                     'webinar_id' => $webinar->id,
                     'registrant_id' => $registrant->id,
@@ -221,7 +221,7 @@ class ResendService
     }
 
     /**
-     * @param array<int, WebinarRegistrant> $registrants
+     * @param  array<int, WebinarRegistrant>  $registrants
      * @return array{sent_registrant_ids: array<int, int>, attempted: int}
      */
     private function sendBatchViaSmtp(Webinar $webinar, array $registrants, string $subject, string $intro): array
@@ -311,7 +311,7 @@ class ResendService
     private function resolveSmtpTransportConfig(Webinar $webinar): ?array
     {
         $owner = $webinar->relationLoaded('user') ? $webinar->user : $webinar->user()->first();
-        if (!$owner || !$owner->smtp_enabled) {
+        if (! $owner || ! $owner->smtp_enabled) {
             return null;
         }
 
@@ -412,11 +412,16 @@ class ResendService
 
     private function formatIntroForEmail(string $intro): string
     {
-        $escaped = e(trim($intro));
-        if ($escaped === '') {
+        $trimmed = trim($intro);
+        if ($trimmed === '') {
             return '';
         }
 
+        if ($this->introLooksLikeHtml($trimmed)) {
+            return $this->sanitizeIntroHtml($trimmed);
+        }
+
+        $escaped = e($trimmed);
         $withLineBreaks = nl2br($escaped);
 
         return (string) preg_replace_callback(
@@ -424,6 +429,73 @@ class ResendService
             static fn (array $matches): string => '<a href="'.$matches[1].'" style="color:#2563eb;text-decoration:underline;word-break:break-all;">'.$matches[1].'</a>',
             $withLineBreaks,
         );
+    }
+
+    private function introLooksLikeHtml(string $intro): bool
+    {
+        return (bool) preg_match('/<(p|div|br|ul|ol|li|strong|em|b|i|u|h[1-3]|a|blockquote)\b/i', $intro);
+    }
+
+    private function sanitizeIntroHtml(string $html): string
+    {
+        $allowedTags = '<p><br><strong><b><em><i><u><a><ul><ol><li><h1><h2><h3><blockquote>';
+        $clean = strip_tags($html, $allowedTags);
+        $clean = trim($clean);
+        if ($clean === '') {
+            return '';
+        }
+
+        $wrapped = '<?xml encoding="UTF-8"><div id="__intro_root">'.$clean.'</div>';
+
+        libxml_use_internal_errors(true);
+        $dom = new \DOMDocument;
+        $loaded = $dom->loadHTML($wrapped, LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD);
+        libxml_clear_errors();
+
+        if (! $loaded) {
+            return '';
+        }
+
+        $root = $dom->getElementById('__intro_root');
+        if (! $root) {
+            return '';
+        }
+
+        foreach (iterator_to_array($root->getElementsByTagName('*')) as $el) {
+            if ($el instanceof \DOMElement) {
+                $this->sanitizeIntroDomElement($el);
+            }
+        }
+
+        $out = '';
+        foreach ($root->childNodes as $child) {
+            $out .= $dom->saveHTML($child);
+        }
+
+        return $out;
+    }
+
+    private function sanitizeIntroDomElement(\DOMElement $el): void
+    {
+        $tag = strtolower($el->tagName);
+        $attrs = iterator_to_array($el->attributes);
+        foreach ($attrs as $attr) {
+            $name = strtolower($attr->nodeName);
+            if (str_starts_with($name, 'on')) {
+                $el->removeAttribute($attr->nodeName);
+
+                continue;
+            }
+            if ($tag === 'a' && $name === 'href') {
+                $href = trim($attr->nodeValue);
+                if ($href === '' || ! preg_match('#\Ahttps?://#i', $href)) {
+                    $el->removeAttribute('href');
+                }
+
+                continue;
+            }
+            $el->removeAttribute($attr->nodeName);
+        }
     }
 
     private function postWithRateLimitRetry(string $apiKey, string $endpoint, array $payload, int $attempt = 0): ?Response

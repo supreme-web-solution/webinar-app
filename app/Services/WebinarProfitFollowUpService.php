@@ -4,6 +4,7 @@ namespace App\Services;
 
 use App\Jobs\SendWebinarEmailsBatchJob;
 use App\Models\AnalyticsEvent;
+use App\Models\User;
 use App\Models\Webinar;
 use App\Models\WebinarRegistrant;
 use App\Models\WebinarView;
@@ -67,10 +68,14 @@ class WebinarProfitFollowUpService
     {
         $this->syncRegistrantEngagementState($webinar);
 
+        $webinar->loadMissing('user');
+        $owner = $webinar->user;
+
         $offerUrls = $this->extractUniqueOfferUrls($webinar);
-        $below50Intro = $this->buildIntroForSegment('below_50', $offerUrls);
-        $above50Intro = $this->buildIntroForSegment('above_50', $offerUrls);
-        $completedNoClickIntro = $this->buildIntroForSegment('completed_no_click', $offerUrls);
+
+        $belowCfg = $this->readSegmentConfig($owner, 'below_50');
+        $aboveCfg = $this->readSegmentConfig($owner, 'above_50');
+        $completedCfg = $this->readSegmentConfig($owner, 'completed_no_click');
 
         $below50Ids = WebinarRegistrant::query()
             ->where('webinar_id', $webinar->id)
@@ -93,29 +98,35 @@ class WebinarProfitFollowUpService
             ->whereNull('follow_up_completed_no_click_sent_at')
             ->pluck('id');
 
-        $below50Sent = $this->dispatchBatches(
-            $webinar,
-            $below50Ids,
-            'Webinar Follow-up: Quick Recap + Best Offer',
-            $below50Intro,
-            'follow_up_lt_50_sent_at',
-        );
+        $below50Sent = $belowCfg['enabled']
+            ? $this->dispatchBatches(
+                $webinar,
+                $below50Ids,
+                $this->resolveSegmentSubject('below_50', $belowCfg['subject']),
+                $this->composeSegmentIntro('below_50', $belowCfg['body'], $offerUrls),
+                'follow_up_lt_50_sent_at',
+            )
+            : 0;
 
-        $above50Sent = $this->dispatchBatches(
-            $webinar,
-            $above50Ids,
-            'Webinar Follow-up: Continue Where You Stopped',
-            $above50Intro,
-            'follow_up_gte_50_sent_at',
-        );
+        $above50Sent = $aboveCfg['enabled']
+            ? $this->dispatchBatches(
+                $webinar,
+                $above50Ids,
+                $this->resolveSegmentSubject('above_50', $aboveCfg['subject']),
+                $this->composeSegmentIntro('above_50', $aboveCfg['body'], $offerUrls),
+                'follow_up_gte_50_sent_at',
+            )
+            : 0;
 
-        $completedNoClickSent = $this->dispatchBatches(
-            $webinar,
-            $completedNoClickIds,
-            'Webinar Follow-up: You Watched It All - Claim Your Offer',
-            $completedNoClickIntro,
-            'follow_up_completed_no_click_sent_at',
-        );
+        $completedNoClickSent = $completedCfg['enabled']
+            ? $this->dispatchBatches(
+                $webinar,
+                $completedNoClickIds,
+                $this->resolveSegmentSubject('completed_no_click', $completedCfg['subject']),
+                $this->composeSegmentIntro('completed_no_click', $completedCfg['body'], $offerUrls),
+                'follow_up_completed_no_click_sent_at',
+            )
+            : 0;
 
         $totalSent = $below50Sent + $above50Sent + $completedNoClickSent;
 
@@ -247,30 +258,101 @@ class WebinarProfitFollowUpService
     }
 
     /**
-     * @param array<int, string> $offerUrls
+     * @return array{enabled: bool, subject: string, body: string}
      */
-    private function buildIntroForSegment(string $segment, array $offerUrls): string
+    private function readSegmentConfig(?User $user, string $segment): array
+    {
+        $row = data_get($user?->follow_up_segment_emails, $segment, []);
+
+        return [
+            'enabled' => (bool) data_get($row, 'enabled', true),
+            'subject' => trim((string) data_get($row, 'subject', '')),
+            'body' => trim((string) data_get($row, 'body', '')),
+        ];
+    }
+
+    private function resolveSegmentSubject(string $segment, string $customSubject): string
+    {
+        if ($customSubject !== '') {
+            return $customSubject;
+        }
+
+        return match ($segment) {
+            'completed_no_click' => 'Webinar Follow-up: You Watched It All - Claim Your Offer',
+            'above_50' => 'Webinar Follow-up: Continue Where You Stopped',
+            default => 'Webinar Follow-up: Quick Recap + Best Offer',
+        };
+    }
+
+    private function defaultSegmentBody(string $segment): string
+    {
+        return match ($segment) {
+            'completed_no_click' => 'You watched the full webinar, but did not click any offer. We saved the strongest offer links for you here so you can take action now.',
+            'above_50' => 'You watched more than half of the webinar. Here are the most relevant offer links so you can continue where you stopped.',
+            default => 'You watched less than half of the webinar. Here is a quick path to the core offer links so you can still get the result without rewatching everything.',
+        };
+    }
+
+    /**
+     * @param  array<int, string>  $offerUrls
+     */
+    private function formatOfferLinksPlainBlock(array $offerUrls): string
     {
         $offerLines = [];
         foreach ($offerUrls as $url) {
             $offerLines[] = "- {$url}";
         }
 
-        $offersBlock = $offerLines !== []
-            ? "\n\nOffer links:\n".implode("\n", $offerLines)
-            : '';
+        if ($offerLines === []) {
+            return '';
+        }
 
-        return match ($segment) {
-            'completed_no_click' =>
-                'You watched the full webinar, but did not click any offer. We saved the strongest offer links for you here so you can take action now.'
-                .$offersBlock,
-            'above_50' =>
-                'You watched more than half of the webinar. Here are the most relevant offer links so you can continue where you stopped.'
-                .$offersBlock,
-            default =>
-                'You watched less than half of the webinar. Here is a quick path to the core offer links so you can still get the result without rewatching everything.'
-                .$offersBlock,
-        };
+        return "\n\nOffer links:\n".implode("\n", $offerLines);
+    }
+
+    /**
+     * @param  array<int, string>  $offerUrls
+     */
+    private function formatOfferLinksHtmlBlock(array $offerUrls): string
+    {
+        if ($offerUrls === []) {
+            return '';
+        }
+
+        $items = '';
+        foreach ($offerUrls as $url) {
+            $safe = e($url);
+            $items .= '<li style="margin:0 0 8px 0;"><a href="'.$safe.'" style="color:#2563eb;text-decoration:underline;word-break:break-all;">'.$safe.'</a></li>';
+        }
+
+        return '<p style="margin:16px 0 8px 0;font-weight:700;color:#111827;">Offer links</p>'
+            .'<ul style="margin:0 0 0 18px;padding:0;color:#374151;font-size:15px;line-height:1.6;">'.$items.'</ul>';
+    }
+
+    private function looksLikeHtml(string $value): bool
+    {
+        return (bool) preg_match('/<(p|div|br|ul|ol|li|strong|em|b|i|u|h[1-3]|a|blockquote)\b/i', $value);
+    }
+
+    /**
+     * @param  array<int, string>  $offerUrls
+     */
+    private function composeSegmentIntro(string $segment, string $customBody, array $offerUrls): string
+    {
+        $usesCustom = $customBody !== '';
+        $base = $usesCustom ? $customBody : $this->defaultSegmentBody($segment);
+        $baseIsHtml = $usesCustom && $this->looksLikeHtml($base);
+
+        $offerPlain = $this->formatOfferLinksPlainBlock($offerUrls);
+        $offerHtml = $this->formatOfferLinksHtmlBlock($offerUrls);
+
+        if (str_contains($base, '{{offer_links}}')) {
+            $replacement = $baseIsHtml ? $offerHtml : ltrim($offerPlain);
+
+            return str_replace('{{offer_links}}', $replacement, $base);
+        }
+
+        return $base.($baseIsHtml ? $offerHtml : $offerPlain);
     }
 
     private function halfwayThresholdSeconds(Webinar $webinar): int
@@ -298,7 +380,7 @@ class WebinarProfitFollowUpService
     }
 
     /**
-     * @param Collection<int, int> $registrantIds
+     * @param  Collection<int, int>  $registrantIds
      */
     private function dispatchBatches(
         Webinar $webinar,
