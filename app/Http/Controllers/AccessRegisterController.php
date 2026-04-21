@@ -13,21 +13,46 @@ use Inertia\Response;
 
 class AccessRegisterController extends Controller
 {
-    public function show(): Response
+    public function show(Request $request): Response
     {
-        $permissions = Permission::whereIn('name', ['FE', 'Bundle', 'Reseller'])->pluck('name');
+        $allPermissions = ['FE', 'Bundle', 'Reseller'];
+        $planMapping = [
+            'fe' => 'FE',
+            'bundle' => 'Bundle',
+            'reseller' => 'Reseller',
+        ];
+        $plan = $request->query('plan');
+        $normalizedPlan = isset($planMapping[strtolower($plan)]) ? $planMapping[strtolower($plan)] : null;
+
+        if ($normalizedPlan && in_array($normalizedPlan, $allPermissions)) {
+            $permissions = [$normalizedPlan];
+        } else {
+            $permissions = $allPermissions;
+        }
+
         return Inertia::render('Access/Register', [
             'permissions' => $permissions,
+            'selectedPlan' => $normalizedPlan,
         ]);
     }
 
     public function register(Request $request)
     {
+        $allPermissions = ['FE', 'Bundle', 'Reseller'];
+        $planMapping = [
+            'fe' => 'FE',
+            'bundle' => 'Bundle',
+            'reseller' => 'Reseller',
+        ];
+        $plan = $request->query('plan');
+        $normalizedPlan = isset($planMapping[strtolower($plan)]) ? $planMapping[strtolower($plan)] : null;
+        $allowedPermissions = $normalizedPlan ? [$normalizedPlan] : $allPermissions;
+
         $validator = Validator::make($request->all(), [
             'name' => 'required|string|max:255',
             'email' => 'required|string|email|max:255|unique:users',
             'password' => 'required|string|min:8|confirmed',
-            'permission' => 'required|in:FE,Bundle,Reseller',
+            'permission' => ['required', 'in:' . implode(',', $allowedPermissions)],
         ]);
 
         if ($validator->fails()) {

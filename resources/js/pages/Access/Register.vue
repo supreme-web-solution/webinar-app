@@ -8,6 +8,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 
 const props = defineProps<{
     permissions: string[];
+    selectedPlan?: string;
 }>();
 
 const form = useForm({
@@ -15,7 +16,7 @@ const form = useForm({
     email: '',
     password: '',
     password_confirmation: '',
-    permission: '',
+    permission: props.selectedPlan || '',
 });
 
 const submit = (): void => {
