@@ -314,6 +314,19 @@ const csrfToken = (): string => {
     return tokenTag?.content || '';
 };
 
+const xsrfCookieToken = (): string | null => {
+    const xsrfCookie = document.cookie
+        .split(';')
+        .map((part) => part.trim())
+        .find((part) => part.startsWith('XSRF-TOKEN='));
+
+    if (!xsrfCookie) {
+        return null;
+    }
+
+    return decodeURIComponent(xsrfCookie.substring('XSRF-TOKEN='.length));
+};
+
 const resetAiState = (): void => {
     aiStep.value = 'brief';
     aiScript.value = '';
@@ -687,27 +700,59 @@ const fetchWithCsrfRetry = async (
     url: string,
     init: RequestInit,
 ): Promise<Response> => {
-    const makeRequest = (): Promise<Response> => fetch(url, {
-        ...init,
-        credentials: 'same-origin',
-        headers: {
+    const makeRequest = (tokenOverride?: string): Promise<Response> => {
+        const headers: Record<string, string> = {
             Accept: 'application/json',
             'X-Requested-With': 'XMLHttpRequest',
-            ...(init.headers || {}),
-            'X-CSRF-TOKEN': csrfToken(),
-        },
-    });
+            ...(init.headers as Record<string, string> | undefined),
+            'X-CSRF-TOKEN': tokenOverride || csrfToken(),
+        };
+
+        const cookieToken = xsrfCookieToken();
+        if (cookieToken) {
+            headers['X-XSRF-TOKEN'] = cookieToken;
+        }
+
+        return fetch(url, {
+            ...init,
+            credentials: 'same-origin',
+            headers,
+        });
+    };
 
     let response = await makeRequest();
     if (response.status !== 419) {
         return response;
     }
 
-    // Non-Sanctum app: if token mismatches, refresh page immediately to renew CSRF/session state.
-    showToast('Session expired. Refreshing page to restore security token...', 'info');
-    window.setTimeout(() => {
-        window.location.reload();
-    }, 300);
+    // Refresh CSRF token server-side and retry once.
+    const tokenResponse = await fetch('/csrf-token', {
+        method: 'GET',
+        credentials: 'same-origin',
+        cache: 'no-store',
+        headers: {
+            Accept: 'application/json',
+            'X-Requested-With': 'XMLHttpRequest',
+        },
+    });
+
+    let refreshedToken = '';
+    if (tokenResponse.ok) {
+        try {
+            const payload = await tokenResponse.json() as { token?: string };
+            refreshedToken = String(payload.token || '');
+            if (refreshedToken) {
+                const tokenTag = document.querySelector('meta[name="csrf-token"]') as HTMLMetaElement | null;
+                if (tokenTag) {
+                    tokenTag.content = refreshedToken;
+                }
+            }
+        } catch {
+            refreshedToken = '';
+        }
+    }
+
+    response = await makeRequest(refreshedToken || undefined);
     return response;
 };
 

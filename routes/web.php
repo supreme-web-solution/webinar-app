@@ -13,6 +13,7 @@ use App\Http\Controllers\WebinarChatController;
 use App\Http\Controllers\WebinarRegistrationController;
 use App\Http\Controllers\WebinarRoomController;
 use App\Http\Controllers\AccessRegisterController;
+use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Route;
 use Laravel\Fortify\Features;
@@ -22,6 +23,14 @@ Route::get('/', function () {
         ? redirect()->route('dashboard')
         : redirect()->route('login');
 })->name('home');
+
+Route::get('/csrf-token', function (Request $request) {
+    $request->session()->regenerateToken();
+
+    return response()->json([
+        'token' => csrf_token(),
+    ]);
+})->name('csrf.token');
 
 // Custom access registration page
 Route::get('/access/register', [AccessRegisterController::class, 'show'])->name('access.register');
