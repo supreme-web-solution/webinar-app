@@ -83,6 +83,7 @@ const aiWebinarId = ref<number | null>(null);
 const aiVideoMessage = ref<string | null>(null);
 const aiVideoPhase = ref<string>('idle');
 const aiComposeStage = ref<string>('');
+const aiComposeElapsedSeconds = ref<number | null>(null);
 const aiVideoProgressPercent = ref(0);
 const aiLoadingScript = ref(false);
 const aiLoadingVideo = ref(false);
@@ -325,6 +326,7 @@ const resetAiState = (): void => {
     aiVideoMessage.value = null;
     aiVideoPhase.value = 'idle';
     aiComposeStage.value = '';
+    aiComposeElapsedSeconds.value = null;
     aiVideoProgressPercent.value = 0;
     aiIntroScript.value = '';
     aiRemainingScript.value = '';
@@ -665,6 +667,22 @@ const parseErrorMessage = async (response: Response, fallback: string): Promise<
     }
 };
 
+const formatElapsedTime = (seconds: number): string => {
+    if (seconds < 60) {
+        return `${seconds}s`;
+    }
+
+    const minutes = Math.floor(seconds / 60);
+    const remainder = seconds % 60;
+    if (minutes < 60) {
+        return remainder > 0 ? `${minutes}m ${remainder}s` : `${minutes}m`;
+    }
+
+    const hours = Math.floor(minutes / 60);
+    const minuteRemainder = minutes % 60;
+    return minuteRemainder > 0 ? `${hours}h ${minuteRemainder}m` : `${hours}h`;
+};
+
 const fetchWithCsrfRetry = async (
     url: string,
     init: RequestInit,
@@ -851,24 +869,50 @@ const pollVideoStatus = async (): Promise<void> => {
             composing_long_form?: boolean;
             compose_status?: string;
             compose_stage?: string;
+            compose_elapsed_seconds?: number;
+            compose_timeout_seconds?: number;
             phase?: string;
             progress_percent?: number;
         };
 
         const normalized = String(payload.status || '').toLowerCase();
         const composeStatus = String(payload.compose_status || '').toLowerCase();
+        const composeElapsedSeconds = Math.max(0, Number(payload.compose_elapsed_seconds ?? 0));
+        const composeTimeoutSeconds = Math.max(0, Number(payload.compose_timeout_seconds ?? 0));
         const composeInProgress = composeStatus === 'processing';
         aiVideoPhase.value = String(payload.phase || '').toLowerCase() || normalized || 'processing';
         aiComposeStage.value = String(payload.compose_stage || '').toLowerCase();
+        aiComposeElapsedSeconds.value = composeElapsedSeconds > 0 ? composeElapsedSeconds : null;
         const incomingProgress = Math.max(0, Math.min(100, Number(payload.progress_percent ?? aiVideoProgressPercent.value)));
         aiVideoProgressPercent.value = Math.max(aiVideoProgressPercent.value, incomingProgress);
         if (aiVideoId.value) {
             saveGlobalActiveVideoId(aiVideoId.value, aiVideoProgressPercent.value);
         }
 
+        if (aiVideoPhase.value === 'failed' || composeStatus === 'failed' || normalized === 'failed' || normalized === 'error') {
+            aiVideoStatus.value = 'failed';
+            aiVideoPhase.value = 'failed';
+            aiVideoProgressPercent.value = 0;
+            aiVideoMessage.value = aiComposeStage.value === 'timeout'
+                ? `Video compose timed out after ${formatElapsedTime(composeElapsedSeconds)}. Please try again with a shorter script or fewer generated slides.`
+                : 'Video rendering failed on provider.';
+            clearAiVideoRuntimeCache();
+            clearGlobalActiveVideoId();
+            void upsertAiWebinarDraft({
+                videoUrl: null,
+                source: 'heygen_pending',
+                heygenVideoId: aiVideoId.value,
+                generationStatus: 'failed',
+            });
+            return;
+        }
+
         if ((normalized === 'completed' || normalized === 'success') && composeInProgress) {
             aiVideoStatus.value = 'processing';
-            aiVideoMessage.value = 'Intro is ready. Final compose is still running (slides + merge + upload)...';
+            const isLongMerge = (aiComposeStage.value === 'merging' || aiVideoProgressPercent.value >= 92) && composeElapsedSeconds >= 180;
+            aiVideoMessage.value = isLongMerge
+                ? `Intro is ready. Final merge/upload is still running (${formatElapsedTime(composeElapsedSeconds)} elapsed).`
+                : 'Intro is ready. Final compose is still running (slides + merge + upload)...';
             aiVideoProvider.value = null;
             aiVideoUrl.value = null;
             aiPollTimer = window.setTimeout(() => {
@@ -883,7 +927,10 @@ const pollVideoStatus = async (): Promise<void> => {
             aiVideoProvider.value = payload.cloudinary_uploaded ? 'cloudinary' : 'heygen';
             aiStatusReadFailureCount.value = 0;
             if (payload.composing_long_form && !aiVideoUrl.value) {
-                aiVideoMessage.value = 'Composing full webinar video (intro + slides). This may take longer for long scripts...';
+                const nearTimeout = composeTimeoutSeconds > 0 && composeElapsedSeconds > 0 && composeElapsedSeconds >= Math.floor(composeTimeoutSeconds * 0.8);
+                aiVideoMessage.value = nearTimeout
+                    ? `Composing full webinar video (${formatElapsedTime(composeElapsedSeconds)} elapsed). Final merge is taking longer than usual.`
+                    : 'Composing full webinar video (intro + slides). This may take longer for long scripts...';
                 aiVideoProgressPercent.value = Math.max(aiVideoProgressPercent.value, 82);
             } else {
                 aiVideoMessage.value = aiVideoUrl.value
@@ -913,25 +960,11 @@ const pollVideoStatus = async (): Promise<void> => {
             return;
         }
 
-        if (normalized === 'failed' || normalized === 'error') {
-            aiVideoStatus.value = 'failed';
-            aiVideoPhase.value = 'failed';
-            aiVideoProgressPercent.value = 0;
-            aiVideoMessage.value = 'Video rendering failed on provider.';
-            clearAiVideoRuntimeCache();
-            clearGlobalActiveVideoId();
-            void upsertAiWebinarDraft({
-                videoUrl: null,
-                source: 'heygen_pending',
-                heygenVideoId: aiVideoId.value,
-                generationStatus: 'failed',
-            });
-            return;
-        }
-
         aiVideoStatus.value = normalized === 'processing' ? 'processing' : 'pending';
         aiStatusReadFailureCount.value = 0;
-        aiVideoMessage.value = 'Rendering in progress. Long scripts may take much longer. You can refresh and resume.';
+        aiVideoMessage.value = aiVideoProgressPercent.value >= 92 && composeElapsedSeconds >= 180
+            ? `Final merge/upload is still running (${formatElapsedTime(composeElapsedSeconds)} elapsed). You can keep this modal open.`
+            : 'Rendering in progress. Long scripts may take much longer. You can refresh and resume.';
         if (aiVideoStatus.value === 'pending') {
             aiVideoProgressPercent.value = Math.max(aiVideoProgressPercent.value, 12);
         } else {
@@ -2219,7 +2252,12 @@ const videoSourceIcon = (source: string): string => {
                         :class="videoStatusClass"
                     >
                         <p class="font-semibold capitalize">Status: {{ aiVideoStatus }}</p>
-                        <p class="mt-1 text-xs font-medium">Stage: {{ videoProgressLabel }} ({{ aiVideoProgressPercent }}%)</p>
+                        <p class="mt-1 text-xs font-medium">
+                            Stage: {{ videoProgressLabel }} ({{ aiVideoProgressPercent }}%)
+                            <span v-if="aiComposeElapsedSeconds !== null" class="ml-1 text-muted-foreground">
+                                · elapsed {{ formatElapsedTime(aiComposeElapsedSeconds) }}
+                            </span>
+                        </p>
                         <div class="mt-1.5 h-1.5 w-full overflow-hidden rounded-full bg-background/70">
                             <div
                                 class="h-full rounded-full bg-current transition-all duration-500"

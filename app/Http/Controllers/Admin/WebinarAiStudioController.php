@@ -569,8 +569,12 @@ class WebinarAiStudioController extends Controller
             }
 
             $composeState = Cache::get($this->composeStateCacheKey($payload['video_id']));
+            if (is_array($composeState)) {
+                $composeState = $this->applyComposeTimeoutIfNeeded($payload['video_id'], $composeState);
+            }
             $composeStatus = is_array($composeState) ? (string) ($composeState['status'] ?? '') : '';
             $composeStage = is_array($composeState) ? (string) ($composeState['stage'] ?? '') : '';
+            $composeElapsedSeconds = $this->composeElapsedSeconds($composeState);
             $composingLongForm = $composeStatus === 'processing';
             $phase = $this->resolveVideoPhase($status, $composeStatus, $videoUrl);
             $progressPercent = $this->resolveVideoProgressPercent($status, $composeStatus, $composeStage, $videoUrl);
@@ -629,6 +633,7 @@ class WebinarAiStudioController extends Controller
                 'compose_stage' => $composeStage,
                 'phase' => $phase,
                 'progress_percent' => $progressPercent,
+                'compose_elapsed_seconds' => $composeElapsedSeconds,
             ]);
 
             return response()->json([
@@ -641,6 +646,8 @@ class WebinarAiStudioController extends Controller
                 'compose_stage' => $composeStage,
                 'phase' => $phase,
                 'progress_percent' => $progressPercent,
+                'compose_elapsed_seconds' => $composeElapsedSeconds,
+                'compose_timeout_seconds' => $this->composeTimeoutSeconds(),
             ]);
         } catch (\Throwable $e) {
             Log::warning('Webinar AI HeyGen status failed', [
@@ -1157,7 +1164,7 @@ class WebinarAiStudioController extends Controller
                 return null;
             }
 
-            Cache::put($stateKey, ['status' => 'processing', 'stage' => 'queued'], now()->addHours(6));
+            $this->setComposeState($videoId, 'processing', 'queued', 6);
             Log::info('webinar.ai.video.compose.started', [
                 'video_id' => $videoId,
                 'mode' => 'after_response_job',
@@ -1195,17 +1202,15 @@ class WebinarAiStudioController extends Controller
 
             $meta = Cache::get($this->composeMetaCacheKey($videoId));
             if (! is_array($meta)) {
-                Cache::put($stateKey, ['status' => 'failed', 'stage' => 'missing_meta'], now()->addHours(2));
+                $this->setComposeState($videoId, 'failed', 'missing_meta', 2);
                 return;
             }
 
             $remainingScript = trim((string) ($meta['remaining_script'] ?? ''));
             if ($remainingScript === '') {
-                Cache::put($stateKey, [
-                    'status' => 'completed',
-                    'stage' => 'no_remaining_script',
+                $this->setComposeState($videoId, 'completed', 'no_remaining_script', 24, [
                     'video_url' => $introVideoUrl,
-                ], now()->addHours(24));
+                ]);
                 return;
             }
 
@@ -1214,7 +1219,7 @@ class WebinarAiStudioController extends Controller
             $aspectRatio = (string) ($meta['aspect_ratio'] ?? '16:9');
             $title = (string) ($meta['title'] ?? 'Webinar');
             $slideStyle = $this->normalizeSlideStyle($meta['slide_style'] ?? null);
-            Cache::put($stateKey, ['status' => 'processing', 'stage' => 'composing'], now()->addHours(6));
+            $this->setComposeState($videoId, 'processing', 'composing', 6);
 
             $mergedUrl = $this->composeLongFormVideoFromIntroAndSlides(
                 $videoId,
@@ -1228,11 +1233,9 @@ class WebinarAiStudioController extends Controller
             );
 
             if ($mergedUrl !== null) {
-                Cache::put($stateKey, [
-                    'status' => 'completed',
-                    'stage' => 'done',
+                $this->setComposeState($videoId, 'completed', 'done', 24, [
                     'video_url' => $mergedUrl,
-                ], now()->addHours(24));
+                ]);
                 $this->persistComposedVideoToWebinar($videoId, $mergedUrl);
                 Log::info('webinar.ai.video.compose.completed', [
                     'video_id' => $videoId,
@@ -1242,7 +1245,7 @@ class WebinarAiStudioController extends Controller
                 return;
             }
 
-            Cache::put($stateKey, ['status' => 'failed', 'stage' => 'no_merged_url'], now()->addHours(2));
+            $this->setComposeState($videoId, 'failed', 'no_merged_url', 2);
             $this->persistComposeFailureToWebinar($videoId);
             Log::warning('webinar.ai.video.compose.failed_without_url', [
                 'video_id' => $videoId,
@@ -1252,7 +1255,7 @@ class WebinarAiStudioController extends Controller
                 'video_id' => $videoId,
                 'message' => $e->getMessage(),
             ]);
-            Cache::put($stateKey, ['status' => 'failed', 'stage' => 'exception'], now()->addHours(2));
+            $this->setComposeState($videoId, 'failed', 'exception', 2);
             $this->persistComposeFailureToWebinar($videoId);
         } finally {
             try {
@@ -1345,7 +1348,7 @@ class WebinarAiStudioController extends Controller
 
             $generatedSlideImages = [];
             if ((bool) ($slideStyle['generate_images'] ?? false)) {
-                Cache::put($this->composeStateCacheKey($videoId), ['status' => 'processing', 'stage' => 'generating_images'], now()->addHours(6));
+                $this->setComposeState($videoId, 'processing', 'generating_images', 6);
                 $generatedSlideImages = $this->generateSlideImagesForPlan(
                     $videoId,
                     $slidePlan,
@@ -1392,14 +1395,7 @@ class WebinarAiStudioController extends Controller
                     escapeshellarg($slidesPath)
                 );
             }
-            Cache::put(
-                $this->composeStateCacheKey($videoId),
-                [
-                    'status' => 'processing',
-                    'stage' => 'rendering_slides',
-                ],
-                now()->addHours(6)
-            );
+            $this->setComposeState($videoId, 'processing', 'rendering_slides', 6);
             $this->runShellCommand($slideCmd, 'Failed to render slide video.');
             Log::info('webinar.ai.video.compose.slides_rendered', [
                 'video_id' => $videoId,
@@ -1418,32 +1414,110 @@ class WebinarAiStudioController extends Controller
                 escapeshellarg('[a]'),
                 escapeshellarg($mergedPath)
             );
-            Cache::put(
-                $this->composeStateCacheKey($videoId),
-                [
-                    'status' => 'processing',
-                    'stage' => 'merging',
-                ],
-                now()->addHours(6)
-            );
+            $this->setComposeState($videoId, 'processing', 'merging', 6);
             $this->runShellCommand($concatCmd, 'Failed to merge intro and slides video.');
             Log::info('webinar.ai.video.compose.merge_completed', [
                 'video_id' => $videoId,
                 'merged_path' => $mergedPath,
             ]);
 
-            Cache::put(
-                $this->composeStateCacheKey($videoId),
-                [
-                    'status' => 'processing',
-                    'stage' => 'uploading',
-                ],
-                now()->addHours(6)
-            );
+            $this->setComposeState($videoId, 'processing', 'uploading', 6);
             return $this->uploadLocalVideoFileToCloudinary($mergedPath, $videoId);
         } finally {
             File::deleteDirectory($workDir);
         }
+    }
+
+    private function composeTimeoutSeconds(): int
+    {
+        return max(300, (int) env('WEBINAR_AI_COMPOSE_TIMEOUT_SECONDS', 1200));
+    }
+
+    /**
+     * @param array<string, mixed>|null $state
+     */
+    private function composeElapsedSeconds(?array $state): ?int
+    {
+        if (! is_array($state)) {
+            return null;
+        }
+
+        $rawStartedAt = is_string($state['started_at'] ?? null) ? (string) $state['started_at'] : '';
+        $rawFallback = is_string($state['updated_at'] ?? null) ? (string) $state['updated_at'] : '';
+        $base = $rawStartedAt !== '' ? $rawStartedAt : $rawFallback;
+        if ($base === '') {
+            return null;
+        }
+
+        try {
+            return max(0, Carbon::parse($base)->diffInSeconds(now()));
+        } catch (\Throwable) {
+            return null;
+        }
+    }
+
+    /**
+     * @param array<string, mixed> $state
+     * @return array<string, mixed>
+     */
+    private function applyComposeTimeoutIfNeeded(string $videoId, array $state): array
+    {
+        if (($state['status'] ?? null) !== 'processing') {
+            return $state;
+        }
+
+        $elapsedSeconds = $this->composeElapsedSeconds($state);
+        if (! is_int($elapsedSeconds) || $elapsedSeconds <= $this->composeTimeoutSeconds()) {
+            return $state;
+        }
+
+        $this->setComposeState($videoId, 'failed', 'timeout', 2);
+        $this->persistComposeFailureToWebinar($videoId);
+        Log::warning('webinar.ai.video.compose.timed_out', [
+            'video_id' => $videoId,
+            'elapsed_seconds' => $elapsedSeconds,
+            'timeout_seconds' => $this->composeTimeoutSeconds(),
+            'stage' => (string) ($state['stage'] ?? ''),
+        ]);
+
+        $timedOutState = Cache::get($this->composeStateCacheKey($videoId));
+
+        return is_array($timedOutState) ? $timedOutState : [
+            'status' => 'failed',
+            'stage' => 'timeout',
+            'updated_at' => now()->toIso8601String(),
+        ];
+    }
+
+    /**
+     * @param array<string, mixed> $extra
+     */
+    private function setComposeState(
+        string $videoId,
+        string $status,
+        string $stage,
+        int $ttlHours,
+        array $extra = []
+    ): void {
+        $stateKey = $this->composeStateCacheKey($videoId);
+        $existing = Cache::get($stateKey);
+        $existingState = is_array($existing) ? $existing : [];
+
+        $state = array_merge($existingState, $extra, [
+            'status' => $status,
+            'stage' => $stage,
+            'updated_at' => now()->toIso8601String(),
+        ]);
+
+        if ($status === 'processing') {
+            $existingStartedAt = is_string($existingState['started_at'] ?? null) ? (string) $existingState['started_at'] : '';
+            $incomingStartedAt = is_string($state['started_at'] ?? null) ? (string) $state['started_at'] : '';
+            $state['started_at'] = $incomingStartedAt !== ''
+                ? $incomingStartedAt
+                : ($existingStartedAt !== '' ? $existingStartedAt : now()->toIso8601String());
+        }
+
+        Cache::put($stateKey, $state, now()->addHours($ttlHours));
     }
 
     private function generateOpenAiNarrationAudioBinary(string $script, string $voice): string
