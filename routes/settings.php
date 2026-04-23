@@ -30,4 +30,7 @@ Route::middleware(['auth', 'verified'])->group(function () {
 
     Route::get('settings/follow-up-emails', [FollowUpEmailsController::class, 'edit'])->name('follow-up-emails.edit');
     Route::patch('settings/follow-up-emails', [FollowUpEmailsController::class, 'update'])->name('follow-up-emails.update');
+
+    Route::inertia('settings/solo-ad-traffic-training', 'settings/SoloAdTrafficTraining')
+        ->name('solo-ad-traffic-training');
 });

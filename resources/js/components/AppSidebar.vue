@@ -23,6 +23,7 @@ const { isCurrentUrl } = useCurrentUrl();
 const isAdmin = computed(() => Boolean((page.props.auth as { is_admin?: boolean })?.is_admin));
 
 const mainNavItems = [
+    { title: 'Tutorial', href: '/tutorial', icon: 'solar:book-bold-duotone' },
     { title: 'Dashboard', href: dashboard(), icon: 'solar:widget-2-bold-duotone' },
     { title: 'Webinars', href: '/admin/webinars', icon: 'solar:monitor-camera-bold-duotone' },
     { title: 'Chat', href: '/admin/chats', icon: 'solar:chat-round-dots-bold-duotone' },
@@ -35,6 +36,7 @@ const managementNavItems = computed(() => [
     { title: 'SMTP', href: '/settings/smtp', icon: 'solar:letter-bold-duotone' },
     { title: 'Follow-up emails', href: '/settings/follow-up-emails', icon: 'solar:mailbox-bold-duotone' },
     { title: 'Settings', href: '/settings/profile', icon: 'solar:settings-minimalistic-bold-duotone' },
+    { title: 'Solo Ad Traffic Training', href: '/settings/solo-ad-traffic-training', icon: 'solar:play-circle-bold-duotone' },
 ]);
 </script>
 

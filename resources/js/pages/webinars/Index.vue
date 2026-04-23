@@ -300,21 +300,17 @@ const estimatedDurationSeconds = computed(() => {
 });
 
 const csrfToken = (): string => {
-    const tokenTag = document.querySelector('meta[name="csrf-token"]') as HTMLMetaElement | null;
-    if (tokenTag?.content) {
-        return tokenTag.content;
-    }
-
     const xsrfCookie = document.cookie
         .split(';')
         .map((part) => part.trim())
         .find((part) => part.startsWith('XSRF-TOKEN='));
 
-    if (!xsrfCookie) {
-        return '';
+    if (xsrfCookie) {
+        return decodeURIComponent(xsrfCookie.substring('XSRF-TOKEN='.length));
     }
 
-    return decodeURIComponent(xsrfCookie.substring('XSRF-TOKEN='.length));
+    const tokenTag = document.querySelector('meta[name="csrf-token"]') as HTMLMetaElement | null;
+    return tokenTag?.content || '';
 };
 
 const resetAiState = (): void => {
@@ -669,6 +665,40 @@ const parseErrorMessage = async (response: Response, fallback: string): Promise<
     }
 };
 
+const fetchWithCsrfRetry = async (
+    url: string,
+    init: RequestInit,
+): Promise<Response> => {
+    const makeRequest = (): Promise<Response> => fetch(url, {
+        ...init,
+        credentials: 'same-origin',
+        headers: {
+            Accept: 'application/json',
+            'X-Requested-With': 'XMLHttpRequest',
+            ...(init.headers || {}),
+            'X-CSRF-TOKEN': csrfToken(),
+        },
+    });
+
+    let response = await makeRequest();
+    if (response.status !== 419) {
+        return response;
+    }
+
+    // Refresh CSRF cookie and retry once to avoid forcing a manual page reload.
+    await fetch('/sanctum/csrf-cookie', {
+        method: 'GET',
+        credentials: 'same-origin',
+        headers: {
+            Accept: 'application/json',
+            'X-Requested-With': 'XMLHttpRequest',
+        },
+    });
+
+    response = await makeRequest();
+    return response;
+};
+
 const loadAiOptions = async (): Promise<void> => {
     aiLoadingHeygenOptions.value = true;
     aiHeygenOptionsError.value = null;
@@ -752,14 +782,10 @@ const generateScript = async (): Promise<void> => {
     aiLoadingScript.value = true;
 
     try {
-        const response = await fetch('/admin/webinars/ai/script', {
+        const response = await fetchWithCsrfRetry('/admin/webinars/ai/script', {
             method: 'POST',
-            credentials: 'same-origin',
             headers: {
-                Accept: 'application/json',
                 'Content-Type': 'application/json',
-                'X-CSRF-TOKEN': csrfToken(),
-                'X-Requested-With': 'XMLHttpRequest',
             },
             body: JSON.stringify({
                 topic: aiBrief.topic,
@@ -965,14 +991,10 @@ const generateVideo = async (): Promise<void> => {
             return;
         }
 
-        const response = await fetch('/admin/webinars/ai/video', {
+        const response = await fetchWithCsrfRetry('/admin/webinars/ai/video', {
             method: 'POST',
-            credentials: 'same-origin',
             headers: {
-                Accept: 'application/json',
                 'Content-Type': 'application/json',
-                'X-CSRF-TOKEN': csrfToken(),
-                'X-Requested-With': 'XMLHttpRequest',
             },
             body: JSON.stringify({
                 title: aiBrief.title,
@@ -1093,14 +1115,10 @@ const upsertAiWebinarDraft = async ({
     heygenVideoId: string | null;
     generationStatus: string;
 }): Promise<{ webinar_id: number; edit_url: string } | null> => {
-    const response = await fetch('/admin/webinars/ai/create', {
+    const response = await fetchWithCsrfRetry('/admin/webinars/ai/create', {
         method: 'POST',
-        credentials: 'same-origin',
         headers: {
-            Accept: 'application/json',
             'Content-Type': 'application/json',
-            'X-CSRF-TOKEN': csrfToken(),
-            'X-Requested-With': 'XMLHttpRequest',
         },
         body: JSON.stringify({
             webinar_id: aiWebinarId.value,

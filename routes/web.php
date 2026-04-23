@@ -28,6 +28,7 @@ Route::get('/access/register', [AccessRegisterController::class, 'show'])->name(
 Route::post('/access/register', [AccessRegisterController::class, 'register']);
 
 Route::middleware(['auth', 'verified'])->group(function () {
+    Route::inertia('tutorial', 'Tutorial')->name('tutorial');
     Route::get('dashboard', DashboardController::class)->name('dashboard');
 
     Route::prefix('admin')->name('admin.')->group(function () {
