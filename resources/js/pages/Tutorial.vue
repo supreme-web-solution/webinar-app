@@ -25,12 +25,12 @@ const videos: TutorialVideo[] = [
     {
         title: 'Webinar Creation',
         description: 'Step-by-step setup for creating a new webinar.',
-        src: '/videos/webinar-creation.mp4',
+        src: 'https://res.cloudinary.com/dp0bpzh9b/video/upload/v1776958680/webinar-creation_1_k6euab.mp4',
     },
     {
         title: 'Webinar Room and Chat Page',
         description: 'How webinar room controls and attendee chat work.',
-        src: '/videos/webinar-room-and-chat-page.mp4',
+        src: 'https://res.cloudinary.com/dp0bpzh9b/video/upload/v1776958490/webinar-room-and-chat-page_0tBh8g6s_qk9boz.mp4',
     },
     {
         title: 'SMTP Setup',
