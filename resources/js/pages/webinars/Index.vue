@@ -703,38 +703,11 @@ const fetchWithCsrfRetry = async (
         return response;
     }
 
-    // Try Sanctum CSRF refresh first (if available), then fallback to reloading current web page
-    // to refresh session + XSRF-TOKEN cookie for non-Sanctum setups.
-    const sanctumRefresh = await fetch('/sanctum/csrf-cookie', {
-        method: 'GET',
-        credentials: 'same-origin',
-        headers: {
-            Accept: 'application/json',
-            'X-Requested-With': 'XMLHttpRequest',
-        },
-    });
-
-    if (!sanctumRefresh.ok) {
-        await fetch(window.location.pathname, {
-            method: 'GET',
-            credentials: 'same-origin',
-            cache: 'no-store',
-            headers: {
-                Accept: 'text/html',
-                'X-Requested-With': 'XMLHttpRequest',
-            },
-        });
-    }
-
-    response = await makeRequest();
-
-    if (response.status === 419) {
-        showToast('Session expired. Refreshing page to restore security token...', 'info');
-        window.setTimeout(() => {
-            window.location.reload();
-        }, 500);
-    }
-
+    // Non-Sanctum app: if token mismatches, refresh page immediately to renew CSRF/session state.
+    showToast('Session expired. Refreshing page to restore security token...', 'info');
+    window.setTimeout(() => {
+        window.location.reload();
+    }, 300);
     return response;
 };
 
