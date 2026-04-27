@@ -2339,14 +2339,14 @@ const videoSourceIcon = (source: string): string => {
                             <Icon v-if="aiLoadingScript" icon="svg-spinners:3-dots-fade" class="mr-1 size-4" />
                             Generate Script
                         </Button>
-                        <Button
+                        <!-- <Button
                             v-if="aiStep === 'brief'"
                             type="button"
                             variant="outline"
                             @click="aiStep = 'script'"
                         >
                             Skip to Script (Temporary)
-                        </Button>
+                        </Button> -->
 
                         <template v-else-if="aiStep === 'script'">
                             <Button

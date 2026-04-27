@@ -268,6 +268,7 @@ const apolloFetchForm = useForm<{
     location: string;
     company_size: string;
     keyword: string;
+    _token: string;
 }>({
     count: Math.min(props.apolloMaxFetch, 100),
     job_title: 'Founder',
@@ -275,6 +276,7 @@ const apolloFetchForm = useForm<{
     location: 'United States',
     company_size: '11,50',
     keyword: '',
+    _token: '',
 });
 
 const apolloFetchErrorMessage = computed(() =>
@@ -360,6 +362,85 @@ const previewChunksLoading = ref(false);
 const csrfToken = (): string => {
     const tokenTag = document.querySelector('meta[name="csrf-token"]') as HTMLMetaElement | null;
     return tokenTag?.content ?? '';
+};
+
+const xsrfCookieToken = (): string => {
+    const encoded = document.cookie
+        .split('; ')
+        .find((cookie) => cookie.startsWith('XSRF-TOKEN='))
+        ?.split('=')[1];
+
+    if (!encoded) {
+        return '';
+    }
+
+    try {
+        return decodeURIComponent(encoded);
+    } catch {
+        return encoded;
+    }
+};
+
+const refreshCsrfToken = async (): Promise<string> => {
+    const tokenResponse = await fetch('/csrf-token', {
+        method: 'GET',
+        credentials: 'same-origin',
+        cache: 'no-store',
+        headers: {
+            Accept: 'application/json',
+            'X-Requested-With': 'XMLHttpRequest',
+        },
+    });
+
+    if (!tokenResponse.ok) {
+        return '';
+    }
+
+    try {
+        const payload = await tokenResponse.json() as { token?: string };
+        const refreshedToken = String(payload.token || '');
+        if (refreshedToken) {
+            const tokenTag = document.querySelector('meta[name="csrf-token"]') as HTMLMetaElement | null;
+            if (tokenTag) {
+                tokenTag.content = refreshedToken;
+            }
+        }
+
+        return refreshedToken;
+    } catch {
+        return '';
+    }
+};
+
+const fetchWithCsrfRetry = async (url: string, init: RequestInit): Promise<Response> => {
+    const makeRequest = (tokenOverride?: string): Promise<Response> => {
+        const headers: Record<string, string> = {
+            Accept: 'application/json',
+            'X-Requested-With': 'XMLHttpRequest',
+            ...(init.headers as Record<string, string> | undefined),
+            'X-CSRF-TOKEN': tokenOverride || csrfToken(),
+        };
+
+        const cookieToken = xsrfCookieToken();
+        if (cookieToken) {
+            headers['X-XSRF-TOKEN'] = cookieToken;
+        }
+
+        return fetch(url, {
+            ...init,
+            credentials: 'same-origin',
+            headers,
+        });
+    };
+
+    let response = await makeRequest();
+    if (response.status !== 419) {
+        return response;
+    }
+
+    const refreshedToken = await refreshCsrfToken();
+    response = await makeRequest(refreshedToken || undefined);
+    return response;
 };
 
 const extractErrorMessage = async (response: Response, fallback: string): Promise<string> => {
@@ -825,12 +906,11 @@ const previewApolloFetch = async (): Promise<void> => {
     apolloPreviewRows.value = [];
 
     try {
-        const response = await fetch(props.attendeeActionUrls.apollo_preview_url, {
+        const response = await fetchWithCsrfRetry(props.attendeeActionUrls.apollo_preview_url, {
             method: 'POST',
             headers: {
                 Accept: 'application/json',
                 'Content-Type': 'application/json',
-                'X-CSRF-TOKEN': csrfToken(),
             },
             body: JSON.stringify({
                 count: apolloFetchForm.count,
@@ -868,7 +948,7 @@ const previewApolloFetch = async (): Promise<void> => {
     }
 };
 
-const submitApolloFetch = (): void => {
+const submitApolloFetch = async (): Promise<void> => {
     if (!props.attendeeActionUrls?.apollo_fetch_url) {
         showToast('Apollo fetch endpoint is not configured.');
         return;
@@ -882,6 +962,9 @@ const submitApolloFetch = (): void => {
     if (apolloFetchForm.count > props.apolloMaxFetch) {
         apolloFetchForm.count = props.apolloMaxFetch;
     }
+
+    const refreshedToken = await refreshCsrfToken();
+    apolloFetchForm._token = refreshedToken || csrfToken();
 
     apolloFetchForm.post(props.attendeeActionUrls.apollo_fetch_url, {
         preserveScroll: true,
