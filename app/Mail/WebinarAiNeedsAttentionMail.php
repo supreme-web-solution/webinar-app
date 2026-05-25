@@ -22,8 +22,7 @@ class WebinarAiNeedsAttentionMail extends Mailable
         public readonly string $attentionReason,
         public readonly ?string $senderAddress = null,
         public readonly ?string $senderName = null,
-    ) {
-    }
+    ) {}
 
     public function envelope(): Envelope
     {
@@ -48,9 +47,15 @@ class WebinarAiNeedsAttentionMail extends Mailable
             return new Address($explicitAddress, $explicitName !== '' ? $explicitName : null);
         }
 
-        $rawFrom = trim((string) config('services.resend.from', ''));
         $fallbackAddress = trim((string) config('mail.from.address', 'hello@example.com'));
         $fallbackName = trim((string) config('mail.from.name', config('app.name', 'Laravel')));
+        $primaryProvider = strtolower(trim((string) config('services.email.primary', '')));
+        $rawFrom = trim((string) match ($primaryProvider) {
+            'postmark' => config('services.postmark.from', ''),
+            'resend' => config('services.resend.from', ''),
+            'ses_smtp', 'smtp' => config('services.email.ses_smtp_from_address', ''),
+            default => '',
+        });
 
         if ($rawFrom === '') {
             return new Address($fallbackAddress, $fallbackName);

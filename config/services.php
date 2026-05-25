@@ -30,7 +30,10 @@ return [
     */
 
     'postmark' => [
-        'key' => env('POSTMARK_API_KEY'),
+        'key' => env('POSTMARK_API_KEY', env('POSTMARK_TOKEN')),
+        'token' => env('POSTMARK_API_KEY', env('POSTMARK_TOKEN')),
+        'from' => env('POSTMARK_FROM', env('MAIL_FROM_ADDRESS', 'hello@example.com')),
+        'message_stream_id' => env('POSTMARK_MESSAGE_STREAM_ID'),
     ],
 
     'resend' => [
@@ -45,8 +48,8 @@ return [
     ],
 
     'email' => [
-        'primary' => env('EMAIL_PROVIDER_PRIMARY', 'resend'),
-        'fallback' => env('EMAIL_PROVIDER_FALLBACK', 'ses_smtp'),
+        'primary' => env('EMAIL_PROVIDER_PRIMARY', 'postmark'),
+        'fallback' => env('EMAIL_PROVIDER_FALLBACK', 'resend'),
         'ses_smtp_mailer' => env('SES_SMTP_MAILER', 'ses'),
         'ses_smtp_from_address' => env('SES_SMTP_FROM_ADDRESS', env('MAIL_FROM_ADDRESS', 'hello@example.com')),
         'ses_smtp_from_name' => env('SES_SMTP_FROM_NAME', env('MAIL_FROM_NAME', env('APP_NAME', 'Laravel'))),

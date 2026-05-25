@@ -101,6 +101,7 @@ class ResendService
         string $intro
     ): array {
         return match ($provider) {
+            'postmark' => $this->sendBatchViaPostmark($webinar, $registrants, $subject, $intro),
             'ses_smtp', 'smtp' => $this->sendBatchViaSmtp($webinar, $registrants, $subject, $intro),
             default => $this->sendBatchViaResend($webinar, $registrants, $subject, $intro),
         };
@@ -114,6 +115,7 @@ class ResendService
         string $intro
     ): bool {
         return match ($provider) {
+            'postmark' => $this->sendSingleViaPostmark($webinar, $registrant, $subject, $intro),
             'ses_smtp', 'smtp' => $this->sendSingleViaSmtp($webinar, $registrant, $subject, $intro),
             default => $this->sendSingleViaResend($webinar, $registrant, $subject, $intro),
         };
@@ -153,13 +155,26 @@ class ResendService
             ];
         }
 
-        $response = $this->postWithRateLimitRetry($apiKey, 'emails/batch', $emails);
-        if (! $response || $response->failed()) {
-            Log::warning('Resend batch API request failed.', [
+        try {
+            $response = $this->postWithRateLimitRetry($apiKey, 'emails/batch', $emails);
+            if (! $response || $response->failed()) {
+                Log::warning('Resend batch API request failed.', [
+                    'webinar_id' => $webinar->id,
+                    'attempted' => count($emails),
+                    'status' => $response?->status(),
+                    'body' => $response?->body(),
+                ]);
+
+                return [
+                    'sent_registrant_ids' => [],
+                    'attempted' => count($emails),
+                ];
+            }
+        } catch (\Throwable $exception) {
+            Log::error('Resend batch API exception.', [
                 'webinar_id' => $webinar->id,
                 'attempted' => count($emails),
-                'status' => $response?->status(),
-                'body' => $response?->body(),
+                'message' => $exception->getMessage(),
             ]);
 
             return [
@@ -211,6 +226,165 @@ class ResendService
             return true;
         } catch (\Throwable $exception) {
             Log::error('Resend API exception.', [
+                'webinar_id' => $webinar->id,
+                'registrant_id' => $registrant->id,
+                'message' => $exception->getMessage(),
+            ]);
+
+            return false;
+        }
+    }
+
+    /**
+     * @param  array<int, WebinarRegistrant>  $registrants
+     * @return array{sent_registrant_ids: array<int, int>, attempted: int}
+     */
+    private function sendBatchViaPostmark(Webinar $webinar, array $registrants, string $subject, string $intro): array
+    {
+        $apiKey = $this->postmarkApiKey();
+        $configuredFrom = (string) config('services.postmark.from', config('mail.from.address', 'hello@example.com'));
+
+        if ($apiKey === '') {
+            Log::warning('POSTMARK_API_KEY not configured. Skipping Postmark batch email send.', [
+                'webinar_id' => $webinar->id,
+            ]);
+
+            return [
+                'sent_registrant_ids' => [],
+                'attempted' => count($registrants),
+            ];
+        }
+
+        $from = $this->resolveDynamicFrom($configuredFrom, $webinar->host_name);
+        $messageStreamId = trim((string) config('services.postmark.message_stream_id', ''));
+        $messages = [];
+        $registrantIds = [];
+
+        foreach ($registrants as $registrant) {
+            $registrantIds[] = $registrant->id;
+
+            $message = [
+                'From' => $from,
+                'To' => $registrant->email,
+                'Subject' => $subject,
+                'HtmlBody' => $this->buildWebinarEmailHtml($webinar, $registrant, $intro),
+            ];
+
+            if ($messageStreamId !== '') {
+                $message['MessageStream'] = $messageStreamId;
+            }
+
+            $messages[] = $message;
+        }
+
+        try {
+            $response = $this->postToPostmarkWithRateLimitRetry($apiKey, 'email/batch', $messages);
+            if (! $response || $response->failed()) {
+                Log::warning('Postmark batch API request failed.', [
+                    'webinar_id' => $webinar->id,
+                    'attempted' => count($messages),
+                    'status' => $response?->status(),
+                    'body' => $response?->body(),
+                ]);
+
+                return [
+                    'sent_registrant_ids' => [],
+                    'attempted' => count($messages),
+                ];
+            }
+        } catch (\Throwable $exception) {
+            Log::error('Postmark batch API exception.', [
+                'webinar_id' => $webinar->id,
+                'attempted' => count($messages),
+                'message' => $exception->getMessage(),
+            ]);
+
+            return [
+                'sent_registrant_ids' => [],
+                'attempted' => count($messages),
+            ];
+        }
+
+        $body = $response->json();
+        if (! is_array($body) || ! array_is_list($body)) {
+            Log::warning('Postmark batch API response was not a result list.', [
+                'webinar_id' => $webinar->id,
+                'attempted' => count($messages),
+                'body' => $response->body(),
+            ]);
+
+            return [
+                'sent_registrant_ids' => [],
+                'attempted' => count($messages),
+            ];
+        }
+
+        $sentIds = [];
+        foreach ($body as $index => $result) {
+            $errorCode = (int) data_get($result, 'ErrorCode', 0);
+            if ($errorCode === 0 && isset($registrantIds[$index])) {
+                $sentIds[] = $registrantIds[$index];
+
+                continue;
+            }
+
+            Log::warning('Postmark batch recipient failed.', [
+                'webinar_id' => $webinar->id,
+                'registrant_id' => $registrantIds[$index] ?? null,
+                'error_code' => $errorCode,
+                'message' => data_get($result, 'Message'),
+            ]);
+        }
+
+        return [
+            'sent_registrant_ids' => $sentIds,
+            'attempted' => count($messages),
+        ];
+    }
+
+    private function sendSingleViaPostmark(Webinar $webinar, WebinarRegistrant $registrant, string $subject, string $intro): bool
+    {
+        $apiKey = $this->postmarkApiKey();
+        $configuredFrom = (string) config('services.postmark.from', config('mail.from.address', 'hello@example.com'));
+
+        if ($apiKey === '') {
+            Log::warning('POSTMARK_API_KEY not configured. Skipping Postmark single email send.', [
+                'webinar_id' => $webinar->id,
+                'registrant_id' => $registrant->id,
+            ]);
+
+            return false;
+        }
+
+        $payload = [
+            'From' => $this->resolveDynamicFrom($configuredFrom, $webinar->host_name),
+            'To' => $registrant->email,
+            'Subject' => $subject,
+            'HtmlBody' => $this->buildWebinarEmailHtml($webinar, $registrant, $intro),
+        ];
+
+        $messageStreamId = trim((string) config('services.postmark.message_stream_id', ''));
+        if ($messageStreamId !== '') {
+            $payload['MessageStream'] = $messageStreamId;
+        }
+
+        try {
+            $response = $this->postToPostmarkWithRateLimitRetry($apiKey, 'email', $payload);
+
+            if (! $response || $response->failed() || (int) data_get($response->json(), 'ErrorCode', 0) !== 0) {
+                Log::warning('Postmark API request failed.', [
+                    'webinar_id' => $webinar->id,
+                    'registrant_id' => $registrant->id,
+                    'status' => $response?->status(),
+                    'body' => $response?->body(),
+                ]);
+
+                return false;
+            }
+
+            return true;
+        } catch (\Throwable $exception) {
+            Log::error('Postmark API exception.', [
                 'webinar_id' => $webinar->id,
                 'registrant_id' => $registrant->id,
                 'message' => $exception->getMessage(),
@@ -290,19 +464,19 @@ class ResendService
             return 'smtp';
         }
 
-        $provider = strtolower(trim((string) config('services.email.primary', 'resend')));
+        $provider = strtolower(trim((string) config('services.email.primary', 'postmark')));
 
-        return in_array($provider, ['resend', 'ses_smtp', 'smtp'], true) ? $provider : 'resend';
+        return in_array($provider, ['resend', 'postmark', 'ses_smtp', 'smtp'], true) ? $provider : 'postmark';
     }
 
     private function resolveFallbackProvider(): ?string
     {
-        $provider = strtolower(trim((string) config('services.email.fallback', 'ses_smtp')));
+        $provider = strtolower(trim((string) config('services.email.fallback', 'resend')));
         if ($provider === '' || $provider === 'none') {
             return null;
         }
 
-        return in_array($provider, ['resend', 'ses_smtp', 'smtp'], true) ? $provider : null;
+        return in_array($provider, ['resend', 'postmark', 'ses_smtp', 'smtp'], true) ? $provider : null;
     }
 
     /**
@@ -534,6 +708,52 @@ class ResendService
         sleep($retryAfter);
 
         return $this->postWithRateLimitRetry($apiKey, $endpoint, $payload, $attempt + 1);
+    }
+
+    private function postToPostmarkWithRateLimitRetry(string $apiKey, string $endpoint, array $payload, int $attempt = 0): ?Response
+    {
+        Log::debug('postmark.http.request', [
+            'endpoint' => $endpoint,
+            'attempt' => $attempt + 1,
+        ]);
+
+        $response = Http::withHeaders(['X-Postmark-Server-Token' => $apiKey])
+            ->acceptJson()
+            ->asJson()
+            ->post("https://api.postmarkapp.com/{$endpoint}", $payload);
+
+        if ($response->status() !== 429) {
+            return $response;
+        }
+
+        Log::warning('postmark.http.rate_limited', [
+            'endpoint' => $endpoint,
+            'attempt' => $attempt + 1,
+            'retry_after' => $response->header('retry-after'),
+            'status' => $response->status(),
+            'body' => $response->body(),
+        ]);
+
+        if ($attempt >= 3) {
+            Log::error('postmark.http.rate_limit_give_up', [
+                'endpoint' => $endpoint,
+                'attempts' => $attempt + 1,
+            ]);
+
+            return $response;
+        }
+
+        $retryAfter = max(1, min(30, (int) ($response->header('retry-after') ?? 1)));
+        sleep($retryAfter);
+
+        return $this->postToPostmarkWithRateLimitRetry($apiKey, $endpoint, $payload, $attempt + 1);
+    }
+
+    private function postmarkApiKey(): string
+    {
+        $apiKey = (string) config('services.postmark.key', '');
+
+        return $apiKey !== '' ? $apiKey : (string) config('services.postmark.token', '');
     }
 
     private function resolveDynamicFrom(string $configuredFrom, string $hostName): string

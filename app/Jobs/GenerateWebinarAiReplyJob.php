@@ -21,8 +21,7 @@ class GenerateWebinarAiReplyJob implements ShouldQueue
     public function __construct(
         public readonly int $registrantId,
         public readonly int $attendeeMessageId,
-    ) {
-    }
+    ) {}
 
     public function handle(WebinarAiAssistantService $assistant): void
     {
@@ -148,12 +147,16 @@ class GenerateWebinarAiReplyJob implements ShouldQueue
 
         foreach ($mailers as $mailer) {
             try {
+                [$senderAddress, $senderName] = $this->resolveProviderSender($mailer);
+
                 Mail::mailer($mailer)->to($ownerEmail)->send(new WebinarAiNeedsAttentionMail(
                     webinar: $webinar,
                     registrant: $registrant,
                     attendeeQuestion: $attendeeQuestion,
                     aiReply: $aiReply,
                     attentionReason: $attentionReason,
+                    senderAddress: $senderAddress,
+                    senderName: $senderName,
                 ));
 
                 return;
@@ -195,6 +198,7 @@ class GenerateWebinarAiReplyJob implements ShouldQueue
 
             if ($this->isKnownMailer($candidate)) {
                 $mailers[] = $candidate;
+
                 continue;
             }
 
@@ -225,7 +229,48 @@ class GenerateWebinarAiReplyJob implements ShouldQueue
     }
 
     /**
-    * @return array{transport: array<string, mixed>, from_address: string, from_name: string}|null
+     * @return array{0: string|null, 1: string|null}
+     */
+    private function resolveProviderSender(string $mailer): array
+    {
+        $rawFrom = match ($mailer) {
+            'postmark' => (string) config('services.postmark.from', ''),
+            'resend' => (string) config('services.resend.from', ''),
+            (string) config('services.email.ses_smtp_mailer', 'ses') => (string) config('services.email.ses_smtp_from_address', ''),
+            default => '',
+        };
+
+        $rawFrom = trim($rawFrom);
+        if ($rawFrom === '') {
+            return [null, null];
+        }
+
+        return [
+            $this->extractEmailAddress($rawFrom),
+            $this->extractDisplayName($rawFrom) ?: (string) config('mail.from.name'),
+        ];
+    }
+
+    private function extractEmailAddress(string $from): string
+    {
+        if (preg_match('/<([^>]+)>/', $from, $matches) === 1) {
+            return trim($matches[1]);
+        }
+
+        return trim($from);
+    }
+
+    private function extractDisplayName(string $from): string
+    {
+        if (preg_match('/^\s*"?([^<"]+)"?\s*</', $from, $matches) === 1) {
+            return trim($matches[1]);
+        }
+
+        return '';
+    }
+
+    /**
+     * @return array{transport: array<string, mixed>, from_address: string, from_name: string}|null
      */
     private function resolveOwnerSmtpTransportConfig($webinar): ?array
     {
