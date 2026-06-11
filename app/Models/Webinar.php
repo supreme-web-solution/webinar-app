@@ -153,4 +153,15 @@ class Webinar extends Model
 
         return now()->greaterThanOrEqualTo($endAt);
     }
+
+    public function completionWatchThresholdSeconds(): int
+    {
+        $durationSeconds = (int) ($this->video_duration_seconds ?? 0);
+
+        if ($durationSeconds > 0) {
+            return max(60, (int) floor($durationSeconds * 0.9));
+        }
+
+        return 60;
+    }
 }

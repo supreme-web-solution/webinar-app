@@ -7,8 +7,12 @@ use App\Http\Controllers\Admin\WebinarChatController as AdminWebinarChatControll
 use App\Http\Controllers\Admin\WebinarAiKnowledgeController;
 use App\Http\Controllers\Admin\WebinarAiStudioController;
 use App\Http\Controllers\Admin\UserManagementController;
+use App\Http\Controllers\Admin\EmailCampaignController;
+use App\Http\Controllers\Admin\EmailCampaignAttendeeController;
 use App\Http\Middleware\EnsureAdminEmail;
 use App\Http\Controllers\UnsubscribeController;
+use App\Http\Controllers\EmailCampaignClickController;
+use App\Http\Controllers\EmailCampaignUnsubscribeController;
 use App\Http\Controllers\WebinarChatController;
 use App\Http\Controllers\WebinarRegistrationController;
 use App\Http\Controllers\WebinarRoomController;
@@ -43,6 +47,15 @@ Route::middleware(['auth', 'verified'])->group(function () {
     Route::prefix('admin')->name('admin.')->group(function () {
         // Keep show disabled, but enable destroy so hosts can remove a webinar + all related data.
         Route::resource('webinars', WebinarController::class)->except(['show']);
+        Route::resource('emails', EmailCampaignController::class)
+            ->except(['show'])
+            ->parameters(['emails' => 'campaign']);
+        Route::post('emails/{campaign}/attendees/import', [EmailCampaignAttendeeController::class, 'importCsv'])->name('emails.attendees.import');
+        Route::post('emails/{campaign}/attendees/{recipient}/unsubscribe', [EmailCampaignAttendeeController::class, 'moveToUnsubscribed'])->name('emails.attendees.unsubscribe');
+        Route::post('emails/{campaign}/attendees/unsubscribe-bulk', [EmailCampaignAttendeeController::class, 'moveManyToUnsubscribed'])->name('emails.attendees.unsubscribe.bulk');
+        Route::delete('emails/{campaign}/attendees/{recipient}', [EmailCampaignAttendeeController::class, 'deleteUnsubscribed'])->name('emails.attendees.delete');
+        Route::post('emails/{campaign}/attendees/delete-bulk', [EmailCampaignAttendeeController::class, 'deleteManyUnsubscribed'])->name('emails.attendees.delete.bulk');
+        Route::post('emails/{campaign}/send', [EmailCampaignController::class, 'send'])->name('emails.send');
         Route::post('webinars/delete-bulk', [WebinarController::class, 'bulkDestroy'])->name('webinars.bulk-destroy');
         Route::post('webinars/{webinar}/attendees/import', [WebinarAttendeeController::class, 'importCsv'])->name('webinars.attendees.import');
         Route::post('webinars/{webinar}/attendees/apollo-preview', [WebinarAttendeeController::class, 'previewFromApollo'])->name('webinars.attendees.apollo.preview');
@@ -91,5 +104,7 @@ Route::post('/webinar/{token}/cta-click', [WebinarRoomController::class, 'trackC
 Route::get('/webinar/{token}/chat', [WebinarChatController::class, 'index'])->name('webinar.chat.index');
 Route::post('/webinar/{token}/chat', [WebinarChatController::class, 'store'])->name('webinar.chat.store');
 Route::get('/unsubscribe/{token}', UnsubscribeController::class)->name('webinar.unsubscribe');
+Route::get('/email/click/{token}', EmailCampaignClickController::class)->name('email.campaign.click');
+Route::get('/email/unsubscribe/{token}', EmailCampaignUnsubscribeController::class)->name('email.campaign.unsubscribe');
 
 require __DIR__.'/settings.php';

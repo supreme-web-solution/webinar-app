@@ -183,6 +183,7 @@ const trackOfferClick = async (offer: Offer, source: 'chat' | 'popup' | 'pinned'
 const trackWatchMilestone = async (
     milestone: 'watched_60_seconds' | 'watched_50_percent' | 'watched_to_end',
     watchDurationSeconds?: number,
+    completionSource?: 'embed_ended' | 'direct_ended' | 'timeline',
 ): Promise<void> => {
     if (!props.chatToken) {
         return;
@@ -204,6 +205,7 @@ const trackWatchMilestone = async (
             body: JSON.stringify({
                 milestone,
                 watch_duration_seconds: watchDurationSeconds ?? elapsedSeconds.value,
+                completion_source: completionSource,
             }),
         });
     } catch {
@@ -387,6 +389,18 @@ const halfwayWatchThreshold = computed(() => {
     return Math.max(1, Math.floor(duration * 0.5) + 1);
 });
 
+const completionWatchThreshold = computed(() => {
+    const duration = props.webinar.video_duration_seconds && props.webinar.video_duration_seconds > 0
+        ? props.webinar.video_duration_seconds
+        : 0;
+
+    if (duration > 0) {
+        return Math.max(60, Math.floor(duration * 0.9));
+    }
+
+    return 60;
+});
+
 const pinnedStarterMessage = computed(() => {
     const name = props.registrant.name?.trim() ? props.registrant.name : 'Guest';
     return `Welcome ${name}! The webinar is starting now.`;
@@ -501,7 +515,15 @@ const redirectAfterEndIfEnabled = (): void => {
     }
 };
 
-const endMeeting = (): void => {
+const shouldTrackWatchedToEnd = (source: 'embed_ended' | 'direct_ended' | 'timeline'): boolean => {
+    if (source === 'embed_ended' || source === 'direct_ended') {
+        return elapsedSeconds.value >= 60;
+    }
+
+    return elapsedSeconds.value >= completionWatchThreshold.value;
+};
+
+const endMeeting = (source: 'embed_ended' | 'direct_ended' | 'timeline' = 'timeline'): void => {
     if (videoEnded.value) {
         return;
     }
@@ -509,9 +531,9 @@ const endMeeting = (): void => {
     videoEnded.value = true;
     stopAllTimers();
 
-    if (!trackedToEnd.value) {
+    if (!trackedToEnd.value && shouldTrackWatchedToEnd(source)) {
         trackedToEnd.value = true;
-        void trackWatchMilestone('watched_to_end', elapsedSeconds.value);
+        void trackWatchMilestone('watched_to_end', elapsedSeconds.value, source);
     }
 
     if (props.webinar.video_source === 'youtube' && iframeRef.value?.contentWindow) {
@@ -558,17 +580,17 @@ const onIframeMessage = (event: MessageEvent): void => {
         }
 
         if (data?.event === 'onStateChange' && data?.info === 0) {
-            endMeeting();
+            endMeeting('embed_ended');
             return;
         }
 
         if (data?.event === 'infoDelivery' && data?.info?.playerState === 0) {
-            endMeeting();
+            endMeeting('embed_ended');
             return;
         }
 
         if (data?.event === 'ended' || data?.event === 'finish') {
-            endMeeting();
+            endMeeting('embed_ended');
         }
     } catch {
         // Not JSON or unrelated message.
@@ -576,7 +598,7 @@ const onIframeMessage = (event: MessageEvent): void => {
 };
 
 const onDirectVideoEnded = (): void => {
-    endMeeting();
+    endMeeting('direct_ended');
 };
 
 const tryResumePlayback = (): void => {
@@ -628,9 +650,20 @@ const tickTimeline = (): void => {
         playbackKeepAliveTimer = null;
     }
 
-    if (!videoEnded.value && dur && elapsedSeconds.value >= dur) {
-        endMeeting();
-        return;
+    if (!videoEnded.value && dur) {
+        if (props.webinar.video_source === 'direct' && elapsedSeconds.value >= dur) {
+            endMeeting('timeline');
+            return;
+        }
+
+        // Fallback for embed players that never emit an ended event.
+        if (
+            props.webinar.video_source !== 'direct'
+            && elapsedSeconds.value >= dur + 120
+        ) {
+            endMeeting('timeline');
+            return;
+        }
     }
 
     for (const message of props.webinar.scheduled_messages) {

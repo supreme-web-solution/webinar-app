@@ -122,6 +122,11 @@ class WebinarRoomController extends Controller
 
         if (! $view) {
             if ($activeView && $activeView->left_at === null) {
+                $sessionSeconds = (int) ($activeView->session_started_at?->diffInSeconds($now) ?? 0);
+                if ($sessionSeconds > 0 && $activeView->watch_duration_seconds < $sessionSeconds) {
+                    $activeView->watch_duration_seconds = $sessionSeconds;
+                }
+
                 $activeView->left_at = $now;
                 $activeView->save();
             }
@@ -285,6 +290,7 @@ class WebinarRoomController extends Controller
         $validated = $request->validate([
             'milestone' => ['required', 'string', 'in:watched_60_seconds,watched_50_percent,watched_to_end'],
             'watch_duration_seconds' => ['nullable', 'integer', 'min:0'],
+            'completion_source' => ['nullable', 'string', 'in:embed_ended,direct_ended,timeline'],
         ]);
 
         $view = WebinarView::query()
@@ -386,13 +392,23 @@ class WebinarRoomController extends Controller
             })(),
 
             'watched_to_end' => (function () use ($view, $registrant, $validated, $webinar, $now) {
+                $duration = $validated['watch_duration_seconds'] ?? null;
+                if ($duration === null || $duration <= 0) {
+                    $duration = $view->session_started_at?->diffInSeconds($now) ?? 0;
+                }
+
+                $duration = (int) $duration;
+                $completionSource = (string) ($validated['completion_source'] ?? 'timeline');
+
+                if (! $this->isValidWatchToEndDuration($webinar, $duration, $completionSource)) {
+                    return response()->json([
+                        'tracked' => false,
+                        'reason' => 'insufficient_watch_duration',
+                    ], 422);
+                }
+
                 // Only finalize once.
                 if ($view->left_at === null) {
-                    $duration = $validated['watch_duration_seconds'] ?? null;
-                    if ($duration === null || $duration <= 0) {
-                        $duration = $view->session_started_at?->diffInSeconds($now) ?? 0;
-                    }
-
                     if ($duration > 0 && $view->watch_duration_seconds < $duration) {
                         $view->watch_duration_seconds = $duration;
                     }
@@ -439,6 +455,19 @@ class WebinarRoomController extends Controller
         $durationSeconds = max(1, (int) ($webinar->video_duration_seconds ?? 5400));
 
         return max(1, (int) floor($durationSeconds * 0.5) + 1);
+    }
+
+    private function isValidWatchToEndDuration(Webinar $webinar, int $watchDurationSeconds, string $completionSource): bool
+    {
+        if ($watchDurationSeconds < 60) {
+            return false;
+        }
+
+        if (in_array($completionSource, ['embed_ended', 'direct_ended'], true)) {
+            return true;
+        }
+
+        return $watchDurationSeconds >= $webinar->completionWatchThresholdSeconds();
     }
 
     private function resolveEngagementSegment(bool $hasReached50Percent, bool $hasWatchedToEnd, bool $hasOfferClick): string

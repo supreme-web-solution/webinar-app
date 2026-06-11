@@ -71,4 +71,9 @@ class User extends Authenticatable
     {
         return $this->hasMany(Webinar::class);
     }
+
+    public function emailCampaigns(): HasMany
+    {
+        return $this->hasMany(EmailCampaign::class);
+    }
 }

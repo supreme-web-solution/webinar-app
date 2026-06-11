@@ -1,7 +1,8 @@
 <script setup lang="ts">
-import { Link, usePage } from '@inertiajs/vue3';
 import { Icon } from '@iconify/vue';
+import { Link, usePage } from '@inertiajs/vue3';
 import { computed } from 'vue';
+import NavUser from '@/components/NavUser.vue';
 import {
     Sidebar,
     SidebarContent,
@@ -13,7 +14,6 @@ import {
     SidebarMenuButton,
     SidebarMenuItem,
 } from '@/components/ui/sidebar';
-import NavUser from '@/components/NavUser.vue';
 import { useCurrentUrl } from '@/composables/useCurrentUrl';
 import { dashboard } from '@/routes';
 
@@ -26,6 +26,7 @@ const mainNavItems = [
     { title: 'Tutorial', href: '/tutorial', icon: 'solar:book-bold-duotone' },
     { title: 'Dashboard', href: dashboard(), icon: 'solar:widget-2-bold-duotone' },
     { title: 'Webinars', href: '/admin/webinars', icon: 'solar:monitor-camera-bold-duotone' },
+    { title: 'Emails', href: '/admin/emails', icon: 'solar:letter-bold-duotone' },
     { title: 'Chat', href: '/admin/chats', icon: 'solar:chat-round-dots-bold-duotone' },
 ];
 
