@@ -22,13 +22,13 @@ const appName = computed(() => (page.props.name as string) ?? 'WebinarPro');
 const { isCurrentUrl } = useCurrentUrl();
 const isAdmin = computed(() => Boolean((page.props.auth as { is_admin?: boolean })?.is_admin));
 
-const mainNavItems = [
+const mainNavItems = computed(() => [
     { title: 'Tutorial', href: '/tutorial', icon: 'solar:book-bold-duotone' },
     { title: 'Dashboard', href: dashboard(), icon: 'solar:widget-2-bold-duotone' },
     { title: 'Webinars', href: '/admin/webinars', icon: 'solar:monitor-camera-bold-duotone' },
-    { title: 'Emails', href: '/admin/emails', icon: 'solar:letter-bold-duotone' },
+    ...(isAdmin.value ? [{ title: 'Emails', href: '/admin/emails', icon: 'solar:letter-bold-duotone' }] : []),
     { title: 'Chat', href: '/admin/chats', icon: 'solar:chat-round-dots-bold-duotone' },
-];
+]);
 
 const managementNavItems = computed(() => [
     // { title: 'Registrants', href: '/admin/registrants', icon: 'solar:users-group-rounded-bold-duotone' },

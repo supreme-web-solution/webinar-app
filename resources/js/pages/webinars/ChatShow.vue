@@ -1,7 +1,7 @@
 <script setup lang="ts">
+import { Icon } from '@iconify/vue';
 import { Head, Link, useForm, router } from '@inertiajs/vue3';
 import { computed, ref } from 'vue';
-import { Icon } from '@iconify/vue';
 import AppLayout from '@/layouts/AppLayout.vue';
 import type { BreadcrumbItem } from '@/types';
 
@@ -46,9 +46,11 @@ const backToListUrl = `/admin/webinars/${props.webinar.id}/chat`;
 
 const nameInitials = (name: string): string => {
     const parts = name.trim().split(/\s+/);
+
     if (parts.length >= 2) {
         return `${parts[0][0]}${parts[1][0]}`.toUpperCase();
     }
+
     return name.slice(0, 2).toUpperCase();
 };
 
@@ -70,19 +72,27 @@ const deletingMessageId = ref<number | null>(null);
 const confirmClearAll = ref(false);
 
 const deleteMessage = (messageId: number): void => {
-    if (!activeRegistrant.value) return;
+    if (!activeRegistrant.value) {
+return;
+}
+
     deletingMessageId.value = messageId;
     router.delete(
         `/admin/webinars/${props.webinar.id}/chat/${activeRegistrant.value.id}/messages/${messageId}`,
         {
             preserveScroll: true,
-            onFinish: () => { deletingMessageId.value = null; },
+            onFinish: () => {
+ deletingMessageId.value = null; 
+},
         },
     );
 };
 
 const clearAllMessages = (): void => {
-    if (!activeRegistrant.value) return;
+    if (!activeRegistrant.value) {
+return;
+}
+
     confirmClearAll.value = false;
     router.delete(
         `/admin/webinars/${props.webinar.id}/chat/${activeRegistrant.value.id}/messages`,

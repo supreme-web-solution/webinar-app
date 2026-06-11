@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import { usePage } from '@inertiajs/vue3';
 import { Icon } from '@iconify/vue';
+import { usePage } from '@inertiajs/vue3';
 import { computed, ref } from 'vue';
 import Breadcrumbs from '@/components/Breadcrumbs.vue';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';

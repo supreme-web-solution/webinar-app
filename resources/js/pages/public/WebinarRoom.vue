@@ -1,7 +1,7 @@
 <script setup lang="ts">
+import { Icon } from '@iconify/vue';
 import { Head, useForm } from '@inertiajs/vue3';
 import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue';
-import { Icon } from '@iconify/vue';
 import { getEcho } from '@/lib/echo';
 
 type Offer = {
@@ -89,6 +89,7 @@ const exitPopupDismissed = ref(false);
 
 const hasExitPopupConfig = computed(() => {
     const settings = props.webinar.playback_settings;
+
     return Boolean(settings?.exit_popup_enabled && settings?.exit_popup_cta_url?.trim());
 });
 
@@ -125,26 +126,31 @@ const extractOfferIdFromMessage = (messageId: string): number | null => {
     }
 
     const raw = Number(messageId.replace('offer-', ''));
+
     return Number.isFinite(raw) ? raw : null;
 };
 
 const onChatMessageClick = (event: MouseEvent, messageId: string): void => {
     const target = event.target as HTMLElement | null;
+
     if (!target) {
         return;
     }
 
     const anchor = target.closest('a');
+
     if (!anchor) {
         return;
     }
 
     const offerId = extractOfferIdFromMessage(messageId);
+
     if (!offerId) {
         return;
     }
 
     const offer = props.webinar.offers.find((item) => item.id === offerId);
+
     if (!offer) {
         return;
     }
@@ -264,11 +270,13 @@ const extractYouTubeVideoId = (rawUrl: string): string | null => {
 
         if (host.includes('youtu.be')) {
             const shortId = parsed.pathname.split('/').filter(Boolean)[0] ?? '';
+
             return /^[A-Za-z0-9_-]{11}$/.test(shortId) ? shortId : null;
         }
 
         if (host.includes('youtube.com') || host.includes('youtube-nocookie.com')) {
             const queryId = parsed.searchParams.get('v');
+
             if (queryId && /^[A-Za-z0-9_-]{11}$/.test(queryId)) {
                 return queryId;
             }
@@ -281,6 +289,7 @@ const extractYouTubeVideoId = (rawUrl: string): string | null => {
             }
 
             const fallback = segments.find((segment) => /^[A-Za-z0-9_-]{11}$/.test(segment));
+
             return fallback ?? null;
         }
     } catch {
@@ -289,6 +298,7 @@ const extractYouTubeVideoId = (rawUrl: string): string | null => {
 
     const regex = /(?:v=|youtu\.be\/|embed\/|shorts\/|live\/)([A-Za-z0-9_-]{11})/;
     const match = cleaned.match(regex);
+
     return match?.[1] ?? null;
 };
 
@@ -307,6 +317,7 @@ const extractVimeoVideoId = (rawUrl: string): string | null => {
         const parsed = new URL(cleaned);
         const segments = parsed.pathname.split('/').filter(Boolean);
         const numeric = segments.find((segment) => /^\d+$/.test(segment));
+
         if (numeric) {
             return numeric;
         }
@@ -315,6 +326,7 @@ const extractVimeoVideoId = (rawUrl: string): string | null => {
     }
 
     const match = cleaned.match(/vimeo\.com\/(?:video\/)?(\d+)/);
+
     return match?.[1] ?? null;
 };
 
@@ -324,6 +336,7 @@ const embedUrl = computed(() => {
 
     if (props.webinar.video_source === 'youtube') {
         const videoId = extractYouTubeVideoId(url);
+
         if (!videoId) {
             return url;
         }
@@ -350,6 +363,7 @@ const embedUrl = computed(() => {
 
     if (props.webinar.video_source === 'vimeo') {
         const videoId = extractVimeoVideoId(url);
+
         if (!videoId) {
             return url;
         }
@@ -403,6 +417,7 @@ const completionWatchThreshold = computed(() => {
 
 const pinnedStarterMessage = computed(() => {
     const name = props.registrant.name?.trim() ? props.registrant.name : 'Guest';
+
     return `Welcome ${name}! The webinar is starting now.`;
 });
 
@@ -417,6 +432,7 @@ const onExitIntent = (event: MouseEvent): void => {
 
     // Trigger only when cursor leaves the page boundary from the top edge.
     const isLeavingDocument = event.relatedTarget === null;
+
     if (isLeavingDocument && event.clientY <= 10) {
         showExitPopup.value = true;
     }
@@ -462,6 +478,7 @@ const stopAllTimers = (): void => {
 
 const appendDbMessage = (item: { id: number; sender: string; message: string; self: boolean; at: string }): void => {
     const newId = `db-${item.id}`;
+
     if (chatMessages.value.some((message) => message.id === newId)) {
         return;
     }
@@ -484,6 +501,7 @@ const appendDbMessage = (item: { id: number; sender: string; message: string; se
 const scrollChatToBottom = async (): Promise<void> => {
     await nextTick();
     const el = chatScrollContainer.value;
+
     if (!el) {
         return;
     }
@@ -497,12 +515,14 @@ const redirectAfterEndIfEnabled = (): void => {
     }
 
     const rawUrl = props.webinar.playback_settings.redirect_url?.trim() ?? '';
+
     if (rawUrl === '') {
         return;
     }
 
     try {
         const parsed = new URL(rawUrl, window.location.origin);
+
         if (!['http:', 'https:'].includes(parsed.protocol)) {
             return;
         }
@@ -555,6 +575,7 @@ const endMeeting = (source: 'embed_ended' | 'direct_ended' | 'timeline' = 'timel
 
 const onIframeLoad = (): void => {
     const iframe = iframeRef.value;
+
     if (!iframe?.contentWindow) {
         return;
     }
@@ -575,17 +596,20 @@ const onIframeMessage = (event: MessageEvent): void => {
 
     try {
         let data = event.data;
+
         if (typeof data === 'string') {
             data = JSON.parse(data);
         }
 
         if (data?.event === 'onStateChange' && data?.info === 0) {
             endMeeting('embed_ended');
+
             return;
         }
 
         if (data?.event === 'infoDelivery' && data?.info?.playerState === 0) {
             endMeeting('embed_ended');
+
             return;
         }
 
@@ -607,6 +631,7 @@ const tryResumePlayback = (): void => {
     }
 
     const dur = props.webinar.video_duration_seconds;
+
     if (dur && elapsedSeconds.value >= dur - 5) {
         return;
     }
@@ -653,6 +678,7 @@ const tickTimeline = (): void => {
     if (!videoEnded.value && dur) {
         if (props.webinar.video_source === 'direct' && elapsedSeconds.value >= dur) {
             endMeeting('timeline');
+
             return;
         }
 
@@ -662,6 +688,7 @@ const tickTimeline = (): void => {
             && elapsedSeconds.value >= dur + 120
         ) {
             endMeeting('timeline');
+
             return;
         }
     }
@@ -819,6 +846,7 @@ const loadServerChat = async (): Promise<void> => {
             void scrollChatToBottom();
 
             const newDbCount = dbMessages.length;
+
             if (mobileTab.value === 'video' && newDbCount > prevDbCount) {
                 unreadCount.value += newDbCount - prevDbCount;
             }
@@ -834,6 +862,7 @@ const startRealtimeChat = (): boolean => {
     }
 
     const echo = getEcho();
+
     if (!echo) {
         return false;
     }
@@ -891,6 +920,7 @@ onMounted(() => {
     playbackKeepAliveTimer = setInterval(tryResumePlayback, 12000);
     
     const realtimeStarted = startRealtimeChat();
+
     if (!realtimeStarted) {
         // Longer + jittered polling so a burst doesn't synchronize DB hits.
         const pollIntervalMs = 15000 + Math.floor(Math.random() * 5000);
@@ -910,9 +940,11 @@ onBeforeUnmount(() => {
     document.removeEventListener('visibilitychange', onDocumentVisibilityChange);
     document.removeEventListener('mouseout', onExitIntent);
     const echo = getEcho();
+
     if (echo && chatChannelName) {
         echo.leave(chatChannelName);
     }
+
     chatChannelName = null;
     stopAllTimers();
 });
@@ -926,6 +958,7 @@ const submitAccess = (): void => {
         preserveScroll: true,
         onSuccess: () => {
             const inertia = (window as Window & { Inertia?: { reload: (options?: { only?: string[] }) => void } }).Inertia;
+
             if (inertia) {
                 inertia.reload({ only: ['registrant', 'chatToken'] });
             } else {

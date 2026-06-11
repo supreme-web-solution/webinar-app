@@ -1,8 +1,7 @@
 <script setup lang="ts">
-import { Head, Link, router, usePage } from '@inertiajs/vue3';
 import { Icon } from '@iconify/vue';
+import { Head, Link, router, usePage } from '@inertiajs/vue3';
 import { computed, onBeforeUnmount, reactive, ref, watch } from 'vue';
-import AppLayout from '@/layouts/AppLayout.vue';
 import { Button } from '@/components/ui/button';
 import {
     Card,
@@ -12,13 +11,6 @@ import {
     CardTitle,
 } from '@/components/ui/card';
 import {
-    DropdownMenu,
-    DropdownMenuContent,
-    DropdownMenuItem,
-    DropdownMenuSeparator,
-    DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu';
-import {
     Dialog,
     DialogContent,
     DialogDescription,
@@ -26,6 +18,14 @@ import {
     DialogHeader,
     DialogTitle,
 } from '@/components/ui/dialog';
+import {
+    DropdownMenu,
+    DropdownMenuContent,
+    DropdownMenuItem,
+    DropdownMenuSeparator,
+    DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
+import AppLayout from '@/layouts/AppLayout.vue';
 import type { BreadcrumbItem } from '@/types';
 
 type WebinarListItem = {
@@ -212,6 +212,7 @@ const aiBrief = reactive({
 
 const clampNumber = (value: unknown, min: number, max: number, fallback: number): number => {
     const parsed = Number(value);
+
     if (!Number.isFinite(parsed)) {
         return fallback;
     }
@@ -246,16 +247,27 @@ const filteredWebinars = computed<WebinarListItem[]>(() => {
 
     return props.webinars.data.filter((webinar) => {
         const sourceMatch = filterSource.value === 'all' || webinar.video_source === filterSource.value;
-        if (!sourceMatch) return false;
+
+        if (!sourceMatch) {
+return false;
+}
 
         const scheduleModeMatch = filterScheduleMode.value === 'all' || webinar.schedule_mode === filterScheduleMode.value;
-        if (!scheduleModeMatch) return false;
+
+        if (!scheduleModeMatch) {
+return false;
+}
 
         const statusValue = webinar.has_ended ? 'ended' : webinar.is_published ? 'published' : 'draft';
         const statusMatch = filterStatus.value === 'all' || statusValue === filterStatus.value;
-        if (!statusMatch) return false;
 
-        if (search === '') return true;
+        if (!statusMatch) {
+return false;
+}
+
+        if (search === '') {
+return true;
+}
 
         return [
             webinar.title,
@@ -272,10 +284,23 @@ const filteredWebinars = computed<WebinarListItem[]>(() => {
 
 const activeFilterCount = computed(() => {
     let count = 0;
-    if (filterSearch.value.trim() !== '') count += 1;
-    if (filterSource.value !== 'all') count += 1;
-    if (filterStatus.value !== 'all') count += 1;
-    if (filterScheduleMode.value !== 'all') count += 1;
+
+    if (filterSearch.value.trim() !== '') {
+count += 1;
+}
+
+    if (filterSource.value !== 'all') {
+count += 1;
+}
+
+    if (filterStatus.value !== 'all') {
+count += 1;
+}
+
+    if (filterScheduleMode.value !== 'all') {
+count += 1;
+}
+
     return count;
 });
 
@@ -293,6 +318,7 @@ const allSelectedOnPage = computed<boolean>(() =>
 
 const estimatedDurationSeconds = computed(() => {
     const words = aiScript.value.trim().split(/\s+/).filter((part) => part.length > 0).length;
+
     if (words === 0) {
         return null;
     }
@@ -311,6 +337,7 @@ const csrfToken = (): string => {
     }
 
     const tokenTag = document.querySelector('meta[name="csrf-token"]') as HTMLMetaElement | null;
+
     return tokenTag?.content || '';
 };
 
@@ -349,24 +376,30 @@ const resetAiState = (): void => {
     aiLoadingVideo.value = false;
     aiCreatingWebinar.value = false;
     aiVideoOverlayMessageIndex.value = 0;
+
     if (aiVideoOverlayTimer !== null) {
         window.clearInterval(aiVideoOverlayTimer);
         aiVideoOverlayTimer = null;
     }
+
     if (aiPollTimer !== null) {
         window.clearTimeout(aiPollTimer);
         aiPollTimer = null;
     }
+
     if (voicePreviewAudio) {
         voicePreviewAudio.pause();
         voicePreviewAudio.currentTime = 0;
         voicePreviewAudio = null;
     }
+
     voicePreviewLoadingVoiceId.value = null;
     voicePreviewPlayingVoiceId.value = null;
+
     for (const objectUrl of voicePreviewAudioCache.values()) {
         URL.revokeObjectURL(objectUrl);
     }
+
     voicePreviewAudioCache.clear();
 };
 
@@ -391,17 +424,21 @@ const page = usePage();
 
 const resolveActiveVideoGlobalKey = (): string => {
     const userId = Number((page.props as Record<string, any>)?.auth?.user?.id ?? 0);
+
     return `${AI_ACTIVE_VIDEO_GLOBAL_KEY_PREFIX}:user:${Number.isFinite(userId) && userId > 0 ? userId : 'guest'}`;
 };
 
 const loadGlobalActiveVideoId = (): void => {
     try {
         const raw = window.localStorage.getItem(resolveActiveVideoGlobalKey());
+
         if (!raw) {
             globalActiveVideoId.value = null;
             globalActiveVideoProgressPercent.value = 0;
+
             return;
         }
+
         const parsed = JSON.parse(raw) as Partial<AiActiveVideoGlobalCache>;
         const videoId = String(parsed.video_id || '').trim();
         globalActiveVideoId.value = videoId || null;
@@ -441,7 +478,11 @@ const clearGlobalActiveVideoId = (): void => {
 const loadSlideStyleCache = (): void => {
     try {
         const raw = window.sessionStorage.getItem(AI_SLIDE_STYLE_CACHE_KEY);
-        if (!raw) return;
+
+        if (!raw) {
+return;
+}
+
         const parsed = JSON.parse(raw) as Partial<typeof aiBrief.slide_style>;
         aiBrief.slide_style = {
             ...aiBrief.slide_style,
@@ -487,12 +528,14 @@ const clearAiVideoRuntimeCache = (): void => {
 const restoreAiVideoRuntimeCache = (): boolean => {
     try {
         const raw = window.sessionStorage.getItem(AI_VIDEO_RUNTIME_CACHE_KEY);
+
         if (!raw) {
             return false;
         }
 
         const parsed = JSON.parse(raw) as Partial<AiVideoRuntimeCache>;
         const videoId = String(parsed.video_id || '').trim();
+
         if (!videoId) {
             return false;
         }
@@ -502,6 +545,7 @@ const restoreAiVideoRuntimeCache = (): boolean => {
         aiStep.value = 'video';
         aiVideoStatus.value = 'pending';
         aiVideoMessage.value = 'Resuming generation status after refresh. Long videos can take a while.';
+
         return true;
     } catch {
         return false;
@@ -511,7 +555,11 @@ const restoreAiVideoRuntimeCache = (): boolean => {
 const restoreFromGlobalActiveVideo = (): boolean => {
     loadGlobalActiveVideoId();
     const videoId = String(globalActiveVideoId.value || '').trim();
-    if (!videoId) return false;
+
+    if (!videoId) {
+return false;
+}
+
     if (aiVideoId.value === videoId && ['requesting', 'pending', 'processing', 'completed'].includes(aiVideoStatus.value)) {
         return true;
     }
@@ -522,6 +570,7 @@ const restoreFromGlobalActiveVideo = (): boolean => {
     aiVideoStatus.value = 'pending';
     aiVideoPhase.value = 'queued';
     aiVideoMessage.value = 'A video is already rendering in another tab. Resuming status...';
+
     return true;
 };
 
@@ -566,13 +615,17 @@ const openAiModal = (): void => {
     aiModalOpen.value = true;
     loadSlideStyleCache();
     void loadAiOptions();
+
     if (restoreAiVideoRuntimeCache() || restoreFromGlobalActiveVideo()) {
         void pollVideoStatus();
     }
 };
 
 window.addEventListener('storage', (e) => {
-    if (e.key !== resolveActiveVideoGlobalKey()) return;
+    if (e.key !== resolveActiveVideoGlobalKey()) {
+return;
+}
+
     loadGlobalActiveVideoId();
 });
 
@@ -580,13 +633,21 @@ loadGlobalActiveVideoId();
 
 const aiHasActiveVideoElsewhere = computed((): boolean => {
     const active = String(globalActiveVideoId.value || '').trim();
-    if (!active) return false;
+
+    if (!active) {
+return false;
+}
+
     return !aiVideoId.value || aiVideoId.value !== active || ['requesting', 'pending', 'processing'].includes(aiVideoStatus.value) === false;
 });
 
 const aiActiveVideoHoverMessage = computed((): string => {
     const active = String(globalActiveVideoId.value || '').trim();
-    if (!active) return '';
+
+    if (!active) {
+return '';
+}
+
     return 'An AI video is currently rendering (possibly in another tab). Please wait for it to finish.';
 });
 
@@ -594,6 +655,7 @@ const aiHeaderProgressPercent = computed((): number => {
     if (aiHasActiveVideoElsewhere.value) {
         return Math.max(0, Math.min(100, Number(globalActiveVideoProgressPercent.value || 0)));
     }
+
     return Math.max(0, Math.min(100, Number(aiVideoProgressPercent.value || 0)));
 });
 
@@ -604,10 +666,12 @@ let aiButtonBusyTimer: number | null = null;
 watch(aiHasActiveVideoElsewhere, (blocked) => {
     if (!blocked) {
         aiButtonBusyIndex.value = 0;
+
         if (aiButtonBusyTimer !== null) {
             window.clearInterval(aiButtonBusyTimer);
             aiButtonBusyTimer = null;
         }
+
         return;
     }
 
@@ -631,6 +695,7 @@ const createWithAiButtonText = computed((): string => {
     if (aiHasActiveVideoElsewhere.value) {
         return aiButtonBusyTexts[aiButtonBusyIndex.value] || 'AI running...';
     }
+
     return 'Create with AI';
 });
 
@@ -649,6 +714,7 @@ const closeAiModal = (): void => {
 
 const requestCloseAiModal = (): void => {
     const shouldClose = window.confirm(closeConfirmationMessage.value);
+
     if (!shouldClose) {
         return;
     }
@@ -659,11 +725,13 @@ const requestCloseAiModal = (): void => {
 const onAiModalOpenChange = (nextOpen: boolean): void => {
     if (nextOpen) {
         aiModalOpen.value = true;
+
         return;
     }
 
     if (!allowAiModalClose.value) {
         aiModalOpen.value = true;
+
         return;
     }
 
@@ -674,6 +742,7 @@ const onAiModalOpenChange = (nextOpen: boolean): void => {
 const parseErrorMessage = async (response: Response, fallback: string): Promise<string> => {
     try {
         const payload = await response.json() as { message?: string };
+
         return payload.message || fallback;
     } catch {
         return fallback;
@@ -687,12 +756,14 @@ const formatElapsedTime = (seconds: number): string => {
 
     const minutes = Math.floor(seconds / 60);
     const remainder = seconds % 60;
+
     if (minutes < 60) {
         return remainder > 0 ? `${minutes}m ${remainder}s` : `${minutes}m`;
     }
 
     const hours = Math.floor(minutes / 60);
     const minuteRemainder = minutes % 60;
+
     return minuteRemainder > 0 ? `${hours}h ${minuteRemainder}m` : `${hours}h`;
 };
 
@@ -709,6 +780,7 @@ const fetchWithCsrfRetry = async (
         };
 
         const cookieToken = xsrfCookieToken();
+
         if (cookieToken) {
             headers['X-XSRF-TOKEN'] = cookieToken;
         }
@@ -721,6 +793,7 @@ const fetchWithCsrfRetry = async (
     };
 
     let response = await makeRequest();
+
     if (response.status !== 419) {
         return response;
     }
@@ -737,12 +810,15 @@ const fetchWithCsrfRetry = async (
     });
 
     let refreshedToken = '';
+
     if (tokenResponse.ok) {
         try {
             const payload = await tokenResponse.json() as { token?: string };
             refreshedToken = String(payload.token || '');
+
             if (refreshedToken) {
                 const tokenTag = document.querySelector('meta[name="csrf-token"]') as HTMLMetaElement | null;
+
                 if (tokenTag) {
                     tokenTag.content = refreshedToken;
                 }
@@ -753,6 +829,7 @@ const fetchWithCsrfRetry = async (
     }
 
     response = await makeRequest(refreshedToken || undefined);
+
     return response;
 };
 
@@ -769,6 +846,7 @@ const loadAiOptions = async (): Promise<void> => {
 
         if (!response.ok) {
             aiHeygenOptionsError.value = await parseErrorMessage(response, 'Failed to load AI options.');
+
             return;
         }
 
@@ -827,6 +905,7 @@ const totalAvatarPages = computed(() => Math.max(1, Math.ceil(avatarOptions.valu
 
 const paginatedAvatarOptions = computed(() => {
     const start = (aiAvatarPage.value - 1) * aiOptionsPageSize;
+
     return avatarOptions.value.slice(start, start + aiOptionsPageSize);
 });
 
@@ -858,6 +937,7 @@ const generateScript = async (): Promise<void> => {
 
         if (!response.ok) {
             showToast(await parseErrorMessage(response, 'Failed to generate script.'), 'info');
+
             return;
         }
 
@@ -898,6 +978,7 @@ const pollVideoStatus = async (): Promise<void> => {
             aiPollTimer = window.setTimeout(() => {
                 void pollVideoStatus();
             }, 10000);
+
             return;
         }
 
@@ -924,6 +1005,7 @@ const pollVideoStatus = async (): Promise<void> => {
         aiComposeElapsedSeconds.value = composeElapsedSeconds > 0 ? composeElapsedSeconds : null;
         const incomingProgress = Math.max(0, Math.min(100, Number(payload.progress_percent ?? aiVideoProgressPercent.value)));
         aiVideoProgressPercent.value = Math.max(aiVideoProgressPercent.value, incomingProgress);
+
         if (aiVideoId.value) {
             saveGlobalActiveVideoId(aiVideoId.value, aiVideoProgressPercent.value);
         }
@@ -943,6 +1025,7 @@ const pollVideoStatus = async (): Promise<void> => {
                 heygenVideoId: aiVideoId.value,
                 generationStatus: 'failed',
             });
+
             return;
         }
 
@@ -957,6 +1040,7 @@ const pollVideoStatus = async (): Promise<void> => {
             aiPollTimer = window.setTimeout(() => {
                 void pollVideoStatus();
             }, 8000);
+
             return;
         }
 
@@ -965,6 +1049,7 @@ const pollVideoStatus = async (): Promise<void> => {
             aiVideoUrl.value = payload.video_url ?? null;
             aiVideoProvider.value = payload.cloudinary_uploaded ? 'cloudinary' : 'heygen';
             aiStatusReadFailureCount.value = 0;
+
             if (payload.composing_long_form && !aiVideoUrl.value) {
                 const nearTimeout = composeTimeoutSeconds > 0 && composeElapsedSeconds > 0 && composeElapsedSeconds >= Math.floor(composeTimeoutSeconds * 0.8);
                 aiVideoMessage.value = nearTimeout
@@ -975,6 +1060,7 @@ const pollVideoStatus = async (): Promise<void> => {
                 aiVideoMessage.value = aiVideoUrl.value
                     ? 'Video completed successfully.'
                     : 'Video is completed but URL is still unavailable. Check again shortly.';
+
                 if (aiVideoUrl.value) {
                     aiVideoProgressPercent.value = 100;
                     aiVideoPhase.value = 'completed';
@@ -991,11 +1077,13 @@ const pollVideoStatus = async (): Promise<void> => {
                     generationStatus: 'completed',
                 });
             }
+
             if (!aiVideoUrl.value || payload.composing_long_form) {
                 aiPollTimer = window.setTimeout(() => {
                     void pollVideoStatus();
                 }, 8000);
             }
+
             return;
         }
 
@@ -1004,6 +1092,7 @@ const pollVideoStatus = async (): Promise<void> => {
         aiVideoMessage.value = aiVideoProgressPercent.value >= 92 && composeElapsedSeconds >= 180
             ? `Final merge/upload is still running (${formatElapsedTime(composeElapsedSeconds)} elapsed). You can keep this modal open.`
             : 'Rendering in progress. Long scripts may take much longer. You can refresh and resume.';
+
         if (aiVideoStatus.value === 'pending') {
             aiVideoProgressPercent.value = Math.max(aiVideoProgressPercent.value, 12);
         } else {
@@ -1032,6 +1121,7 @@ const generateVideo = async (): Promise<void> => {
 
     if (aiVideoId.value && ['requesting', 'pending', 'processing'].includes(aiVideoStatus.value)) {
         showToast('A video is already rendering in this modal. Please wait for it to finish (or open a new tab) before starting another.', 'info');
+
         return;
     }
 
@@ -1057,9 +1147,11 @@ const generateVideo = async (): Promise<void> => {
             heygenVideoId: aiVideoId.value,
             generationStatus: 'requesting',
         });
+
         if (!draftPayload) {
             aiVideoStatus.value = 'failed';
             aiVideoMessage.value = 'Failed to create webinar draft before rendering.';
+
             return;
         }
 
@@ -1085,6 +1177,7 @@ const generateVideo = async (): Promise<void> => {
                 try {
                     const existing = await response.json() as { video_id?: string; message?: string };
                     const existingId = String(existing.video_id || '').trim();
+
                     if (existingId) {
                         aiVideoId.value = existingId;
                         saveGlobalActiveVideoId(existingId);
@@ -1095,6 +1188,7 @@ const generateVideo = async (): Promise<void> => {
                         saveGlobalActiveVideoId(existingId, aiVideoProgressPercent.value);
                         aiVideoMessage.value = existing.message || 'A video is already rendering. Resuming status...';
                         void pollVideoStatus();
+
                         return;
                     }
                 } catch {
@@ -1105,6 +1199,7 @@ const generateVideo = async (): Promise<void> => {
             aiVideoStatus.value = 'failed';
             aiVideoMessage.value = await parseErrorMessage(response, 'Failed to start HeyGen generation.');
             clearGlobalActiveVideoId();
+
             return;
         }
 
@@ -1158,6 +1253,7 @@ const createWebinarFromAi = async (): Promise<void> => {
 
         if (!payload) {
             showToast('Failed to create webinar draft from AI output.', 'info');
+
             return;
         }
 
@@ -1168,6 +1264,7 @@ const createWebinarFromAi = async (): Promise<void> => {
             window.sessionStorage.removeItem(AI_SLIDE_STYLE_CACHE_KEY);
             clearAiVideoRuntimeCache();
         }
+
         router.visit(payload.edit_url);
     } catch {
         showToast('Failed to create webinar draft from AI output.', 'info');
@@ -1217,6 +1314,7 @@ const upsertAiWebinarDraft = async ({
 
     if (!response.ok) {
         showToast(await parseErrorMessage(response, 'Failed to save webinar draft.'), 'info');
+
         return null;
     }
 
@@ -1229,6 +1327,7 @@ const upsertAiWebinarDraft = async ({
 watch(selectedAvatarOption, (value) => {
     if (value === '__custom__') {
         aiBrief.avatar_id = customAvatarId.value.trim();
+
         return;
     }
 
@@ -1252,6 +1351,7 @@ watch(() => aiBrief.slide_style, () => {
 watch(selectedWebinarTypeOption, (value) => {
     if (value === '__custom__') {
         aiBrief.webinar_type = customWebinarType.value.trim();
+
         return;
     }
 
@@ -1267,6 +1367,7 @@ watch(customWebinarType, (value) => {
 watch(selectedAudienceOption, (value) => {
     if (value === '__custom__') {
         aiBrief.audience = customAudience.value.trim();
+
         return;
     }
 
@@ -1282,6 +1383,7 @@ watch(customAudience, (value) => {
 watch(selectedToneOption, (value) => {
     if (value === '__custom__') {
         aiBrief.tone = customTone.value.trim();
+
         return;
     }
 
@@ -1296,6 +1398,7 @@ watch(customTone, (value) => {
 
 watch(() => aiBrief.duration_minutes, (value) => {
     const clamped = clampNumber(value, 20, 120, 45);
+
     if (value !== clamped) {
         aiBrief.duration_minutes = clamped;
     }
@@ -1303,6 +1406,7 @@ watch(() => aiBrief.duration_minutes, (value) => {
 
 watch(() => aiBrief.intro_duration_seconds, (value) => {
     const clamped = clampNumber(value, 20, 60, 45);
+
     if (value !== clamped) {
         aiBrief.intro_duration_seconds = clamped;
     }
@@ -1310,6 +1414,7 @@ watch(() => aiBrief.intro_duration_seconds, (value) => {
 
 watch(() => aiBrief.slide_style.font_size, (value) => {
     const clamped = clampNumber(value, 24, 72, 44);
+
     if (value !== clamped) {
         aiBrief.slide_style.font_size = clamped;
     }
@@ -1317,6 +1422,7 @@ watch(() => aiBrief.slide_style.font_size, (value) => {
 
 watch(() => aiBrief.slide_style.overlay_alpha, (value) => {
     const clamped = clampNumber(value, 0, 1, 0.22);
+
     if (value !== clamped) {
         aiBrief.slide_style.overlay_alpha = clamped;
     }
@@ -1356,19 +1462,51 @@ const showVideoOverlay = computed((): boolean => {
 
 const videoProgressLabel = computed((): string => {
     const phase = aiVideoPhase.value;
-    if (phase === 'queued') return 'Queued';
-    if (phase === 'rendering_intro') return 'Rendering HeyGen intro';
+
+    if (phase === 'queued') {
+return 'Queued';
+}
+
+    if (phase === 'rendering_intro') {
+return 'Rendering HeyGen intro';
+}
+
     if (phase === 'composing') {
-        if (aiComposeStage.value === 'queued') return 'Compose queued';
-        if (aiComposeStage.value === 'composing') return 'Preparing long-form compose';
-        if (aiComposeStage.value === 'generating_images') return 'Generating slide images';
-        if (aiComposeStage.value === 'rendering_slides') return 'Rendering slide video';
-        if (aiComposeStage.value === 'merging') return 'Merging intro and slides';
-        if (aiComposeStage.value === 'uploading') return 'Uploading final video';
+        if (aiComposeStage.value === 'queued') {
+return 'Compose queued';
+}
+
+        if (aiComposeStage.value === 'composing') {
+return 'Preparing long-form compose';
+}
+
+        if (aiComposeStage.value === 'generating_images') {
+return 'Generating slide images';
+}
+
+        if (aiComposeStage.value === 'rendering_slides') {
+return 'Rendering slide video';
+}
+
+        if (aiComposeStage.value === 'merging') {
+return 'Merging intro and slides';
+}
+
+        if (aiComposeStage.value === 'uploading') {
+return 'Uploading final video';
+}
+
         return 'Composing slides and merge';
     }
-    if (phase === 'completed') return 'Completed';
-    if (phase === 'failed') return 'Failed';
+
+    if (phase === 'completed') {
+return 'Completed';
+}
+
+    if (phase === 'failed') {
+return 'Failed';
+}
+
     return 'Processing';
 });
 
@@ -1386,7 +1524,9 @@ watch(showVideoOverlay, (active) => {
             window.clearInterval(aiVideoOverlayTimer);
             aiVideoOverlayTimer = null;
         }
+
         aiVideoOverlayMessageIndex.value = 0;
+
         return;
     }
 
@@ -1403,7 +1543,9 @@ const showToast = (message: string, type: 'success' | 'info' = 'success'): void 
     toastMessage.value = message;
     toastType.value = type;
     window.setTimeout(() => {
-        if (toastMessage.value === message) toastMessage.value = null;
+        if (toastMessage.value === message) {
+toastMessage.value = null;
+}
     }, 3000);
 };
 
@@ -1418,7 +1560,11 @@ const copyLink = async (link: string, label: string): Promise<void> => {
 
 const deleteWebinar = (webinarId: number, title: string): void => {
     const ok = window.confirm(`Delete webinar "${title}" and all its data (attendees, chats, tracking)?`);
-    if (!ok) return;
+
+    if (!ok) {
+return;
+}
+
     router.delete(`/admin/webinars/${webinarId}`);
 };
 
@@ -1431,6 +1577,7 @@ const playVoicePreview = async (voiceId: string): Promise<void> => {
         voicePreviewAudio.pause();
         voicePreviewAudio.currentTime = 0;
         voicePreviewPlayingVoiceId.value = null;
+
         return;
     }
 
@@ -1444,6 +1591,7 @@ const playVoicePreview = async (voiceId: string): Promise<void> => {
         voicePreviewLoadingVoiceId.value = voiceId;
 
         let objectUrl = voicePreviewAudioCache.get(voiceId) ?? null;
+
         if (!objectUrl) {
             const query = new URLSearchParams({ voice: voiceId });
             const response = await fetch(`/admin/webinars/ai/voice-preview?${query.toString()}`, {
@@ -1456,6 +1604,7 @@ const playVoicePreview = async (voiceId: string): Promise<void> => {
 
             if (!response.ok) {
                 showToast('Failed to load voice preview.', 'info');
+
                 return;
             }
 
@@ -1483,6 +1632,7 @@ const toggleWebinarSelection = (webinarId: number, checked: boolean): void => {
         if (!selectedWebinarIds.value.includes(webinarId)) {
             selectedWebinarIds.value.push(webinarId);
         }
+
         return;
     }
 
@@ -1494,6 +1644,7 @@ const toggleSelectAllOnPage = (checked: boolean): void => {
         const currentSet = new Set(selectedWebinarIds.value);
         filteredWebinars.value.forEach((webinar) => currentSet.add(webinar.id));
         selectedWebinarIds.value = Array.from(currentSet);
+
         return;
     }
 
@@ -1504,13 +1655,17 @@ const toggleSelectAllOnPage = (checked: boolean): void => {
 const bulkDeleteWebinars = (): void => {
     if (selectedWebinarIds.value.length === 0) {
         showToast('Select at least one webinar to delete.', 'info');
+
         return;
     }
 
     const ok = window.confirm(
         `Delete ${selectedWebinarIds.value.length} selected webinar(s) and all related data?`,
     );
-    if (!ok) return;
+
+    if (!ok) {
+return;
+}
 
     router.post('/admin/webinars/delete-bulk', {
         webinar_ids: selectedWebinarIds.value,
@@ -1530,8 +1685,14 @@ watch(
 );
 
 const videoSourceIcon = (source: string): string => {
-    if (source === 'youtube') return 'solar:playback-speed-bold-duotone';
-    if (source === 'vimeo') return 'solar:play-circle-bold-duotone';
+    if (source === 'youtube') {
+return 'solar:playback-speed-bold-duotone';
+}
+
+    if (source === 'vimeo') {
+return 'solar:play-circle-bold-duotone';
+}
+
     return 'solar:video-library-bold-duotone';
 };
 </script>

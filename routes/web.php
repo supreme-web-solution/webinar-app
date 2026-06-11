@@ -47,15 +47,6 @@ Route::middleware(['auth', 'verified'])->group(function () {
     Route::prefix('admin')->name('admin.')->group(function () {
         // Keep show disabled, but enable destroy so hosts can remove a webinar + all related data.
         Route::resource('webinars', WebinarController::class)->except(['show']);
-        Route::resource('emails', EmailCampaignController::class)
-            ->except(['show'])
-            ->parameters(['emails' => 'campaign']);
-        Route::post('emails/{campaign}/attendees/import', [EmailCampaignAttendeeController::class, 'importCsv'])->name('emails.attendees.import');
-        Route::post('emails/{campaign}/attendees/{recipient}/unsubscribe', [EmailCampaignAttendeeController::class, 'moveToUnsubscribed'])->name('emails.attendees.unsubscribe');
-        Route::post('emails/{campaign}/attendees/unsubscribe-bulk', [EmailCampaignAttendeeController::class, 'moveManyToUnsubscribed'])->name('emails.attendees.unsubscribe.bulk');
-        Route::delete('emails/{campaign}/attendees/{recipient}', [EmailCampaignAttendeeController::class, 'deleteUnsubscribed'])->name('emails.attendees.delete');
-        Route::post('emails/{campaign}/attendees/delete-bulk', [EmailCampaignAttendeeController::class, 'deleteManyUnsubscribed'])->name('emails.attendees.delete.bulk');
-        Route::post('emails/{campaign}/send', [EmailCampaignController::class, 'send'])->name('emails.send');
         Route::post('webinars/delete-bulk', [WebinarController::class, 'bulkDestroy'])->name('webinars.bulk-destroy');
         Route::post('webinars/{webinar}/attendees/import', [WebinarAttendeeController::class, 'importCsv'])->name('webinars.attendees.import');
         Route::post('webinars/{webinar}/attendees/apollo-preview', [WebinarAttendeeController::class, 'previewFromApollo'])->name('webinars.attendees.apollo.preview');
@@ -86,6 +77,16 @@ Route::middleware(['auth', 'verified'])->group(function () {
         Route::delete('webinars/{webinar}/chat/{registrant}/messages', [AdminWebinarChatController::class, 'destroyAllMessages'])->name('webinars.chat.messages.destroy');
 
         Route::middleware([EnsureAdminEmail::class])->group(function () {
+            Route::resource('emails', EmailCampaignController::class)
+                ->except(['show'])
+                ->parameters(['emails' => 'campaign']);
+            Route::post('emails/{campaign}/attendees/import', [EmailCampaignAttendeeController::class, 'importCsv'])->name('emails.attendees.import');
+            Route::post('emails/{campaign}/attendees/{recipient}/unsubscribe', [EmailCampaignAttendeeController::class, 'moveToUnsubscribed'])->name('emails.attendees.unsubscribe');
+            Route::post('emails/{campaign}/attendees/unsubscribe-bulk', [EmailCampaignAttendeeController::class, 'moveManyToUnsubscribed'])->name('emails.attendees.unsubscribe.bulk');
+            Route::delete('emails/{campaign}/attendees/{recipient}', [EmailCampaignAttendeeController::class, 'deleteUnsubscribed'])->name('emails.attendees.delete');
+            Route::post('emails/{campaign}/attendees/delete-bulk', [EmailCampaignAttendeeController::class, 'deleteManyUnsubscribed'])->name('emails.attendees.delete.bulk');
+            Route::post('emails/{campaign}/send', [EmailCampaignController::class, 'send'])->name('emails.send');
+
             Route::get('users', [UserManagementController::class, 'index'])->name('users.index');
             Route::put('users/{user}', [UserManagementController::class, 'update'])->name('users.update');
             Route::delete('users/{user}', [UserManagementController::class, 'destroy'])->name('users.destroy');

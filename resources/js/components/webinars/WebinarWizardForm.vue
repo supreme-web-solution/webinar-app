@@ -1,12 +1,9 @@
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue';
-import { router, useForm } from '@inertiajs/vue3';
 import { Icon } from '@iconify/vue';
+import { router, useForm } from '@inertiajs/vue3';
+import { computed, ref, watch } from 'vue';
 import InputError from '@/components/InputError.vue';
-import RichTextEditor from '@/components/webinars/RichTextEditor.vue';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
 import {
     Dialog,
     DialogContent,
@@ -15,6 +12,9 @@ import {
     DialogHeader,
     DialogTitle,
 } from '@/components/ui/dialog';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import RichTextEditor from '@/components/webinars/RichTextEditor.vue';
 
 type WebinarFormData = {
     title_prefix: string;
@@ -341,7 +341,6 @@ const selectedAiSourceIds = ref<number[]>([]);
 const aiSourceCount = computed(() => Math.max(aiSourcesMeta.value.total || 0, aiSourcesList.value.length));
 const aiSourceLimitReached = computed(() => aiSourceCount.value >= AI_SOURCE_LIMIT);
 const aiSourceSlotsRemaining = computed(() => Math.max(0, AI_SOURCE_LIMIT - aiSourceCount.value));
-const aiSourceUsagePercent = computed(() => Math.min(100, Math.round((aiSourceCount.value / AI_SOURCE_LIMIT) * 100)));
 
 const previewOpen = ref(false);
 const previewSource = ref<null | {
@@ -361,6 +360,7 @@ const previewChunksLoading = ref(false);
 
 const csrfToken = (): string => {
     const tokenTag = document.querySelector('meta[name="csrf-token"]') as HTMLMetaElement | null;
+
     return tokenTag?.content ?? '';
 };
 
@@ -399,8 +399,10 @@ const refreshCsrfToken = async (): Promise<string> => {
     try {
         const payload = await tokenResponse.json() as { token?: string };
         const refreshedToken = String(payload.token || '');
+
         if (refreshedToken) {
             const tokenTag = document.querySelector('meta[name="csrf-token"]') as HTMLMetaElement | null;
+
             if (tokenTag) {
                 tokenTag.content = refreshedToken;
             }
@@ -422,6 +424,7 @@ const fetchWithCsrfRetry = async (url: string, init: RequestInit): Promise<Respo
         };
 
         const cookieToken = xsrfCookieToken();
+
         if (cookieToken) {
             headers['X-XSRF-TOKEN'] = cookieToken;
         }
@@ -434,18 +437,21 @@ const fetchWithCsrfRetry = async (url: string, init: RequestInit): Promise<Respo
     };
 
     let response = await makeRequest();
+
     if (response.status !== 419) {
         return response;
     }
 
     const refreshedToken = await refreshCsrfToken();
     response = await makeRequest(refreshedToken || undefined);
+
     return response;
 };
 
 const extractErrorMessage = async (response: Response, fallback: string): Promise<string> => {
     try {
         const payload = await response.json() as { message?: string };
+
         return payload.message || fallback;
     } catch {
         return fallback;
@@ -458,6 +464,7 @@ const loadAiSources = async (page = 1): Promise<void> => {
     }
 
     aiSourcesLoading.value = true;
+
     try {
         const response = await fetch(`${props.aiSourceUrls.index}?page=${page}&per_page=8`, {
             headers: { Accept: 'application/json' },
@@ -501,6 +508,7 @@ const loadAiSources = async (page = 1): Promise<void> => {
 const toggleAiSource = (id: number): void => {
     if (selectedAiSourceIds.value.includes(id)) {
         selectedAiSourceIds.value = selectedAiSourceIds.value.filter((item) => item !== id);
+
         return;
     }
 
@@ -512,6 +520,7 @@ const toggleAllAiSourcesOnPage = (): void => {
 
     if (currentIds.length > 0 && currentIds.every((id) => selectedAiSourceIds.value.includes(id))) {
         selectedAiSourceIds.value = selectedAiSourceIds.value.filter((id) => !currentIds.includes(id));
+
         return;
     }
 
@@ -548,6 +557,7 @@ const deleteAiSource = (source: {
 
                 if (!response.ok) {
                     showToast(await extractErrorMessage(response, 'Failed to delete source.'));
+
                     return;
                 }
 
@@ -571,11 +581,13 @@ const deleteAiSource = (source: {
 const bulkDeleteAiSources = (): void => {
     if (!props.aiSourceUrls.bulk_delete) {
         showToast('Bulk delete endpoint is not configured.');
+
         return;
     }
 
     if (selectedAiSourceIds.value.length === 0) {
         showToast('Select at least one source first.');
+
         return;
     }
 
@@ -596,6 +608,7 @@ const bulkDeleteAiSources = (): void => {
 
                 if (!response.ok) {
                     showToast(await extractErrorMessage(response, 'Failed to bulk delete sources.'));
+
                     return;
                 }
 
@@ -632,6 +645,7 @@ const loadPreviewChunks = async (page = 1): Promise<void> => {
     }
 
     previewChunksLoading.value = true;
+
     try {
         const response = await fetch(`${previewSource.value.chunks_url}?page=${page}&per_page=12`, {
             headers: { Accept: 'application/json' },
@@ -670,20 +684,25 @@ watch(
 const submitAiUrlSource = (): void => {
     if (aiSourceLimitReached.value) {
         showToast(`Source limit reached (${AI_SOURCE_LIMIT}). Delete one source to add another.`);
+
         return;
     }
 
     if (!props.aiSourceUrls.url) {
         showToast('AI URL source endpoint is not configured.');
+
         return;
     }
 
     const candidateUrl = aiUrlForm.url.trim();
+
     if (!isValidHttpUrl(candidateUrl)) {
         aiUrlValidationError.value = 'Please enter a valid URL, including http:// or https://';
         showToast('Please enter a valid website URL before adding source.');
+
         return;
     }
+
     aiUrlValidationError.value = '';
     aiUrlForm.url = candidateUrl;
 
@@ -697,6 +716,7 @@ const submitAiUrlSource = (): void => {
         },
         onError: () => {
             const sourceLimit = (aiUrlForm.errors as Record<string, string | undefined>).source_limit;
+
             if (sourceLimit) {
                 showToast(sourceLimit);
             }
@@ -707,11 +727,13 @@ const submitAiUrlSource = (): void => {
 const submitAiTranscriptSource = (): void => {
     if (aiSourceLimitReached.value) {
         showToast(`Source limit reached (${AI_SOURCE_LIMIT}). Delete one source to add another.`);
+
         return;
     }
 
     if (!props.aiSourceUrls.transcript) {
         showToast('AI transcript endpoint is not configured.');
+
         return;
     }
 
@@ -724,6 +746,7 @@ const submitAiTranscriptSource = (): void => {
         },
         onError: () => {
             const sourceLimit = (aiTranscriptForm.errors as Record<string, string | undefined>).source_limit;
+
             if (sourceLimit) {
                 showToast(sourceLimit);
             }
@@ -734,11 +757,13 @@ const submitAiTranscriptSource = (): void => {
 const submitVideoTranscriptGeneration = async (videoUrlInput?: string): Promise<void> => {
     if (aiSourceLimitReached.value) {
         showToast(`Source limit reached (${AI_SOURCE_LIMIT}). Delete one source to add another.`);
+
         return;
     }
 
     if (!props.aiSourceUrls.video_transcript_generate) {
         showToast('AI video transcript endpoint is not configured.');
+
         return;
     }
 
@@ -749,10 +774,12 @@ const submitVideoTranscriptGeneration = async (videoUrlInput?: string): Promise<
     if (!resolvedUrl) {
         aiVideoTranscriptUrlInput.value = '';
         aiVideoTranscriptModalOpen.value = true;
+
         return;
     }
 
     aiVideoTranscriptGenerating.value = true;
+
     try {
         const response = await fetch(props.aiSourceUrls.video_transcript_generate, {
             method: 'POST',
@@ -769,6 +796,7 @@ const submitVideoTranscriptGeneration = async (videoUrlInput?: string): Promise<
 
         if (!response.ok) {
             showToast(await extractErrorMessage(response, 'Failed to queue transcript generation.'));
+
             return;
         }
 
@@ -804,16 +832,19 @@ const onAiFileSelected = (event: Event): void => {
 const submitAiFileSource = (): void => {
     if (aiSourceLimitReached.value) {
         showToast(`Source limit reached (${AI_SOURCE_LIMIT}). Delete one source to add another.`);
+
         return;
     }
 
     if (!props.aiSourceUrls.file) {
         showToast('AI file source endpoint is not configured.');
+
         return;
     }
 
     if (!aiFileForm.file) {
         showToast('Select a file before uploading.');
+
         return;
     }
 
@@ -827,6 +858,7 @@ const submitAiFileSource = (): void => {
         },
         onError: () => {
             const sourceLimit = (aiFileForm.errors as Record<string, string | undefined>).source_limit;
+
             if (sourceLimit) {
                 showToast(sourceLimit);
             }
@@ -843,6 +875,7 @@ const onAttendeeCsvSelected = (event: Event): void => {
 const importAttendeesCsv = (): void => {
     if (!props.attendeeImportUrl || !attendeeCsvForm.file) {
         showToast('Select an import file first.');
+
         return;
     }
 
@@ -859,6 +892,7 @@ const importAttendeesCsv = (): void => {
 const openApolloModal = (): void => {
     if (!props.attendeeActionUrls?.apollo_fetch_url) {
         showToast('Create webinar first before using Apollo fetch.');
+
         return;
     }
 
@@ -889,11 +923,13 @@ const openApolloModal = (): void => {
 const previewApolloFetch = async (): Promise<void> => {
     if (!props.attendeeActionUrls?.apollo_preview_url) {
         showToast('Apollo preview endpoint is not configured.');
+
         return;
     }
 
     if (!apolloRequiredFiltersComplete.value) {
         showToast('Fill all required Apollo filters before previewing.');
+
         return;
     }
 
@@ -926,6 +962,7 @@ const previewApolloFetch = async (): Promise<void> => {
             const message = await extractErrorMessage(response, 'Apollo preview failed.');
             apolloPreviewMessage.value = message;
             showToast(message);
+
             return;
         }
 
@@ -951,11 +988,13 @@ const previewApolloFetch = async (): Promise<void> => {
 const submitApolloFetch = async (): Promise<void> => {
     if (!props.attendeeActionUrls?.apollo_fetch_url) {
         showToast('Apollo fetch endpoint is not configured.');
+
         return;
     }
 
     if (!apolloRequiredFiltersComplete.value) {
         showToast('Fill all required Apollo filters before fetching.');
+
         return;
     }
 
@@ -1079,6 +1118,7 @@ const continueConfirmToast = (): void => {
 const toggleSubscribed = (id: number): void => {
     if (selectedSubscribedIds.value.includes(id)) {
         selectedSubscribedIds.value = selectedSubscribedIds.value.filter((item) => item !== id);
+
         return;
     }
 
@@ -1088,6 +1128,7 @@ const toggleSubscribed = (id: number): void => {
 const toggleUnsubscribed = (id: number): void => {
     if (selectedUnsubscribedIds.value.includes(id)) {
         selectedUnsubscribedIds.value = selectedUnsubscribedIds.value.filter((item) => item !== id);
+
         return;
     }
 
@@ -1097,6 +1138,7 @@ const toggleUnsubscribed = (id: number): void => {
 const toggleAllSubscribed = (): void => {
     if (selectedSubscribedIds.value.length === props.attendees.subscribed.length) {
         selectedSubscribedIds.value = [];
+
         return;
     }
 
@@ -1106,6 +1148,7 @@ const toggleAllSubscribed = (): void => {
 const toggleAllUnsubscribed = (): void => {
     if (selectedUnsubscribedIds.value.length === props.attendees.unsubscribed.length) {
         selectedUnsubscribedIds.value = [];
+
         return;
     }
 
@@ -1139,6 +1182,7 @@ const moveBulkToUnsubscribed = (): void => {
 
     if (selectedSubscribedIds.value.length === 0) {
         showToast('Select at least one registered attendee first.');
+
         return;
     }
 
@@ -1160,6 +1204,7 @@ const deleteBulkUnsubscribed = (): void => {
 
     if (selectedUnsubscribedIds.value.length === 0) {
         showToast('Select at least one unsubscribed attendee first.');
+
         return;
     }
 
@@ -1180,12 +1225,14 @@ const exportAttendeesCsv = (
 ): void => {
     if (list.length === 0) {
         showToast('No attendees available to export.');
+
         return;
     }
 
     const header = 'name,email,date';
     const rows = list.map((attendee) => {
         const date = attendee.registered_at ?? attendee.unsubscribed_at ?? '';
+
         return `"${attendee.name.replace(/"/g, '""')}","${attendee.email.replace(/"/g, '""')}","${String(date).replace(/"/g, '""')}"`;
     });
 
@@ -1223,6 +1270,7 @@ const setPrimaryRegistrationButton = (index: number): void => {
 
 const toggleRegistrationButtonEnabled = (index: number): void => {
     const current = form.registration_settings.buttons[index];
+
     if (!current) {
         return;
     }
@@ -1237,6 +1285,7 @@ const toggleRegistrationButtonEnabled = (index: number): void => {
     if (enabledIndices.length === 0) {
         current.enabled = true;
         showToast('At least one registration button must stay enabled.');
+
         return;
     }
 
@@ -1248,8 +1297,10 @@ const toggleRegistrationButtonEnabled = (index: number): void => {
 
 const nextStep = (): void => {
     const missingFields = missingRequiredByStep(activeStep.value);
+
     if (missingFields.length > 0) {
         showToast(`Please fill required fields: ${missingFields.join(', ')}`);
+
         return;
     }
 
@@ -1281,9 +1332,11 @@ const removeOffer = (index: number): void => {
 
 const submit = (): void => {
     const missingFields = missingRequiredAll();
+
     if (missingFields.length > 0) {
         activeStep.value = missingFields[0].step;
         showToast(`Required fields still missing: ${missingFields.map((item) => item.label).join(', ')}`);
+
         return;
     }
 
@@ -1297,17 +1350,20 @@ const submit = (): void => {
         if (!heading || (!bodyPlain && !bodyRaw) || !ctaText || !ctaUrl) {
             activeStep.value = 5;
             showToast('Fill all exit popup fields before saving.');
+
             return;
         }
 
         if (bodyPlain.length > EXIT_POPUP_BODY_MAX_CHARS) {
             activeStep.value = 5;
             showToast(`Exit popup message is too long. Keep it under ${EXIT_POPUP_BODY_MAX_CHARS} characters.`);
+
             return;
         }
     }
 
     const offerUrlErrors: Record<number, string> = {};
+
     for (let index = 0; index < form.offers.length; index += 1) {
         const offer = form.offers[index];
         const candidateUrl = offer.button_url.trim();
@@ -1319,15 +1375,19 @@ const submit = (): void => {
 
         offer.button_url = candidateUrl;
     }
+
     offersUrlValidationErrors.value = offerUrlErrors;
+
     if (Object.keys(offerUrlErrors).length > 0) {
         activeStep.value = 5;
         showToast('Some offer URLs are invalid. Please fix them before saving.');
+
         return;
     }
 
     if (props.method === 'put') {
         form.put(props.actionUrl, { preserveScroll: true });
+
         return;
     }
 
@@ -1341,6 +1401,7 @@ const isValidHttpUrl = (value: string): boolean => {
 
     try {
         const parsed = new URL(value);
+
         return parsed.protocol === 'http:' || parsed.protocol === 'https:';
     } catch {
         return false;

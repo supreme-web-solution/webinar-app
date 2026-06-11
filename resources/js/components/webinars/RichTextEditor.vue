@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import { computed } from 'vue';
 import { QuillEditor } from '@vueup/vue-quill';
+import { computed } from 'vue';
 import '@vueup/vue-quill/dist/vue-quill.snow.css';
 
 const props = withDefaults(defineProps<{
@@ -32,6 +32,7 @@ const escapeHtml = (value: string): string =>
 
 const toSafeParagraphHtml = (value: string): string => {
     const trimmed = value.trim();
+
     if (trimmed === '') {
         return '';
     }
@@ -56,11 +57,13 @@ const onContentUpdate = (value: unknown): void => {
 
     if (props.maxPlainTextLength === null || props.maxPlainTextLength === undefined) {
         emit('update:modelValue', html || toSafeParagraphHtml(plain));
+
         return;
     }
 
     if (plain.length <= props.maxPlainTextLength) {
         emit('update:modelValue', html || toSafeParagraphHtml(plain));
+
         return;
     }
 

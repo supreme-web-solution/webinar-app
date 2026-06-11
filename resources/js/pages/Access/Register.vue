@@ -1,9 +1,9 @@
 <script setup lang="ts">
 import { Head, useForm } from '@inertiajs/vue3';
 import InputError from '@/components/InputError.vue';
+import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 
 const props = defineProps<{

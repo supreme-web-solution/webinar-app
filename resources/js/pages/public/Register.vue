@@ -50,6 +50,7 @@ const registrationButtons = computed(() => {
     ];
 
     const source = props.webinar.registration_settings?.buttons;
+
     if (!Array.isArray(source) || source.length === 0) {
         return fallback;
     }

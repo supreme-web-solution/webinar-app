@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import { Head } from '@inertiajs/vue3';
 import { Icon } from '@iconify/vue';
+import { Head } from '@inertiajs/vue3';
 import WebinarWizardForm from '@/components/webinars/WebinarWizardForm.vue';
 import AppLayout from '@/layouts/AppLayout.vue';
 import type { BreadcrumbItem } from '@/types';

@@ -1,8 +1,6 @@
 <script setup lang="ts">
-import { Head, Link } from '@inertiajs/vue3';
 import { Icon } from '@iconify/vue';
-import AppLayout from '@/layouts/AppLayout.vue';
-import { Button } from '@/components/ui/button';
+import { Head, Link } from '@inertiajs/vue3';
 import {
     Card,
     CardContent,
@@ -10,6 +8,7 @@ import {
     CardHeader,
     CardTitle,
 } from '@/components/ui/card';
+import AppLayout from '@/layouts/AppLayout.vue';
 import type { BreadcrumbItem } from '@/types';
 
 type WebinarChatRow = {

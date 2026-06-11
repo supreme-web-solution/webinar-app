@@ -1,8 +1,7 @@
 <script setup lang="ts">
-import { Head, Link } from '@inertiajs/vue3';
 import { Icon } from '@iconify/vue';
-import { computed, ref } from 'vue';
-import AppLayout from '@/layouts/AppLayout.vue';
+import { Head, Link } from '@inertiajs/vue3';
+import { computed } from 'vue';
 import { Button } from '@/components/ui/button';
 import {
     Card,
@@ -11,6 +10,7 @@ import {
     CardHeader,
     CardTitle,
 } from '@/components/ui/card';
+import AppLayout from '@/layouts/AppLayout.vue';
 import { dashboard } from '@/routes';
 import type { BreadcrumbItem } from '@/types';
 
@@ -53,51 +53,50 @@ const breadcrumbs: BreadcrumbItem[] = [
     { title: 'Dashboard', href: dashboard() },
 ];
 
-const toastMessage = ref<string | null>(null);
-
 const greeting = computed(() => {
     const h = new Date().getHours();
-    if (h < 12) return 'Good morning';
-    if (h < 18) return 'Good afternoon';
+
+    if (h < 12) {
+return 'Good morning';
+}
+
+    if (h < 18) {
+return 'Good afternoon';
+}
+
     return 'Good evening';
 });
 
 const firstName = computed(() => {
     const parts = props.user.name.trim().split(/\s+/);
+
     return parts[0] ?? 'there';
 });
 
-const showToast = (message: string): void => {
-    toastMessage.value = message;
-    window.setTimeout(() => {
-        if (toastMessage.value === message) toastMessage.value = null;
-    }, 3200);
-};
-
-const copyLink = async (link: string, label: string): Promise<void> => {
-    try {
-        await navigator.clipboard.writeText(link);
-        showToast(`${label} copied to clipboard.`);
-    } catch {
-        showToast('Unable to copy. Try selecting the link manually.');
-    }
-};
-
 // Compute webinar health score (ratio of published vs total)
 const publishedRatio = computed(() => {
-    if (!props.stats.total_webinars) return 0;
+    if (!props.stats.total_webinars) {
+return 0;
+}
+
     return Math.round((props.stats.published_webinars / props.stats.total_webinars) * 100);
 });
 
 // engagement rate: chat messages per view
 const engagementRate = computed(() => {
-    if (!props.stats.total_views) return 0;
+    if (!props.stats.total_views) {
+return 0;
+}
+
     return ((props.stats.total_chat_messages / props.stats.total_views) * 100).toFixed(1);
 });
 
 // conversion rate: views per registrant
 const conversionRate = computed(() => {
-    if (!props.stats.total_registrants) return 0;
+    if (!props.stats.total_registrants) {
+return 0;
+}
+
     return Math.min(100, Math.round((props.stats.total_views / props.stats.total_registrants) * 100));
 });
 
@@ -177,14 +176,6 @@ const statCards = computed(() => [
 
     <AppLayout :breadcrumbs="breadcrumbs">
         <div class="flex h-full flex-1 flex-col gap-5 p-4 pb-10 md:p-6">
-
-            <!-- Toast -->
-            <div
-                v-if="toastMessage"
-                class="rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800 dark:border-emerald-900/50 dark:bg-emerald-950/40 dark:text-emerald-200"
-            >
-                {{ toastMessage }}
-            </div>
 
             <!-- â”€â”€ Page header â”€â”€ -->
             <div class="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">

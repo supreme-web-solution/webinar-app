@@ -342,6 +342,7 @@ const continueConfirmToast = (): void => {
 const toggleSubscribed = (id: number): void => {
     if (selectedSubscribedIds.value.includes(id)) {
         selectedSubscribedIds.value = selectedSubscribedIds.value.filter((item) => item !== id);
+
         return;
     }
 
@@ -351,6 +352,7 @@ const toggleSubscribed = (id: number): void => {
 const toggleUnsubscribed = (id: number): void => {
     if (selectedUnsubscribedIds.value.includes(id)) {
         selectedUnsubscribedIds.value = selectedUnsubscribedIds.value.filter((item) => item !== id);
+
         return;
     }
 
@@ -360,6 +362,7 @@ const toggleUnsubscribed = (id: number): void => {
 const toggleAllSubscribed = (): void => {
     if (selectedSubscribedIds.value.length === props.attendees.subscribed.length) {
         selectedSubscribedIds.value = [];
+
         return;
     }
 
@@ -369,6 +372,7 @@ const toggleAllSubscribed = (): void => {
 const toggleAllUnsubscribed = (): void => {
     if (selectedUnsubscribedIds.value.length === props.attendees.unsubscribed.length) {
         selectedUnsubscribedIds.value = [];
+
         return;
     }
 
@@ -402,6 +406,7 @@ const moveBulkToUnsubscribed = (): void => {
 
     if (selectedSubscribedIds.value.length === 0) {
         showToast('Select at least one subscribed attendee first.');
+
         return;
     }
 
@@ -423,6 +428,7 @@ const deleteBulkUnsubscribed = (): void => {
 
     if (selectedUnsubscribedIds.value.length === 0) {
         showToast('Select at least one unsubscribed attendee first.');
+
         return;
     }
 

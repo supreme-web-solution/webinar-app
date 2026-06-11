@@ -96,7 +96,9 @@ const closeEditor = (): void => {
 };
 
 const saveUser = (): void => {
-    if (! editingUserId.value) return;
+    if (! editingUserId.value) {
+return;
+}
 
     editForm.put(`/admin/users/${editingUserId.value}`, {
         preserveScroll: true,
@@ -108,7 +110,10 @@ const saveUser = (): void => {
 
 const deleteUser = (user: UserRow): void => {
     const confirmed = window.confirm(`Delete user "${user.email}"? This cannot be undone.`);
-    if (! confirmed) return;
+
+    if (! confirmed) {
+return;
+}
 
     router.delete(`/admin/users/${user.id}`, {
         preserveScroll: true,
@@ -116,7 +121,10 @@ const deleteUser = (user: UserRow): void => {
 };
 
 const formatDate = (value: string | null): string => {
-    if (! value) return '-';
+    if (! value) {
+return '-';
+}
+
     return new Date(value).toLocaleString();
 };
 

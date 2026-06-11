@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue';
 import { Head } from '@inertiajs/vue3';
+import { computed, ref } from 'vue';
 import WebinarWizardForm from '@/components/webinars/WebinarWizardForm.vue';
 import AppLayout from '@/layouts/AppLayout.vue';
 import type { BreadcrumbItem } from '@/types';
