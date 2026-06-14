@@ -5,6 +5,7 @@ namespace App\Jobs;
 use App\Models\EmailCampaign;
 use App\Models\EmailCampaignRecipient;
 use App\Services\EmailCampaignDeliveryService;
+use App\Services\EmailSuppressionService;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
@@ -30,7 +31,7 @@ class SendEmailCampaignBatchJob implements ShouldQueue
     ) {
     }
 
-    public function handle(EmailCampaignDeliveryService $deliveryService): void
+    public function handle(EmailCampaignDeliveryService $deliveryService, EmailSuppressionService $suppressionService): void
     {
         if ($this->recipientIds === []) {
             Log::warning('email_campaign_batch_job.skipped_empty_batch', [
@@ -82,6 +83,10 @@ class SendEmailCampaignBatchJob implements ShouldQueue
         $sentCount = count($result['sent_recipient_ids']);
         $skippedCount = count($result['skipped_recipient_ids']);
         $failedCount = max(0, $result['attempted'] - $sentCount - $skippedCount);
+
+        if ($result['skipped_recipient_ids'] !== []) {
+            $suppressionService->suppressCampaignRecipients($result['skipped_recipient_ids']);
+        }
 
         if ($sentCount === 0 && $skippedCount === 0) {
             Log::warning('email_campaign_batch_job.no_emails_sent', [

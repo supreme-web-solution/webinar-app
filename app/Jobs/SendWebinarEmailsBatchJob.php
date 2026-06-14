@@ -4,6 +4,7 @@ namespace App\Jobs;
 
 use App\Models\Webinar;
 use App\Models\WebinarRegistrant;
+use App\Services\EmailSuppressionService;
 use App\Services\ResendService;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
@@ -46,7 +47,7 @@ class SendWebinarEmailsBatchJob implements ShouldQueue
         $this->forceResend = $forceResend;
     }
 
-    public function handle(ResendService $resendService): void
+    public function handle(ResendService $resendService, EmailSuppressionService $suppressionService): void
     {
         if ($this->registrantIds === []) {
             Log::warning('webinar_email_batch_job.skipped_empty_batch', [
@@ -118,6 +119,10 @@ class SendWebinarEmailsBatchJob implements ShouldQueue
             $this->subject,
             $this->intro
         );
+
+        if ($result['skipped_registrant_ids'] !== []) {
+            $suppressionService->suppressWebinarRegistrants($result['skipped_registrant_ids']);
+        }
 
         $terminalRegistrantIds = array_values(array_unique([
             ...$result['sent_registrant_ids'],
