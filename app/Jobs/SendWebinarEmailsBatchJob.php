@@ -29,16 +29,21 @@ class SendWebinarEmailsBatchJob implements ShouldQueue
     ];
 
     /**
+     * Public so queued jobs serialized before this flag existed still default to false.
+     *
      * @param array<int, int> $registrantIds
      */
+    public bool $forceResend = false;
+
     public function __construct(
         private readonly int $webinarId,
         private readonly array $registrantIds,
         private readonly string $subject,
         private readonly string $intro,
         private readonly ?string $markSentColumn = null,
-        private readonly bool $forceResend = false,
+        bool $forceResend = false,
     ) {
+        $this->forceResend = $forceResend;
     }
 
     public function handle(ResendService $resendService): void
