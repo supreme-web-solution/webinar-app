@@ -85,6 +85,23 @@ class SendWebinarEmailsBatchJob implements ShouldQueue
             return;
         }
 
+        if (in_array($this->markSentColumn, self::LIFECYCLE_SENT_COLUMNS, true)) {
+            $registrants = $registrants->filter(
+                fn (WebinarRegistrant $registrant): bool => $registrant->{$this->markSentColumn} === null
+            )->values();
+
+            if ($registrants->isEmpty()) {
+                Log::info('webinar_email_batch_job.skipped_already_sent', [
+                    'webinar_id' => $this->webinarId,
+                    'mark_sent_column' => $this->markSentColumn,
+                    'requested_registrant_ids_count' => count($this->registrantIds),
+                    'queue_job_id' => $this->job?->getJobId(),
+                ]);
+
+                return;
+            }
+        }
+
         $result = $resendService->sendWebinarEmailBatch(
             $webinar,
             $registrants,

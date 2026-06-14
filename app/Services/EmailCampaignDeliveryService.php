@@ -13,7 +13,7 @@ use Illuminate\Support\Facades\Mail;
 class EmailCampaignDeliveryService
 {
     /**
-     * @return array{sent_recipient_ids: array<int, int>, attempted: int}
+     * @return array{sent_recipient_ids: array<int, int>, skipped_recipient_ids: array<int, int>, attempted: int}
      */
     public function sendBatch(EmailCampaign $campaign, iterable $recipients): array
     {
@@ -31,6 +31,7 @@ class EmailCampaignDeliveryService
 
             return [
                 'sent_recipient_ids' => [],
+                'skipped_recipient_ids' => [],
                 'attempted' => 0,
             ];
         }
@@ -45,10 +46,29 @@ class EmailCampaignDeliveryService
 
             return [
                 'sent_recipient_ids' => [],
+                'skipped_recipient_ids' => [],
                 'attempted' => count($list),
             ];
         }
 
+        $skippedRecipientIds = [];
+        $deliverable = [];
+
+        foreach ($list as $recipient) {
+            if (! $this->isDeliverableEmail($recipient->email)) {
+                $skippedRecipientIds[] = $recipient->id;
+                Log::warning('email_campaign.recipient.skipped_invalid_email', [
+                    'campaign_id' => $campaign->id,
+                    'recipient_id' => $recipient->id,
+                ]);
+
+                continue;
+            }
+
+            $deliverable[] = $recipient;
+        }
+
+        $attempted = count($list);
         $primary = $this->resolvePrimaryProvider($owner);
         $fallback = $this->resolveFallbackProvider();
 
@@ -57,20 +77,34 @@ class EmailCampaignDeliveryService
             'subject' => $campaign->prefixedTitleLine(),
             'provider' => $primary,
             'fallback_provider' => $fallback,
-            'recipient_count' => count($list),
+            'recipient_count' => count($deliverable),
+            'skipped_invalid_count' => count($skippedRecipientIds),
         ]);
 
-        $result = $this->sendBatchUsingProvider($primary, $campaign, $owner, $list);
-        $attempted = count($list);
+        $result = [
+            'sent_recipient_ids' => [],
+            'skipped_recipient_ids' => $skippedRecipientIds,
+            'attempted' => $attempted,
+        ];
 
-        if ($fallback !== null && $fallback !== $primary && count($result['sent_recipient_ids']) < $attempted) {
-            $sentLookup = array_flip($result['sent_recipient_ids']);
+        if ($deliverable !== []) {
+            $providerResult = $this->sendBatchUsingProvider($primary, $campaign, $owner, $deliverable);
+            $result['sent_recipient_ids'] = $providerResult['sent_recipient_ids'];
+            $result['skipped_recipient_ids'] = array_values(array_unique([
+                ...$result['skipped_recipient_ids'],
+                ...$providerResult['skipped_recipient_ids'],
+            ]));
+
+            $terminalLookup = array_flip([
+                ...$result['sent_recipient_ids'],
+                ...$result['skipped_recipient_ids'],
+            ]);
             $remaining = array_values(array_filter(
-                $list,
-                fn (EmailCampaignRecipient $recipient): bool => ! isset($sentLookup[$recipient->id])
+                $deliverable,
+                fn (EmailCampaignRecipient $recipient): bool => ! isset($terminalLookup[$recipient->id])
             ));
 
-            if ($remaining !== []) {
+            if ($fallback !== null && $fallback !== $primary && $remaining !== []) {
                 Log::warning('email_campaign.provider.batch.fallback', [
                     'campaign_id' => $campaign->id,
                     'failed_provider' => $primary,
@@ -83,26 +117,32 @@ class EmailCampaignDeliveryService
                     ...$result['sent_recipient_ids'],
                     ...$fallbackResult['sent_recipient_ids'],
                 ]));
+                $result['skipped_recipient_ids'] = array_values(array_unique([
+                    ...$result['skipped_recipient_ids'],
+                    ...$fallbackResult['skipped_recipient_ids'],
+                ]));
             }
         }
+
+        $sentCount = count($result['sent_recipient_ids']);
+        $skippedCount = count($result['skipped_recipient_ids']);
 
         Log::info('email_campaign.provider.batch.completed', [
             'campaign_id' => $campaign->id,
             'subject' => $campaign->prefixedTitleLine(),
             'provider' => $primary,
             'attempted' => $attempted,
-            'sent_count' => count($result['sent_recipient_ids']),
+            'sent_count' => $sentCount,
+            'skipped_count' => $skippedCount,
+            'failed_count' => max(0, $attempted - $sentCount - $skippedCount),
         ]);
 
-        return [
-            'sent_recipient_ids' => $result['sent_recipient_ids'],
-            'attempted' => $attempted,
-        ];
+        return $result;
     }
 
     /**
      * @param  array<int, EmailCampaignRecipient>  $recipients
-     * @return array{sent_recipient_ids: array<int, int>, attempted: int}
+     * @return array{sent_recipient_ids: array<int, int>, skipped_recipient_ids: array<int, int>, attempted: int}
      */
     private function sendBatchUsingProvider(string $provider, EmailCampaign $campaign, User $owner, array $recipients): array
     {
@@ -115,7 +155,7 @@ class EmailCampaignDeliveryService
 
     /**
      * @param  array<int, EmailCampaignRecipient>  $recipients
-     * @return array{sent_recipient_ids: array<int, int>, attempted: int}
+     * @return array{sent_recipient_ids: array<int, int>, skipped_recipient_ids: array<int, int>, attempted: int}
      */
     private function sendBatchViaResend(EmailCampaign $campaign, array $recipients): array
     {
@@ -129,6 +169,7 @@ class EmailCampaignDeliveryService
 
             return [
                 'sent_recipient_ids' => [],
+                'skipped_recipient_ids' => [],
                 'attempted' => count($recipients),
             ];
         }
@@ -159,6 +200,7 @@ class EmailCampaignDeliveryService
 
                 return [
                     'sent_recipient_ids' => [],
+                    'skipped_recipient_ids' => [],
                     'attempted' => count($emails),
                 ];
             }
@@ -171,6 +213,7 @@ class EmailCampaignDeliveryService
 
             return [
                 'sent_recipient_ids' => [],
+                'skipped_recipient_ids' => [],
                 'attempted' => count($emails),
             ];
         }
@@ -183,13 +226,14 @@ class EmailCampaignDeliveryService
 
         return [
             'sent_recipient_ids' => $recipientIds,
+            'skipped_recipient_ids' => [],
             'attempted' => count($emails),
         ];
     }
 
     /**
      * @param  array<int, EmailCampaignRecipient>  $recipients
-     * @return array{sent_recipient_ids: array<int, int>, attempted: int}
+     * @return array{sent_recipient_ids: array<int, int>, skipped_recipient_ids: array<int, int>, attempted: int}
      */
     private function sendBatchViaPostmark(EmailCampaign $campaign, array $recipients): array
     {
@@ -203,6 +247,7 @@ class EmailCampaignDeliveryService
 
             return [
                 'sent_recipient_ids' => [],
+                'skipped_recipient_ids' => [],
                 'attempted' => count($recipients),
             ];
         }
@@ -240,6 +285,7 @@ class EmailCampaignDeliveryService
 
                 return [
                     'sent_recipient_ids' => [],
+                    'skipped_recipient_ids' => [],
                     'attempted' => count($messages),
                 ];
             }
@@ -252,6 +298,7 @@ class EmailCampaignDeliveryService
 
             return [
                 'sent_recipient_ids' => [],
+                'skipped_recipient_ids' => [],
                 'attempted' => count($messages),
             ];
         }
@@ -266,11 +313,13 @@ class EmailCampaignDeliveryService
 
             return [
                 'sent_recipient_ids' => [],
+                'skipped_recipient_ids' => [],
                 'attempted' => count($messages),
             ];
         }
 
         $sentIds = [];
+        $skippedIds = [];
         foreach ($body as $index => $result) {
             $errorCode = (int) data_get($result, 'ErrorCode', 0);
             if ($errorCode === 0 && isset($recipientIds[$index])) {
@@ -278,9 +327,23 @@ class EmailCampaignDeliveryService
                 continue;
             }
 
+            $recipientId = $recipientIds[$index] ?? null;
+
+            if ($recipientId !== null && $this->isPermanentPostmarkRecipientError($errorCode)) {
+                $skippedIds[] = $recipientId;
+                Log::warning('email_campaign.recipient.skipped_permanent_failure', [
+                    'campaign_id' => $campaign->id,
+                    'recipient_id' => $recipientId,
+                    'error_code' => $errorCode,
+                    'message' => data_get($result, 'Message'),
+                ]);
+
+                continue;
+            }
+
             Log::warning('Postmark campaign recipient failed.', [
                 'campaign_id' => $campaign->id,
-                'recipient_id' => $recipientIds[$index] ?? null,
+                'recipient_id' => $recipientId,
                 'error_code' => $errorCode,
                 'message' => data_get($result, 'Message'),
             ]);
@@ -290,17 +353,19 @@ class EmailCampaignDeliveryService
             'campaign_id' => $campaign->id,
             'attempted' => count($messages),
             'sent_count' => count($sentIds),
+            'skipped_count' => count($skippedIds),
         ]);
 
         return [
             'sent_recipient_ids' => $sentIds,
+            'skipped_recipient_ids' => $skippedIds,
             'attempted' => count($messages),
         ];
     }
 
     /**
      * @param  array<int, EmailCampaignRecipient>  $recipients
-     * @return array{sent_recipient_ids: array<int, int>, attempted: int}
+     * @return array{sent_recipient_ids: array<int, int>, skipped_recipient_ids: array<int, int>, attempted: int}
      */
     private function sendBatchViaSmtp(EmailCampaign $campaign, User $owner, array $recipients): array
     {
@@ -356,8 +421,19 @@ class EmailCampaignDeliveryService
 
         return [
             'sent_recipient_ids' => $sentIds,
+            'skipped_recipient_ids' => [],
             'attempted' => count($recipients),
         ];
+    }
+
+    private function isDeliverableEmail(string $email): bool
+    {
+        return filter_var(trim($email), FILTER_VALIDATE_EMAIL) !== false;
+    }
+
+    private function isPermanentPostmarkRecipientError(int $errorCode): bool
+    {
+        return in_array($errorCode, [300, 406], true);
     }
 
     private function resolvePrimaryProvider(User $owner): string

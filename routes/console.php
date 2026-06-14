@@ -14,4 +14,4 @@ Artisan::command('webinars:send-lifecycle-emails', function (WebinarLifecycleEma
     $this->info("Reminders sent: {$result['reminders_sent']}, follow-ups sent: {$result['follow_ups_sent']}");
 })->purpose('Dispatch due reminder emails and segmented profit follow-up emails for scheduled webinars');
 
-Schedule::command('webinars:send-lifecycle-emails')->everyMinute();
+Schedule::command('webinars:send-lifecycle-emails')->everyMinute()->withoutOverlapping();

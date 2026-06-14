@@ -79,7 +79,11 @@ class SendEmailCampaignBatchJob implements ShouldQueue
 
         $result = $deliveryService->sendBatch($campaign, $recipients);
 
-        if ($result['sent_recipient_ids'] === []) {
+        $sentCount = count($result['sent_recipient_ids']);
+        $skippedCount = count($result['skipped_recipient_ids']);
+        $failedCount = max(0, $result['attempted'] - $sentCount - $skippedCount);
+
+        if ($sentCount === 0 && $skippedCount === 0) {
             Log::warning('email_campaign_batch_job.no_emails_sent', [
                 'campaign_id' => $campaign->id,
                 'subject' => $campaign->prefixedTitleLine(),
@@ -92,19 +96,33 @@ class SendEmailCampaignBatchJob implements ShouldQueue
 
         $now = Carbon::now();
         $timestamp = $now->toDateTimeString();
-        EmailCampaignRecipient::query()
-            ->whereIn('id', $result['sent_recipient_ids'])
-            ->update([
-                'send_count' => DB::raw('send_count + 1'),
-                'last_sent_at' => $now,
-                'first_sent_at' => DB::raw("COALESCE(first_sent_at, '{$timestamp}')"),
-            ]);
+
+        if ($result['sent_recipient_ids'] !== []) {
+            EmailCampaignRecipient::query()
+                ->whereIn('id', $result['sent_recipient_ids'])
+                ->update([
+                    'send_count' => DB::raw('send_count + 1'),
+                    'last_sent_at' => $now,
+                    'first_sent_at' => DB::raw("COALESCE(first_sent_at, '{$timestamp}')"),
+                ]);
+        }
+
+        if ($result['skipped_recipient_ids'] !== []) {
+            EmailCampaignRecipient::query()
+                ->whereIn('id', $result['skipped_recipient_ids'])
+                ->update([
+                    'last_sent_at' => $now,
+                    'first_sent_at' => DB::raw("COALESCE(first_sent_at, '{$timestamp}')"),
+                ]);
+        }
 
         Log::info('email_campaign_batch_job.completed', [
             'campaign_id' => $campaign->id,
             'subject' => $campaign->prefixedTitleLine(),
             'attempted' => $result['attempted'],
-            'sent_count' => count($result['sent_recipient_ids']),
+            'sent_count' => $sentCount,
+            'skipped_count' => $skippedCount,
+            'failed_count' => $failedCount,
             'queue_job_id' => $this->job?->getJobId(),
         ]);
     }
