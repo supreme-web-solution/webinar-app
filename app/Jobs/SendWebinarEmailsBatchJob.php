@@ -20,6 +20,14 @@ class SendWebinarEmailsBatchJob implements ShouldQueue
     use Queueable;
     use SerializesModels;
 
+    private const LIFECYCLE_SENT_COLUMNS = [
+        'reminder_sent_at',
+        'follow_up_sent_at',
+        'follow_up_lt_50_sent_at',
+        'follow_up_gte_50_sent_at',
+        'follow_up_completed_no_click_sent_at',
+    ];
+
     /**
      * @param array<int, int> $registrantIds
      */
@@ -42,6 +50,14 @@ class SendWebinarEmailsBatchJob implements ShouldQueue
 
             return;
         }
+
+        Log::info('webinar_email_batch_job.started', [
+            'webinar_id' => $this->webinarId,
+            'registrant_ids_count' => count($this->registrantIds),
+            'mark_sent_column' => $this->markSentColumn,
+            'queue_job_id' => $this->job?->getJobId(),
+            'queue' => $this->job?->getQueue(),
+        ]);
 
         $webinar = Webinar::query()->find($this->webinarId);
         if (!$webinar) {
@@ -76,22 +92,47 @@ class SendWebinarEmailsBatchJob implements ShouldQueue
             $this->intro
         );
 
+        $terminalRegistrantIds = array_values(array_unique([
+            ...$result['sent_registrant_ids'],
+            ...$result['skipped_registrant_ids'],
+        ]));
+
         if (
-            in_array($this->markSentColumn, [
-                'reminder_sent_at',
-                'follow_up_sent_at',
-                'follow_up_lt_50_sent_at',
-                'follow_up_gte_50_sent_at',
-                'follow_up_completed_no_click_sent_at',
-            ], true)
-            && $result['sent_registrant_ids'] !== []
+            in_array($this->markSentColumn, self::LIFECYCLE_SENT_COLUMNS, true)
+            && $terminalRegistrantIds !== []
         ) {
-            $updated = WebinarRegistrant::query()
-                ->whereIn('id', $result['sent_registrant_ids'])
+            WebinarRegistrant::query()
+                ->whereIn('id', $terminalRegistrantIds)
                 ->update([
                     $this->markSentColumn => Carbon::now(),
                 ]);
         }
+
+        $sentCount = count($result['sent_registrant_ids']);
+        $skippedCount = count($result['skipped_registrant_ids']);
+        $failedCount = max(0, $result['attempted'] - $sentCount - $skippedCount);
+
+        if ($sentCount === 0 && $skippedCount === 0) {
+            Log::warning('webinar_email_batch_job.no_emails_sent', [
+                'webinar_id' => $this->webinarId,
+                'subject' => $this->subject,
+                'attempted' => $result['attempted'],
+                'queue_job_id' => $this->job?->getJobId(),
+            ]);
+
+            return;
+        }
+
+        Log::info('webinar_email_batch_job.completed', [
+            'webinar_id' => $this->webinarId,
+            'subject' => $this->subject,
+            'mark_sent_column' => $this->markSentColumn,
+            'attempted' => $result['attempted'],
+            'sent_count' => $sentCount,
+            'skipped_count' => $skippedCount,
+            'failed_count' => $failedCount,
+            'queue_job_id' => $this->job?->getJobId(),
+        ]);
     }
 
     public function failed(\Throwable $exception): void

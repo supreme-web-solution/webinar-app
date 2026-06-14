@@ -12,7 +12,7 @@ use Illuminate\Support\Facades\Mail;
 class ResendService
 {
     /**
-     * @return array{sent_registrant_ids: array<int, int>, attempted: int}
+     * @return array{sent_registrant_ids: array<int, int>, skipped_registrant_ids: array<int, int>, attempted: int}
      */
     public function sendWebinarEmailBatch(Webinar $webinar, iterable $registrants, string $subject, string $intro): array
     {
@@ -26,24 +26,56 @@ class ResendService
         if ($list === []) {
             return [
                 'sent_registrant_ids' => [],
+                'skipped_registrant_ids' => [],
                 'attempted' => 0,
             ];
         }
 
+        $skippedRegistrantIds = [];
+        $deliverable = [];
+
+        foreach ($list as $registrant) {
+            if (! $this->isDeliverableEmail($registrant->email)) {
+                $skippedRegistrantIds[] = $registrant->id;
+                Log::warning('webinar_email.recipient.skipped_invalid_email', [
+                    'webinar_id' => $webinar->id,
+                    'registrant_id' => $registrant->id,
+                ]);
+
+                continue;
+            }
+
+            $deliverable[] = $registrant;
+        }
+
+        $attempted = count($list);
         $primary = $this->resolvePrimaryProvider($webinar);
         $fallback = $this->resolveFallbackProvider();
 
-        $result = $this->sendBatchUsingProvider($primary, $webinar, $list, $subject, $intro);
-        $attempted = count($list);
+        $result = [
+            'sent_registrant_ids' => [],
+            'skipped_registrant_ids' => $skippedRegistrantIds,
+            'attempted' => $attempted,
+        ];
 
-        if ($fallback !== null && $fallback !== $primary && count($result['sent_registrant_ids']) < $attempted) {
-            $sentLookup = array_flip($result['sent_registrant_ids']);
+        if ($deliverable !== []) {
+            $providerResult = $this->sendBatchUsingProvider($primary, $webinar, $deliverable, $subject, $intro);
+            $result['sent_registrant_ids'] = $providerResult['sent_registrant_ids'];
+            $result['skipped_registrant_ids'] = array_values(array_unique([
+                ...$result['skipped_registrant_ids'],
+                ...$providerResult['skipped_registrant_ids'],
+            ]));
+
+            $terminalLookup = array_flip([
+                ...$result['sent_registrant_ids'],
+                ...$result['skipped_registrant_ids'],
+            ]);
             $remaining = array_values(array_filter(
-                $list,
-                fn (WebinarRegistrant $registrant): bool => ! isset($sentLookup[$registrant->id])
+                $deliverable,
+                fn (WebinarRegistrant $registrant): bool => ! isset($terminalLookup[$registrant->id])
             ));
 
-            if ($remaining !== []) {
+            if ($fallback !== null && $fallback !== $primary && $remaining !== []) {
                 Log::warning('webinar_email.provider.batch.fallback', [
                     'webinar_id' => $webinar->id,
                     'failed_provider' => $primary,
@@ -56,13 +88,28 @@ class ResendService
                     ...$result['sent_registrant_ids'],
                     ...$fallbackResult['sent_registrant_ids'],
                 ]));
+                $result['skipped_registrant_ids'] = array_values(array_unique([
+                    ...$result['skipped_registrant_ids'],
+                    ...$fallbackResult['skipped_registrant_ids'],
+                ]));
             }
         }
 
-        return [
-            'sent_registrant_ids' => $result['sent_registrant_ids'],
+        $sentCount = count($result['sent_registrant_ids']);
+        $skippedCount = count($result['skipped_registrant_ids']);
+
+        Log::info('webinar_email.provider.batch.completed', [
+            'webinar_id' => $webinar->id,
+            'subject' => $subject,
+            'provider' => $primary,
+            'fallback_provider' => ($fallback !== null && $fallback !== $primary) ? $fallback : null,
             'attempted' => $attempted,
-        ];
+            'sent_count' => $sentCount,
+            'skipped_count' => $skippedCount,
+            'failed_count' => max(0, $attempted - $sentCount - $skippedCount),
+        ]);
+
+        return $result;
     }
 
     public function sendWebinarEmail(Webinar $webinar, WebinarRegistrant $registrant, string $subject, string $intro): bool
@@ -91,7 +138,7 @@ class ResendService
 
     /**
      * @param  array<int, WebinarRegistrant>  $registrants
-     * @return array{sent_registrant_ids: array<int, int>, attempted: int}
+     * @return array{sent_registrant_ids: array<int, int>, skipped_registrant_ids: array<int, int>, attempted: int}
      */
     private function sendBatchUsingProvider(
         string $provider,
@@ -123,7 +170,7 @@ class ResendService
 
     /**
      * @param  array<int, WebinarRegistrant>  $registrants
-     * @return array{sent_registrant_ids: array<int, int>, attempted: int}
+     * @return array{sent_registrant_ids: array<int, int>, skipped_registrant_ids: array<int, int>, attempted: int}
      */
     private function sendBatchViaResend(Webinar $webinar, array $registrants, string $subject, string $intro): array
     {
@@ -137,6 +184,7 @@ class ResendService
 
             return [
                 'sent_registrant_ids' => [],
+                'skipped_registrant_ids' => [],
                 'attempted' => count($registrants),
             ];
         }
@@ -167,6 +215,7 @@ class ResendService
 
                 return [
                     'sent_registrant_ids' => [],
+                    'skipped_registrant_ids' => [],
                     'attempted' => count($emails),
                 ];
             }
@@ -179,12 +228,14 @@ class ResendService
 
             return [
                 'sent_registrant_ids' => [],
+                'skipped_registrant_ids' => [],
                 'attempted' => count($emails),
             ];
         }
 
         return [
             'sent_registrant_ids' => $registrantIds,
+            'skipped_registrant_ids' => [],
             'attempted' => count($emails),
         ];
     }
@@ -237,7 +288,7 @@ class ResendService
 
     /**
      * @param  array<int, WebinarRegistrant>  $registrants
-     * @return array{sent_registrant_ids: array<int, int>, attempted: int}
+     * @return array{sent_registrant_ids: array<int, int>, skipped_registrant_ids: array<int, int>, attempted: int}
      */
     private function sendBatchViaPostmark(Webinar $webinar, array $registrants, string $subject, string $intro): array
     {
@@ -251,6 +302,7 @@ class ResendService
 
             return [
                 'sent_registrant_ids' => [],
+                'skipped_registrant_ids' => [],
                 'attempted' => count($registrants),
             ];
         }
@@ -289,6 +341,7 @@ class ResendService
 
                 return [
                     'sent_registrant_ids' => [],
+                    'skipped_registrant_ids' => [],
                     'attempted' => count($messages),
                 ];
             }
@@ -301,6 +354,7 @@ class ResendService
 
             return [
                 'sent_registrant_ids' => [],
+                'skipped_registrant_ids' => [],
                 'attempted' => count($messages),
             ];
         }
@@ -315,11 +369,13 @@ class ResendService
 
             return [
                 'sent_registrant_ids' => [],
+                'skipped_registrant_ids' => [],
                 'attempted' => count($messages),
             ];
         }
 
         $sentIds = [];
+        $skippedIds = [];
         foreach ($body as $index => $result) {
             $errorCode = (int) data_get($result, 'ErrorCode', 0);
             if ($errorCode === 0 && isset($registrantIds[$index])) {
@@ -328,16 +384,40 @@ class ResendService
                 continue;
             }
 
+            $registrantId = $registrantIds[$index] ?? null;
+
+            if ($registrantId !== null && $this->isPermanentPostmarkRecipientError($errorCode)) {
+                $skippedIds[] = $registrantId;
+                Log::warning('webinar_email.recipient.skipped_permanent_failure', [
+                    'webinar_id' => $webinar->id,
+                    'registrant_id' => $registrantId,
+                    'error_code' => $errorCode,
+                    'message' => data_get($result, 'Message'),
+                ]);
+
+                continue;
+            }
+
             Log::warning('Postmark batch recipient failed.', [
                 'webinar_id' => $webinar->id,
-                'registrant_id' => $registrantIds[$index] ?? null,
+                'registrant_id' => $registrantId,
                 'error_code' => $errorCode,
                 'message' => data_get($result, 'Message'),
             ]);
         }
 
+        if ($sentIds !== []) {
+            Log::info('webinar_email.provider.postmark.batch.sent', [
+                'webinar_id' => $webinar->id,
+                'attempted' => count($messages),
+                'sent_count' => count($sentIds),
+                'skipped_count' => count($skippedIds),
+            ]);
+        }
+
         return [
             'sent_registrant_ids' => $sentIds,
+            'skipped_registrant_ids' => $skippedIds,
             'attempted' => count($messages),
         ];
     }
@@ -396,7 +476,7 @@ class ResendService
 
     /**
      * @param  array<int, WebinarRegistrant>  $registrants
-     * @return array{sent_registrant_ids: array<int, int>, attempted: int}
+     * @return array{sent_registrant_ids: array<int, int>, skipped_registrant_ids: array<int, int>, attempted: int}
      */
     private function sendBatchViaSmtp(Webinar $webinar, array $registrants, string $subject, string $intro): array
     {
@@ -409,6 +489,7 @@ class ResendService
 
         return [
             'sent_registrant_ids' => $sentIds,
+            'skipped_registrant_ids' => [],
             'attempted' => count($registrants),
         ];
     }
@@ -754,6 +835,16 @@ class ResendService
         $apiKey = (string) config('services.postmark.key', '');
 
         return $apiKey !== '' ? $apiKey : (string) config('services.postmark.token', '');
+    }
+
+    private function isDeliverableEmail(string $email): bool
+    {
+        return filter_var(trim($email), FILTER_VALIDATE_EMAIL) !== false;
+    }
+
+    private function isPermanentPostmarkRecipientError(int $errorCode): bool
+    {
+        return in_array($errorCode, [300, 406], true);
     }
 
     private function resolveDynamicFrom(string $configuredFrom, string $hostName): string
