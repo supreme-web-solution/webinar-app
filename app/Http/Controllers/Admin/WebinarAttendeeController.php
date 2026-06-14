@@ -351,7 +351,8 @@ class WebinarAttendeeController extends Controller
             $registrants->pluck('id')->values(),
             'Reminder: '.$webinar->prefixedTitleLine(),
             'This is a reminder that the webinar is starting soon. Click below to join the webinar.',
-            'reminder_sent_at'
+            'reminder_sent_at',
+            forceResend: true,
         );
 
         return back()->with('success', "Reminder run queued. {$emailsQueued}/{$registrants->count()} email(s) queued.");
@@ -466,7 +467,8 @@ class WebinarAttendeeController extends Controller
         Collection $registrantIds,
         string $subject,
         string $intro,
-        ?string $markSentColumn = null
+        ?string $markSentColumn = null,
+        bool $forceResend = false,
     ): int {
         $batchSize = max(1, (int) env('WEBINAR_EMAIL_BATCH_SIZE', 100));
         $baseDelaySeconds = max(0, (int) env('WEBINAR_EMAIL_BATCH_DELAY_BASE_SECONDS', 0));
@@ -487,7 +489,8 @@ class WebinarAttendeeController extends Controller
                 $chunk->all(),
                 $subject,
                 $intro,
-                $markSentColumn
+                $markSentColumn,
+                $forceResend,
             )
                 ->onQueue($emailQueue)
                 ->delay(now()->addSeconds($delaySeconds));

@@ -37,6 +37,7 @@ class SendWebinarEmailsBatchJob implements ShouldQueue
         private readonly string $subject,
         private readonly string $intro,
         private readonly ?string $markSentColumn = null,
+        private readonly bool $forceResend = false,
     ) {
     }
 
@@ -55,6 +56,7 @@ class SendWebinarEmailsBatchJob implements ShouldQueue
             'webinar_id' => $this->webinarId,
             'registrant_ids_count' => count($this->registrantIds),
             'mark_sent_column' => $this->markSentColumn,
+            'force_resend' => $this->forceResend,
             'queue_job_id' => $this->job?->getJobId(),
             'queue' => $this->job?->getQueue(),
         ]);
@@ -85,7 +87,10 @@ class SendWebinarEmailsBatchJob implements ShouldQueue
             return;
         }
 
-        if (in_array($this->markSentColumn, self::LIFECYCLE_SENT_COLUMNS, true)) {
+        if (
+            ! $this->forceResend
+            && in_array($this->markSentColumn, self::LIFECYCLE_SENT_COLUMNS, true)
+        ) {
             $registrants = $registrants->filter(
                 fn (WebinarRegistrant $registrant): bool => $registrant->{$this->markSentColumn} === null
             )->values();
