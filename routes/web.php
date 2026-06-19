@@ -7,9 +7,11 @@ use App\Http\Controllers\Admin\WebinarChatController as AdminWebinarChatControll
 use App\Http\Controllers\Admin\WebinarAiKnowledgeController;
 use App\Http\Controllers\Admin\WebinarAiStudioController;
 use App\Http\Controllers\Admin\UserManagementController;
+use App\Http\Controllers\Admin\PostmarkDeliveryStatsController;
 use App\Http\Controllers\Admin\EmailCampaignController;
 use App\Http\Controllers\Admin\EmailCampaignAttendeeController;
 use App\Http\Middleware\EnsureAdminEmail;
+use App\Http\Controllers\PostmarkWebhookController;
 use App\Http\Controllers\UnsubscribeController;
 use App\Http\Controllers\EmailCampaignClickController;
 use App\Http\Controllers\EmailCampaignUnsubscribeController;
@@ -56,6 +58,7 @@ Route::middleware(['auth', 'verified'])->group(function () {
         Route::delete('webinars/{webinar}/attendees/{registrant}', [WebinarAttendeeController::class, 'deleteUnsubscribed'])->name('webinars.attendees.delete');
         Route::post('webinars/{webinar}/attendees/delete-bulk', [WebinarAttendeeController::class, 'deleteManyUnsubscribed'])->name('webinars.attendees.delete.bulk');
         Route::post('webinars/{webinar}/notify', [WebinarAttendeeController::class, 'notifyAll'])->name('webinars.notify');
+        Route::get('postmark-delivery', [PostmarkDeliveryStatsController::class, 'index'])->name('postmark-delivery.index');
         Route::get('webinars/{webinar}/ai/sources', [WebinarAiKnowledgeController::class, 'indexSources'])->name('webinars.ai.sources.index');
         Route::get('webinars/{webinar}/ai/sources/{source}/chunks', [WebinarAiKnowledgeController::class, 'sourceChunks'])->name('webinars.ai.sources.chunks');
         Route::post('webinars/{webinar}/ai/sources/url', [WebinarAiKnowledgeController::class, 'storeUrl'])->name('webinars.ai.sources.url');
@@ -93,6 +96,8 @@ Route::middleware(['auth', 'verified'])->group(function () {
         });
     });
 });
+
+Route::post('/webhooks/postmark/{token}', PostmarkWebhookController::class)->name('webhooks.postmark');
 
 Route::get('/register/{webinar:uuid}', [WebinarRegistrationController::class, 'show'])->name('webinar.register');
 Route::post('/register/{webinar:uuid}', [WebinarRegistrationController::class, 'store'])->name('webinar.register.store');

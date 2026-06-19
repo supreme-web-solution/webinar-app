@@ -14,7 +14,7 @@ class ResendService
     /**
      * @return array{sent_registrant_ids: array<int, int>, skipped_registrant_ids: array<int, int>, attempted: int}
      */
-    public function sendWebinarEmailBatch(Webinar $webinar, iterable $registrants, string $subject, string $intro): array
+    public function sendWebinarEmailBatch(Webinar $webinar, iterable $registrants, string $subject, string $intro, ?string $emailType = null): array
     {
         $list = [];
         foreach ($registrants as $registrant) {
@@ -59,7 +59,7 @@ class ResendService
         ];
 
         if ($deliverable !== []) {
-            $providerResult = $this->sendBatchUsingProvider($primary, $webinar, $deliverable, $subject, $intro);
+            $providerResult = $this->sendBatchUsingProvider($primary, $webinar, $deliverable, $subject, $intro, $emailType);
             $result['sent_registrant_ids'] = $providerResult['sent_registrant_ids'];
             $result['skipped_registrant_ids'] = array_values(array_unique([
                 ...$result['skipped_registrant_ids'],
@@ -83,7 +83,7 @@ class ResendService
                     'remaining' => count($remaining),
                 ]);
 
-                $fallbackResult = $this->sendBatchUsingProvider($fallback, $webinar, $remaining, $subject, $intro);
+                $fallbackResult = $this->sendBatchUsingProvider($fallback, $webinar, $remaining, $subject, $intro, $emailType);
                 $result['sent_registrant_ids'] = array_values(array_unique([
                     ...$result['sent_registrant_ids'],
                     ...$fallbackResult['sent_registrant_ids'],
@@ -112,12 +112,12 @@ class ResendService
         return $result;
     }
 
-    public function sendWebinarEmail(Webinar $webinar, WebinarRegistrant $registrant, string $subject, string $intro): bool
+    public function sendWebinarEmail(Webinar $webinar, WebinarRegistrant $registrant, string $subject, string $intro, ?string $emailType = 'confirmation'): bool
     {
         $primary = $this->resolvePrimaryProvider($webinar);
         $fallback = $this->resolveFallbackProvider();
 
-        $sent = $this->sendSingleUsingProvider($primary, $webinar, $registrant, $subject, $intro);
+        $sent = $this->sendSingleUsingProvider($primary, $webinar, $registrant, $subject, $intro, $emailType);
         if ($sent) {
             return true;
         }
@@ -130,7 +130,7 @@ class ResendService
                 'registrant_id' => $registrant->id,
             ]);
 
-            return $this->sendSingleUsingProvider($fallback, $webinar, $registrant, $subject, $intro);
+            return $this->sendSingleUsingProvider($fallback, $webinar, $registrant, $subject, $intro, $emailType);
         }
 
         return false;
@@ -145,10 +145,12 @@ class ResendService
         Webinar $webinar,
         array $registrants,
         string $subject,
-        string $intro
+        string $intro,
+        ?string $emailType = null,
     ): array {
         return match ($provider) {
-            'postmark' => $this->sendBatchViaPostmark($webinar, $registrants, $subject, $intro),
+            'postmark' => $this->sendBatchViaPostmark($webinar, $registrants, $subject, $intro, $emailType),
+            'elastic', 'elasticemail' => $this->sendBatchViaElasticEmail($webinar, $registrants, $subject, $intro, $emailType),
             'ses_smtp', 'smtp' => $this->sendBatchViaSmtp($webinar, $registrants, $subject, $intro),
             default => $this->sendBatchViaResend($webinar, $registrants, $subject, $intro),
         };
@@ -159,10 +161,12 @@ class ResendService
         Webinar $webinar,
         WebinarRegistrant $registrant,
         string $subject,
-        string $intro
+        string $intro,
+        ?string $emailType = null,
     ): bool {
         return match ($provider) {
-            'postmark' => $this->sendSingleViaPostmark($webinar, $registrant, $subject, $intro),
+            'postmark' => $this->sendSingleViaPostmark($webinar, $registrant, $subject, $intro, $emailType),
+            'elastic', 'elasticemail' => $this->sendSingleViaElasticEmail($webinar, $registrant, $subject, $intro, $emailType),
             'ses_smtp', 'smtp' => $this->sendSingleViaSmtp($webinar, $registrant, $subject, $intro),
             default => $this->sendSingleViaResend($webinar, $registrant, $subject, $intro),
         };
@@ -290,7 +294,7 @@ class ResendService
      * @param  array<int, WebinarRegistrant>  $registrants
      * @return array{sent_registrant_ids: array<int, int>, skipped_registrant_ids: array<int, int>, attempted: int}
      */
-    private function sendBatchViaPostmark(Webinar $webinar, array $registrants, string $subject, string $intro): array
+    private function sendBatchViaPostmark(Webinar $webinar, array $registrants, string $subject, string $intro, ?string $emailType = null): array
     {
         $apiKey = $this->postmarkApiKey();
         $configuredFrom = (string) config('services.postmark.from', config('mail.from.address', 'hello@example.com'));
@@ -311,15 +315,18 @@ class ResendService
         $messageStreamId = trim((string) config('services.postmark.message_stream_id', ''));
         $messages = [];
         $registrantIds = [];
+        $registrantById = [];
 
         foreach ($registrants as $registrant) {
             $registrantIds[] = $registrant->id;
+            $registrantById[$registrant->id] = $registrant;
 
             $message = [
                 'From' => $from,
                 'To' => $registrant->email,
                 'Subject' => $subject,
                 'HtmlBody' => $this->buildWebinarEmailHtml($webinar, $registrant, $intro),
+                'Metadata' => $this->postmarkWebinarMetadata($webinar, $registrant, $emailType),
             ];
 
             if ($messageStreamId !== '') {
@@ -376,10 +383,30 @@ class ResendService
 
         $sentIds = [];
         $skippedIds = [];
+        $acceptedRecords = [];
+        $suppressedRecords = [];
+        $userId = (int) $webinar->user_id;
+
         foreach ($body as $index => $result) {
             $errorCode = (int) data_get($result, 'ErrorCode', 0);
             if ($errorCode === 0 && isset($registrantIds[$index])) {
-                $sentIds[] = $registrantIds[$index];
+                $registrantId = $registrantIds[$index];
+                $sentIds[] = $registrantId;
+                $registrant = $registrantById[$registrantId] ?? null;
+                $messageId = trim((string) data_get($result, 'MessageID', ''));
+
+                if ($messageId !== '' && $registrant instanceof WebinarRegistrant) {
+                    $acceptedRecords[] = [
+                        'message_id' => $messageId,
+                        'email' => $registrant->email,
+                        'user_id' => $userId,
+                        'source_type' => 'webinar_registrant',
+                        'webinar_id' => $webinar->id,
+                        'registrant_id' => $registrant->id,
+                        'email_type' => $emailType,
+                        'subject' => $subject,
+                    ];
+                }
 
                 continue;
             }
@@ -388,6 +415,20 @@ class ResendService
 
             if ($registrantId !== null && $this->isPermanentPostmarkRecipientError($errorCode)) {
                 $skippedIds[] = $registrantId;
+                $registrant = $registrantById[$registrantId] ?? null;
+
+                if ($registrant instanceof WebinarRegistrant) {
+                    $suppressedRecords[] = [
+                        'email' => $registrant->email,
+                        'user_id' => $userId,
+                        'source_type' => 'webinar_registrant',
+                        'webinar_id' => $webinar->id,
+                        'registrant_id' => $registrant->id,
+                        'email_type' => $emailType,
+                        'subject' => $subject,
+                    ];
+                }
+
                 Log::warning('webinar_email.recipient.skipped_permanent_failure', [
                     'webinar_id' => $webinar->id,
                     'registrant_id' => $registrantId,
@@ -415,6 +456,10 @@ class ResendService
             ]);
         }
 
+        $tracking = app(PostmarkDeliveryTrackingService::class);
+        $tracking->recordAccepted($acceptedRecords);
+        $tracking->recordSuppressedAtApi($suppressedRecords);
+
         return [
             'sent_registrant_ids' => $sentIds,
             'skipped_registrant_ids' => $skippedIds,
@@ -422,7 +467,7 @@ class ResendService
         ];
     }
 
-    private function sendSingleViaPostmark(Webinar $webinar, WebinarRegistrant $registrant, string $subject, string $intro): bool
+    private function sendSingleViaPostmark(Webinar $webinar, WebinarRegistrant $registrant, string $subject, string $intro, ?string $emailType = null): bool
     {
         $apiKey = $this->postmarkApiKey();
         $configuredFrom = (string) config('services.postmark.from', config('mail.from.address', 'hello@example.com'));
@@ -441,6 +486,7 @@ class ResendService
             'To' => $registrant->email,
             'Subject' => $subject,
             'HtmlBody' => $this->buildWebinarEmailHtml($webinar, $registrant, $intro),
+            'Metadata' => $this->postmarkWebinarMetadata($webinar, $registrant, $emailType),
         ];
 
         $messageStreamId = trim((string) config('services.postmark.message_stream_id', ''));
@@ -462,6 +508,20 @@ class ResendService
                 return false;
             }
 
+            $messageId = trim((string) data_get($response->json(), 'MessageID', ''));
+            if ($messageId !== '') {
+                app(PostmarkDeliveryTrackingService::class)->recordAccepted([[
+                    'message_id' => $messageId,
+                    'email' => $registrant->email,
+                    'user_id' => (int) $webinar->user_id,
+                    'source_type' => 'webinar_registrant',
+                    'webinar_id' => $webinar->id,
+                    'registrant_id' => $registrant->id,
+                    'email_type' => $emailType,
+                    'subject' => $subject,
+                ]]);
+            }
+
             return true;
         } catch (\Throwable $exception) {
             Log::error('Postmark API exception.', [
@@ -472,6 +532,205 @@ class ResendService
 
             return false;
         }
+    }
+
+    /**
+     * @param  array<int, WebinarRegistrant>  $registrants
+     * @return array{sent_registrant_ids: array<int, int>, skipped_registrant_ids: array<int, int>, attempted: int}
+     */
+    private function sendBatchViaElasticEmail(Webinar $webinar, array $registrants, string $subject, string $intro, ?string $emailType = null): array
+    {
+        $apiKey = $this->elasticApiKey();
+        $configuredFrom = (string) config('services.elastic.from', config('mail.from.address', 'hello@example.com'));
+
+        if ($apiKey === '') {
+            Log::warning('ELASTICEMAIL_API_KEY not configured. Skipping Elastic Email batch email send.', [
+                'webinar_id' => $webinar->id,
+            ]);
+
+            return [
+                'sent_registrant_ids' => [],
+                'skipped_registrant_ids' => [],
+                'attempted' => count($registrants),
+            ];
+        }
+
+        $from = $this->resolveDynamicFrom($configuredFrom, $webinar->host_name);
+        $sentIds = [];
+        $skippedIds = [];
+
+        foreach ($registrants as $registrant) {
+            if ($this->sendSingleViaElasticEmail($webinar, $registrant, $subject, $intro, $emailType)) {
+                $sentIds[] = $registrant->id;
+            }
+        }
+
+        if ($sentIds !== []) {
+            Log::info('webinar_email.provider.elastic.batch.sent', [
+                'webinar_id' => $webinar->id,
+                'attempted' => count($registrants),
+                'sent_count' => count($sentIds),
+                'skipped_count' => count($skippedIds),
+            ]);
+        }
+
+        return [
+            'sent_registrant_ids' => $sentIds,
+            'skipped_registrant_ids' => $skippedIds,
+            'attempted' => count($registrants),
+        ];
+    }
+
+    private function sendSingleViaElasticEmail(Webinar $webinar, WebinarRegistrant $registrant, string $subject, string $intro, ?string $emailType = null): bool
+    {
+        $apiKey = $this->elasticApiKey();
+        $configuredFrom = (string) config('services.elastic.from', config('mail.from.address', 'hello@example.com'));
+
+        if ($apiKey === '') {
+            Log::warning('ELASTICEMAIL_API_KEY not configured. Skipping Elastic Email single email send.', [
+                'webinar_id' => $webinar->id,
+                'registrant_id' => $registrant->id,
+            ]);
+
+            return false;
+        }
+
+        $from = $this->resolveDynamicFrom($configuredFrom, $webinar->host_name);
+        $payload = $this->buildElasticEmailPayload(
+            $from,
+            $registrant->email,
+            $subject,
+            $this->buildWebinarEmailHtml($webinar, $registrant, $intro),
+        );
+
+        try {
+            $response = $this->postToElasticEmailWithRateLimitRetry($apiKey, 'emails', $payload);
+
+            if ($this->elasticEmailResponseSucceeded($response)) {
+                Log::debug('webinar_email.provider.elastic.single.sent', [
+                    'webinar_id' => $webinar->id,
+                    'registrant_id' => $registrant->id,
+                    'email_type' => $emailType,
+                    'transaction_id' => data_get($response?->json(), 'TransactionID'),
+                    'message_id' => data_get($response?->json(), 'MessageID'),
+                ]);
+
+                return true;
+            }
+
+            Log::warning('Elastic Email API request failed.', [
+                'webinar_id' => $webinar->id,
+                'registrant_id' => $registrant->id,
+                'status' => $response?->status(),
+                'body' => $response?->body(),
+            ]);
+
+            return false;
+        } catch (\Throwable $exception) {
+            Log::error('Elastic Email API exception.', [
+                'webinar_id' => $webinar->id,
+                'registrant_id' => $registrant->id,
+                'message' => $exception->getMessage(),
+            ]);
+
+            return false;
+        }
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function buildElasticEmailPayload(string $from, string $to, string $subject, string $html): array
+    {
+        $payload = [
+            'Recipients' => [
+                ['Email' => $to],
+            ],
+            'Content' => [
+                'Body' => [
+                    [
+                        'ContentType' => 'HTML',
+                        'Content' => $html,
+                        'Charset' => 'utf-8',
+                    ],
+                ],
+                'From' => $from,
+                'Subject' => $subject,
+            ],
+        ];
+
+        $channelName = trim((string) config('services.elastic.channel', ''));
+        if ($channelName !== '') {
+            $payload['Options'] = ['ChannelName' => $channelName];
+        }
+
+        return $payload;
+    }
+
+    private function elasticEmailResponseSucceeded(?Response $response): bool
+    {
+        if (! $response || $response->failed()) {
+            return false;
+        }
+
+        $body = $response->json();
+        if (! is_array($body)) {
+            return false;
+        }
+
+        $transactionId = trim((string) data_get($body, 'TransactionID', ''));
+        $messageId = trim((string) data_get($body, 'MessageID', ''));
+
+        return $transactionId !== '' || $messageId !== '';
+    }
+
+    /**
+     * @param  array<string, mixed>  $payload
+     */
+    private function postToElasticEmailWithRateLimitRetry(string $apiKey, string $endpoint, array $payload, int $attempt = 0): ?Response
+    {
+        Log::debug('elastic.http.request', [
+            'endpoint' => $endpoint,
+            'attempt' => $attempt + 1,
+        ]);
+
+        $response = Http::withHeaders(['X-ElasticEmail-ApiKey' => $apiKey])
+            ->acceptJson()
+            ->asJson()
+            ->timeout(30)
+            ->connectTimeout(10)
+            ->post("https://api.elasticemail.com/v4/{$endpoint}", $payload);
+
+        if ($response->status() !== 429) {
+            return $response;
+        }
+
+        Log::warning('elastic.http.rate_limited', [
+            'endpoint' => $endpoint,
+            'attempt' => $attempt + 1,
+            'retry_after' => $response->header('retry-after'),
+            'status' => $response->status(),
+            'body' => $response->body(),
+        ]);
+
+        if ($attempt >= 3) {
+            Log::error('elastic.http.rate_limit_give_up', [
+                'endpoint' => $endpoint,
+                'attempts' => $attempt + 1,
+            ]);
+
+            return $response;
+        }
+
+        $retryAfter = max(1, min(30, (int) ($response->header('retry-after') ?? 1)));
+        sleep($retryAfter);
+
+        return $this->postToElasticEmailWithRateLimitRetry($apiKey, $endpoint, $payload, $attempt + 1);
+    }
+
+    private function elasticApiKey(): string
+    {
+        return (string) config('services.elastic.key', '');
     }
 
     /**
@@ -547,7 +806,9 @@ class ResendService
 
         $provider = strtolower(trim((string) config('services.email.primary', 'postmark')));
 
-        return in_array($provider, ['resend', 'postmark', 'ses_smtp', 'smtp'], true) ? $provider : 'postmark';
+        return in_array($provider, ['resend', 'postmark', 'elastic', 'elasticemail', 'ses_smtp', 'smtp'], true)
+            ? $this->normalizeEmailProvider($provider)
+            : 'postmark';
     }
 
     private function resolveFallbackProvider(): ?string
@@ -557,7 +818,14 @@ class ResendService
             return null;
         }
 
-        return in_array($provider, ['resend', 'postmark', 'ses_smtp', 'smtp'], true) ? $provider : null;
+        return in_array($provider, ['resend', 'postmark', 'elastic', 'elasticemail', 'ses_smtp', 'smtp'], true)
+            ? $this->normalizeEmailProvider($provider)
+            : null;
+    }
+
+    private function normalizeEmailProvider(string $provider): string
+    {
+        return in_array($provider, ['elastic', 'elasticemail'], true) ? 'elastic' : $provider;
     }
 
     /**
@@ -845,6 +1113,24 @@ class ResendService
     private function isPermanentPostmarkRecipientError(int $errorCode): bool
     {
         return in_array($errorCode, [300, 406], true);
+    }
+
+    /**
+     * @return array<string, string>
+     */
+    private function postmarkWebinarMetadata(Webinar $webinar, WebinarRegistrant $registrant, ?string $emailType): array
+    {
+        $metadata = [
+            'source' => 'webinar',
+            'webinar_id' => (string) $webinar->id,
+            'registrant_id' => (string) $registrant->id,
+        ];
+
+        if ($emailType !== null && $emailType !== '') {
+            $metadata['email_type'] = $emailType;
+        }
+
+        return $metadata;
     }
 
     private function resolveDynamicFrom(string $configuredFrom, string $hostName): string

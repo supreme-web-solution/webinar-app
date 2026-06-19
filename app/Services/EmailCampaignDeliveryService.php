@@ -148,6 +148,7 @@ class EmailCampaignDeliveryService
     {
         return match ($provider) {
             'postmark' => $this->sendBatchViaPostmark($campaign, $recipients),
+            'elastic', 'elasticemail' => $this->sendBatchViaElasticEmail($campaign, $recipients),
             'ses_smtp', 'smtp' => $this->sendBatchViaSmtp($campaign, $owner, $recipients),
             default => $this->sendBatchViaResend($campaign, $recipients),
         };
@@ -254,16 +255,21 @@ class EmailCampaignDeliveryService
 
         $from = $this->resolveDynamicFrom($configuredFrom, $campaign->sender_name);
         $messageStreamId = trim((string) config('services.postmark.message_stream_id', ''));
+        $subject = $campaign->prefixedTitleLine();
         $messages = [];
         $recipientIds = [];
+        $recipientById = [];
+        $userId = (int) ($campaign->user_id ?? $campaign->user?->id ?? 0);
 
         foreach ($recipients as $recipient) {
             $recipientIds[] = $recipient->id;
+            $recipientById[$recipient->id] = $recipient;
             $message = [
                 'From' => $from,
                 'To' => $recipient->email,
-                'Subject' => $campaign->prefixedTitleLine(),
+                'Subject' => $subject,
                 'HtmlBody' => $this->buildCampaignEmailHtml($campaign, $recipient),
+                'Metadata' => $this->postmarkCampaignMetadata($campaign, $recipient),
             ];
 
             if ($messageStreamId !== '') {
@@ -320,10 +326,30 @@ class EmailCampaignDeliveryService
 
         $sentIds = [];
         $skippedIds = [];
+        $acceptedRecords = [];
+        $suppressedRecords = [];
+
         foreach ($body as $index => $result) {
             $errorCode = (int) data_get($result, 'ErrorCode', 0);
             if ($errorCode === 0 && isset($recipientIds[$index])) {
-                $sentIds[] = $recipientIds[$index];
+                $recipientId = $recipientIds[$index];
+                $sentIds[] = $recipientId;
+                $recipient = $recipientById[$recipientId] ?? null;
+                $messageId = trim((string) data_get($result, 'MessageID', ''));
+
+                if ($messageId !== '' && $recipient instanceof EmailCampaignRecipient && $userId > 0) {
+                    $acceptedRecords[] = [
+                        'message_id' => $messageId,
+                        'email' => $recipient->email,
+                        'user_id' => $userId,
+                        'source_type' => 'campaign_recipient',
+                        'campaign_id' => $campaign->id,
+                        'recipient_id' => $recipient->id,
+                        'email_type' => 'campaign',
+                        'subject' => $subject,
+                    ];
+                }
+
                 continue;
             }
 
@@ -331,6 +357,20 @@ class EmailCampaignDeliveryService
 
             if ($recipientId !== null && $this->isPermanentPostmarkRecipientError($errorCode)) {
                 $skippedIds[] = $recipientId;
+                $recipient = $recipientById[$recipientId] ?? null;
+
+                if ($recipient instanceof EmailCampaignRecipient && $userId > 0) {
+                    $suppressedRecords[] = [
+                        'email' => $recipient->email,
+                        'user_id' => $userId,
+                        'source_type' => 'campaign_recipient',
+                        'campaign_id' => $campaign->id,
+                        'recipient_id' => $recipient->id,
+                        'email_type' => 'campaign',
+                        'subject' => $subject,
+                    ];
+                }
+
                 Log::warning('email_campaign.recipient.skipped_permanent_failure', [
                     'campaign_id' => $campaign->id,
                     'recipient_id' => $recipientId,
@@ -356,11 +396,137 @@ class EmailCampaignDeliveryService
             'skipped_count' => count($skippedIds),
         ]);
 
+        $tracking = app(PostmarkDeliveryTrackingService::class);
+        $tracking->recordAccepted($acceptedRecords);
+        $tracking->recordSuppressedAtApi($suppressedRecords);
+
         return [
             'sent_recipient_ids' => $sentIds,
             'skipped_recipient_ids' => $skippedIds,
             'attempted' => count($messages),
         ];
+    }
+
+    /**
+     * @param  array<int, EmailCampaignRecipient>  $recipients
+     * @return array{sent_recipient_ids: array<int, int>, skipped_recipient_ids: array<int, int>, attempted: int}
+     */
+    private function sendBatchViaElasticEmail(EmailCampaign $campaign, array $recipients): array
+    {
+        $apiKey = $this->elasticApiKey();
+        $configuredFrom = (string) config('services.elastic.from', config('mail.from.address', 'hello@example.com'));
+
+        if ($apiKey === '') {
+            Log::warning('ELASTICEMAIL_API_KEY not configured. Skipping campaign emails.', [
+                'campaign_id' => $campaign->id,
+            ]);
+
+            return [
+                'sent_recipient_ids' => [],
+                'skipped_recipient_ids' => [],
+                'attempted' => count($recipients),
+            ];
+        }
+
+        $from = $this->resolveDynamicFrom($configuredFrom, $campaign->sender_name);
+        $subject = $campaign->prefixedTitleLine();
+        $sentIds = [];
+
+        foreach ($recipients as $recipient) {
+            $payload = $this->buildElasticEmailPayload(
+                $from,
+                $recipient->email,
+                $subject,
+                $this->buildCampaignEmailHtml($campaign, $recipient),
+            );
+
+            try {
+                $response = $this->postToElasticEmailWithRateLimitRetry($apiKey, 'emails', $payload);
+
+                if ($this->elasticEmailResponseSucceeded($response)) {
+                    $sentIds[] = $recipient->id;
+                } else {
+                    Log::warning('Elastic Email campaign recipient failed.', [
+                        'campaign_id' => $campaign->id,
+                        'recipient_id' => $recipient->id,
+                        'status' => $response?->status(),
+                        'body' => $response?->body(),
+                    ]);
+                }
+            } catch (\Throwable $exception) {
+                Log::error('Elastic Email campaign API exception.', [
+                    'campaign_id' => $campaign->id,
+                    'recipient_id' => $recipient->id,
+                    'message' => $exception->getMessage(),
+                ]);
+            }
+        }
+
+        if ($sentIds !== []) {
+            Log::info('email_campaign.provider.elastic.batch.sent', [
+                'campaign_id' => $campaign->id,
+                'attempted' => count($recipients),
+                'sent_count' => count($sentIds),
+            ]);
+        }
+
+        return [
+            'sent_recipient_ids' => $sentIds,
+            'skipped_recipient_ids' => [],
+            'attempted' => count($recipients),
+        ];
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function buildElasticEmailPayload(string $from, string $to, string $subject, string $html): array
+    {
+        $payload = [
+            'Recipients' => [
+                ['Email' => $to],
+            ],
+            'Content' => [
+                'Body' => [
+                    [
+                        'ContentType' => 'HTML',
+                        'Content' => $html,
+                        'Charset' => 'utf-8',
+                    ],
+                ],
+                'From' => $from,
+                'Subject' => $subject,
+            ],
+        ];
+
+        $channelName = trim((string) config('services.elastic.channel', ''));
+        if ($channelName !== '') {
+            $payload['Options'] = ['ChannelName' => $channelName];
+        }
+
+        return $payload;
+    }
+
+    private function elasticEmailResponseSucceeded(?Response $response): bool
+    {
+        if (! $response || $response->failed()) {
+            return false;
+        }
+
+        $body = $response->json();
+        if (! is_array($body)) {
+            return false;
+        }
+
+        $transactionId = trim((string) data_get($body, 'TransactionID', ''));
+        $messageId = trim((string) data_get($body, 'MessageID', ''));
+
+        return $transactionId !== '' || $messageId !== '';
+    }
+
+    private function elasticApiKey(): string
+    {
+        return (string) config('services.elastic.key', '');
     }
 
     /**
@@ -436,6 +602,19 @@ class EmailCampaignDeliveryService
         return in_array($errorCode, [300, 406], true);
     }
 
+    /**
+     * @return array<string, string>
+     */
+    private function postmarkCampaignMetadata(EmailCampaign $campaign, EmailCampaignRecipient $recipient): array
+    {
+        return [
+            'source' => 'campaign',
+            'campaign_id' => (string) $campaign->id,
+            'recipient_id' => (string) $recipient->id,
+            'email_type' => 'campaign',
+        ];
+    }
+
     private function resolvePrimaryProvider(User $owner): string
     {
         if ($this->resolveSmtpTransportConfigFromUser($owner) !== null) {
@@ -444,7 +623,9 @@ class EmailCampaignDeliveryService
 
         $provider = strtolower(trim((string) config('services.email.primary', 'postmark')));
 
-        return in_array($provider, ['resend', 'postmark', 'ses_smtp', 'smtp'], true) ? $provider : 'postmark';
+        return in_array($provider, ['resend', 'postmark', 'elastic', 'elasticemail', 'ses_smtp', 'smtp'], true)
+            ? $this->normalizeEmailProvider($provider)
+            : 'postmark';
     }
 
     private function resolveFallbackProvider(): ?string
@@ -454,7 +635,14 @@ class EmailCampaignDeliveryService
             return null;
         }
 
-        return in_array($provider, ['resend', 'postmark', 'ses_smtp', 'smtp'], true) ? $provider : null;
+        return in_array($provider, ['resend', 'postmark', 'elastic', 'elasticemail', 'ses_smtp', 'smtp'], true)
+            ? $this->normalizeEmailProvider($provider)
+            : null;
+    }
+
+    private function normalizeEmailProvider(string $provider): string
+    {
+        return in_array($provider, ['elastic', 'elasticemail'], true) ? 'elastic' : $provider;
     }
 
     /**
@@ -616,5 +804,31 @@ class EmailCampaignDeliveryService
         sleep($retryAfter);
 
         return $this->postToPostmarkWithRateLimitRetry($apiKey, $endpoint, $payload, $attempt + 1);
+    }
+
+    /**
+     * @param  array<string, mixed>  $payload
+     */
+    private function postToElasticEmailWithRateLimitRetry(string $apiKey, string $endpoint, array $payload, int $attempt = 0): ?Response
+    {
+        $response = Http::withHeaders(['X-ElasticEmail-ApiKey' => $apiKey])
+            ->acceptJson()
+            ->asJson()
+            ->timeout(30)
+            ->connectTimeout(10)
+            ->post("https://api.elasticemail.com/v4/{$endpoint}", $payload);
+
+        if ($response->status() !== 429) {
+            return $response;
+        }
+
+        if ($attempt >= 3) {
+            return $response;
+        }
+
+        $retryAfter = max(1, min(30, (int) ($response->header('retry-after') ?? 1)));
+        sleep($retryAfter);
+
+        return $this->postToElasticEmailWithRateLimitRetry($apiKey, $endpoint, $payload, $attempt + 1);
     }
 }

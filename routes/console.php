@@ -3,6 +3,7 @@
 use App\Services\WebinarLifecycleEmailService;
 use Illuminate\Foundation\Inspiring;
 use Illuminate\Support\Facades\Artisan;
+use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Schedule;
 
 Artisan::command('inspire', function () {
@@ -15,3 +16,83 @@ Artisan::command('webinars:send-lifecycle-emails', function (WebinarLifecycleEma
 })->purpose('Dispatch due reminder emails and segmented profit follow-up emails for scheduled webinars');
 
 Schedule::command('webinars:send-lifecycle-emails')->everyMinute()->withoutOverlapping();
+
+Artisan::command('email:test-elastic {to : Recipient email address} {--subject=Elastic Email test : Email subject}', function () {
+    $apiKey = (string) config('services.elastic.key', '');
+    $configuredFrom = (string) config('services.elastic.from', config('mail.from.address', 'hello@example.com'));
+
+    if ($apiKey === '') {
+        $this->error('ELASTICEMAIL_API_KEY is not set in .env');
+
+        return 1;
+    }
+
+    $to = trim((string) $this->argument('to'));
+    if (filter_var($to, FILTER_VALIDATE_EMAIL) === false) {
+        $this->error("Invalid email address: {$to}");
+
+        return 1;
+    }
+
+    $subject = (string) $this->option('subject');
+    $payload = [
+        'Recipients' => [
+            ['Email' => $to],
+        ],
+        'Content' => [
+            'Body' => [
+                [
+                    'ContentType' => 'HTML',
+                    'Content' => '<p>This is a test email from <strong>'.e(config('app.name')).'</strong> via Elastic Email.</p><p>Sent at '.now()->toDateTimeString().'</p>',
+                    'Charset' => 'utf-8',
+                ],
+            ],
+            'From' => $configuredFrom,
+            'Subject' => $subject,
+        ],
+    ];
+
+    $channelName = trim((string) config('services.elastic.channel', ''));
+    if ($channelName !== '') {
+        $payload['Options'] = ['ChannelName' => $channelName];
+    }
+
+    $this->info('Sending test email via Elastic Email...');
+    $this->line("From: {$configuredFrom}");
+    $this->line("To: {$to}");
+
+    $response = Http::withHeaders(['X-ElasticEmail-ApiKey' => $apiKey])
+        ->acceptJson()
+        ->asJson()
+        ->timeout(30)
+        ->connectTimeout(10)
+        ->post('https://api.elasticemail.com/v4/emails', $payload);
+
+    if ($response->failed()) {
+        $this->error("Elastic Email API failed (HTTP {$response->status()})");
+        $this->line($response->body());
+
+        return 1;
+    }
+
+    $body = $response->json();
+    $transactionId = data_get($body, 'TransactionID');
+    $messageId = data_get($body, 'MessageID');
+
+    if (! $transactionId && ! $messageId) {
+        $this->error('Elastic Email returned an unexpected response.');
+        $this->line(json_encode($body, JSON_PRETTY_PRINT));
+
+        return 1;
+    }
+
+    $this->info('Email accepted by Elastic Email.');
+    if ($transactionId) {
+        $this->line("Transaction ID: {$transactionId}");
+    }
+    if ($messageId) {
+        $this->line("Message ID: {$messageId}");
+    }
+
+    return 0;
+})->purpose('Send a test email through Elastic Email using configured API credentials');

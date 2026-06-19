@@ -34,11 +34,18 @@ return [
         'token' => env('POSTMARK_API_KEY', env('POSTMARK_TOKEN')),
         'from' => env('POSTMARK_FROM', env('MAIL_FROM_ADDRESS', 'hello@example.com')),
         'message_stream_id' => env('POSTMARK_MESSAGE_STREAM_ID'),
+        'webhook_token' => env('POSTMARK_WEBHOOK_TOKEN'),
     ],
 
     'resend' => [
         'key' => env('RESEND_API_KEY'),
         'from' => env('RESEND_FROM', 'onboarding@resend.dev'),
+    ],
+
+    'elastic' => [
+        'key' => env('ELASTICEMAIL_API_KEY'),
+        'from' => env('ELASTICEMAIL_FROM', env('MAIL_FROM_ADDRESS', 'hello@example.com')),
+        'channel' => env('ELASTICEMAIL_CHANNEL'),
     ],
 
     'ses' => [

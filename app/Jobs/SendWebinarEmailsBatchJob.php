@@ -117,7 +117,8 @@ class SendWebinarEmailsBatchJob implements ShouldQueue
             $webinar,
             $registrants,
             $this->subject,
-            $this->intro
+            $this->intro,
+            $this->resolveEmailType($this->markSentColumn),
         );
 
         if ($result['skipped_registrant_ids'] !== []) {
@@ -165,6 +166,18 @@ class SendWebinarEmailsBatchJob implements ShouldQueue
             'failed_count' => $failedCount,
             'queue_job_id' => $this->job?->getJobId(),
         ]);
+    }
+
+    private function resolveEmailType(?string $markSentColumn): ?string
+    {
+        return match ($markSentColumn) {
+            'reminder_sent_at' => 'reminder',
+            'follow_up_sent_at' => 'follow_up',
+            'follow_up_lt_50_sent_at' => 'follow_up_lt_50',
+            'follow_up_gte_50_sent_at' => 'follow_up_gte_50',
+            'follow_up_completed_no_click_sent_at' => 'follow_up_completed_no_click',
+            default => null,
+        };
     }
 
     public function failed(\Throwable $exception): void

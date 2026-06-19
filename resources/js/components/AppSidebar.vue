@@ -32,7 +32,8 @@ const mainNavItems = computed(() => [
 
 const managementNavItems = computed(() => [
     // { title: 'Registrants', href: '/admin/registrants', icon: 'solar:users-group-rounded-bold-duotone' },
-    // { title: 'Analytics', href: '/admin/analytics', icon: 'solar:chart-2-bold-duotone' },
+    // Postmark webhooks require Pro plan — stats page kept at /admin/postmark-delivery when needed
+    // { title: 'Postmark delivery', href: '/admin/postmark-delivery', icon: 'solar:chart-2-bold-duotone' },
     ...(isAdmin.value ? [{ title: 'Users', href: '/admin/users', icon: 'solar:shield-user-bold-duotone' }] : []),
     { title: 'SMTP', href: '/settings/smtp', icon: 'solar:letter-bold-duotone' },
     { title: 'Follow-up emails', href: '/settings/follow-up-emails', icon: 'solar:mailbox-bold-duotone' },
