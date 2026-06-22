@@ -149,6 +149,7 @@ class EmailCampaignDeliveryService
         return match ($provider) {
             'postmark' => $this->sendBatchViaPostmark($campaign, $recipients),
             'elastic', 'elasticemail' => $this->sendBatchViaElasticEmail($campaign, $recipients),
+            'zeptomail' => $this->sendBatchViaZeptoMail($campaign, $recipients),
             'ses_smtp', 'smtp' => $this->sendBatchViaSmtp($campaign, $owner, $recipients),
             default => $this->sendBatchViaResend($campaign, $recipients),
         };
@@ -533,6 +534,158 @@ class EmailCampaignDeliveryService
      * @param  array<int, EmailCampaignRecipient>  $recipients
      * @return array{sent_recipient_ids: array<int, int>, skipped_recipient_ids: array<int, int>, attempted: int}
      */
+    private function sendBatchViaZeptoMail(EmailCampaign $campaign, array $recipients): array
+    {
+        $apiKey = $this->zeptoMailApiKey();
+        $configuredFrom = (string) config('services.zeptomail.from', config('mail.from.address', 'hello@example.com'));
+
+        if ($apiKey === '') {
+            Log::warning('ZEPTOMAIL_API_KEY not configured. Skipping campaign emails.', [
+                'campaign_id' => $campaign->id,
+            ]);
+
+            return [
+                'sent_recipient_ids' => [],
+                'skipped_recipient_ids' => [],
+                'attempted' => count($recipients),
+            ];
+        }
+
+        $from = $this->resolveDynamicFrom($configuredFrom, $campaign->sender_name);
+        $subject = $campaign->prefixedTitleLine();
+        $sentIds = [];
+
+        foreach ($recipients as $recipient) {
+            $payload = $this->buildZeptoMailPayload(
+                $from,
+                $recipient->email,
+                $recipient->name,
+                $subject,
+                $this->buildCampaignEmailHtml($campaign, $recipient),
+            );
+
+            try {
+                $response = $this->postToZeptoMailWithRateLimitRetry($apiKey, $payload);
+
+                if ($this->zeptoMailResponseSucceeded($response)) {
+                    $sentIds[] = $recipient->id;
+                } else {
+                    Log::warning('ZeptoMail campaign recipient failed.', [
+                        'campaign_id' => $campaign->id,
+                        'recipient_id' => $recipient->id,
+                        'status' => $response?->status(),
+                        'body' => $response?->body(),
+                    ]);
+                }
+            } catch (\Throwable $exception) {
+                Log::error('ZeptoMail campaign API exception.', [
+                    'campaign_id' => $campaign->id,
+                    'recipient_id' => $recipient->id,
+                    'message' => $exception->getMessage(),
+                ]);
+            }
+        }
+
+        if ($sentIds !== []) {
+            Log::info('email_campaign.provider.zeptomail.batch.sent', [
+                'campaign_id' => $campaign->id,
+                'attempted' => count($recipients),
+                'sent_count' => count($sentIds),
+            ]);
+        }
+
+        return [
+            'sent_recipient_ids' => $sentIds,
+            'skipped_recipient_ids' => [],
+            'attempted' => count($recipients),
+        ];
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function buildZeptoMailPayload(string $from, string $to, ?string $toName, string $subject, string $html): array
+    {
+        $recipient = [
+            'email_address' => [
+                'address' => $to,
+            ],
+        ];
+
+        $recipientName = trim((string) $toName);
+        if ($recipientName !== '') {
+            $recipient['email_address']['name'] = $recipientName;
+        }
+
+        return [
+            'from' => [
+                'address' => $this->extractEmailAddress($from),
+                'name' => $this->extractDisplayName($from) ?: 'OnPage CV',
+            ],
+            'to' => [$recipient],
+            'subject' => $subject,
+            'htmlbody' => $html,
+        ];
+    }
+
+    private function zeptoMailResponseSucceeded(?Response $response): bool
+    {
+        if (! $response || $response->failed()) {
+            return false;
+        }
+
+        $body = $response->json();
+        if (! is_array($body)) {
+            return false;
+        }
+
+        if (data_get($body, 'error') !== null) {
+            return false;
+        }
+
+        $requestId = trim((string) data_get($body, 'request_id', ''));
+        $data = data_get($body, 'data');
+
+        return $requestId !== '' || (is_array($data) && $data !== []);
+    }
+
+    /**
+     * @param  array<string, mixed>  $payload
+     */
+    private function postToZeptoMailWithRateLimitRetry(string $apiKey, array $payload, int $attempt = 0): ?Response
+    {
+        $response = Http::withHeaders([
+            'Authorization' => 'Zoho-enczapikey '.$apiKey,
+        ])
+            ->acceptJson()
+            ->asJson()
+            ->timeout(30)
+            ->connectTimeout(10)
+            ->post('https://api.zeptomail.com/v1.1/email', $payload);
+
+        if ($response->status() !== 429) {
+            return $response;
+        }
+
+        if ($attempt >= 3) {
+            return $response;
+        }
+
+        $retryAfter = max(1, min(30, (int) ($response->header('retry-after') ?? 1)));
+        sleep($retryAfter);
+
+        return $this->postToZeptoMailWithRateLimitRetry($apiKey, $payload, $attempt + 1);
+    }
+
+    private function zeptoMailApiKey(): string
+    {
+        return (string) config('services.zeptomail.key', '');
+    }
+
+    /**
+     * @param  array<int, EmailCampaignRecipient>  $recipients
+     * @return array{sent_recipient_ids: array<int, int>, skipped_recipient_ids: array<int, int>, attempted: int}
+     */
     private function sendBatchViaSmtp(EmailCampaign $campaign, User $owner, array $recipients): array
     {
         $smtpConfig = $this->resolveSmtpTransportConfigFromUser($owner);
@@ -623,7 +776,7 @@ class EmailCampaignDeliveryService
 
         $provider = strtolower(trim((string) config('services.email.primary', 'postmark')));
 
-        return in_array($provider, ['resend', 'postmark', 'elastic', 'elasticemail', 'ses_smtp', 'smtp'], true)
+        return in_array($provider, ['resend', 'postmark', 'elastic', 'elasticemail', 'zeptomail', 'ses_smtp', 'smtp'], true)
             ? $this->normalizeEmailProvider($provider)
             : 'postmark';
     }
@@ -635,7 +788,7 @@ class EmailCampaignDeliveryService
             return null;
         }
 
-        return in_array($provider, ['resend', 'postmark', 'elastic', 'elasticemail', 'ses_smtp', 'smtp'], true)
+        return in_array($provider, ['resend', 'postmark', 'elastic', 'elasticemail', 'zeptomail', 'ses_smtp', 'smtp'], true)
             ? $this->normalizeEmailProvider($provider)
             : null;
     }

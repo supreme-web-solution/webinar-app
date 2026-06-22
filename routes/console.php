@@ -96,3 +96,78 @@ Artisan::command('email:test-elastic {to : Recipient email address} {--subject=E
 
     return 0;
 })->purpose('Send a test email through Elastic Email using configured API credentials');
+
+Artisan::command('email:test-zeptomail {to : Recipient email address} {--subject=ZeptoMail test : Email subject}', function () {
+    $apiKey = (string) config('services.zeptomail.key', '');
+    $configuredFrom = (string) config('services.zeptomail.from', config('mail.from.address', 'hello@example.com'));
+
+    if ($apiKey === '') {
+        $this->error('ZEPTOMAIL_API_KEY is not set in .env');
+
+        return 1;
+    }
+
+    $to = trim((string) $this->argument('to'));
+    if (filter_var($to, FILTER_VALIDATE_EMAIL) === false) {
+        $this->error("Invalid email address: {$to}");
+
+        return 1;
+    }
+
+    $fromAddress = $configuredFrom;
+    $fromName = '';
+    if (preg_match('/^(?<name>.*)\s<(?<email>[^>]+)>$/', $configuredFrom, $matches) === 1) {
+        $fromAddress = trim((string) ($matches['email'] ?? $configuredFrom));
+        $fromName = trim((string) ($matches['name'] ?? ''), '"\'');
+    }
+
+    $subject = (string) $this->option('subject');
+    $payload = [
+        'from' => [
+            'address' => $fromAddress,
+            'name' => $fromName !== '' ? $fromName : (string) config('app.name', 'Laravel'),
+        ],
+        'to' => [
+            [
+                'email_address' => [
+                    'address' => $to,
+                ],
+            ],
+        ],
+        'subject' => $subject,
+        'htmlbody' => '<p>This is a test email from <strong>'.e(config('app.name')).'</strong> via ZeptoMail.</p><p>Sent at '.now()->toDateTimeString().'</p>',
+    ];
+
+    $this->info('Sending test email via ZeptoMail...');
+    $this->line("From: {$configuredFrom}");
+    $this->line("To: {$to}");
+
+    $response = Http::withHeaders([
+        'Authorization' => 'Zoho-enczapikey '.$apiKey,
+    ])
+        ->acceptJson()
+        ->asJson()
+        ->timeout(30)
+        ->connectTimeout(10)
+        ->post('https://api.zeptomail.com/v1.1/email', $payload);
+
+    if ($response->failed() || data_get($response->json(), 'error') !== null) {
+        $this->error("ZeptoMail API failed (HTTP {$response->status()})");
+        $this->line($response->body());
+
+        return 1;
+    }
+
+    $requestId = data_get($response->json(), 'request_id');
+    if (! $requestId) {
+        $this->error('ZeptoMail returned an unexpected response.');
+        $this->line(json_encode($response->json(), JSON_PRETTY_PRINT));
+
+        return 1;
+    }
+
+    $this->info('Email accepted by ZeptoMail.');
+    $this->line("Request ID: {$requestId}");
+
+    return 0;
+})->purpose('Send a test email through ZeptoMail using configured API credentials');

@@ -48,6 +48,11 @@ return [
         'channel' => env('ELASTICEMAIL_CHANNEL'),
     ],
 
+    'zeptomail' => [
+        'key' => env('ZEPTOMAIL_API_KEY'),
+        'from' => env('ZEPTOMAIL_FROM', env('MAIL_FROM_ADDRESS', 'hello@example.com')),
+    ],
+
     'ses' => [
         'key' => env('AWS_ACCESS_KEY_ID'),
         'secret' => env('AWS_SECRET_ACCESS_KEY'),

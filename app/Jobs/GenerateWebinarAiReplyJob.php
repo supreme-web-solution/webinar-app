@@ -236,6 +236,8 @@ class GenerateWebinarAiReplyJob implements ShouldQueue
         $rawFrom = match ($mailer) {
             'postmark' => (string) config('services.postmark.from', ''),
             'resend' => (string) config('services.resend.from', ''),
+            'elastic', 'elasticemail' => (string) config('services.elastic.from', ''),
+            'zeptomail' => (string) config('services.zeptomail.from', ''),
             (string) config('services.email.ses_smtp_mailer', 'ses') => (string) config('services.email.ses_smtp_from_address', ''),
             default => '',
         };

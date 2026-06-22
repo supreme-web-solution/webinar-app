@@ -151,6 +151,7 @@ class ResendService
         return match ($provider) {
             'postmark' => $this->sendBatchViaPostmark($webinar, $registrants, $subject, $intro, $emailType),
             'elastic', 'elasticemail' => $this->sendBatchViaElasticEmail($webinar, $registrants, $subject, $intro, $emailType),
+            'zeptomail' => $this->sendBatchViaZeptoMail($webinar, $registrants, $subject, $intro, $emailType),
             'ses_smtp', 'smtp' => $this->sendBatchViaSmtp($webinar, $registrants, $subject, $intro),
             default => $this->sendBatchViaResend($webinar, $registrants, $subject, $intro),
         };
@@ -167,6 +168,7 @@ class ResendService
         return match ($provider) {
             'postmark' => $this->sendSingleViaPostmark($webinar, $registrant, $subject, $intro, $emailType),
             'elastic', 'elasticemail' => $this->sendSingleViaElasticEmail($webinar, $registrant, $subject, $intro, $emailType),
+            'zeptomail' => $this->sendSingleViaZeptoMail($webinar, $registrant, $subject, $intro, $emailType),
             'ses_smtp', 'smtp' => $this->sendSingleViaSmtp($webinar, $registrant, $subject, $intro),
             default => $this->sendSingleViaResend($webinar, $registrant, $subject, $intro),
         };
@@ -737,6 +739,204 @@ class ResendService
      * @param  array<int, WebinarRegistrant>  $registrants
      * @return array{sent_registrant_ids: array<int, int>, skipped_registrant_ids: array<int, int>, attempted: int}
      */
+    private function sendBatchViaZeptoMail(Webinar $webinar, array $registrants, string $subject, string $intro, ?string $emailType = null): array
+    {
+        $apiKey = $this->zeptoMailApiKey();
+        $configuredFrom = (string) config('services.zeptomail.from', config('mail.from.address', 'hello@example.com'));
+
+        if ($apiKey === '') {
+            Log::warning('ZEPTOMAIL_API_KEY not configured. Skipping ZeptoMail batch email send.', [
+                'webinar_id' => $webinar->id,
+            ]);
+
+            return [
+                'sent_registrant_ids' => [],
+                'skipped_registrant_ids' => [],
+                'attempted' => count($registrants),
+            ];
+        }
+
+        $sentIds = [];
+        $skippedIds = [];
+
+        foreach ($registrants as $registrant) {
+            if ($this->sendSingleViaZeptoMail($webinar, $registrant, $subject, $intro, $emailType)) {
+                $sentIds[] = $registrant->id;
+            }
+        }
+
+        if ($sentIds !== []) {
+            Log::info('webinar_email.provider.zeptomail.batch.sent', [
+                'webinar_id' => $webinar->id,
+                'attempted' => count($registrants),
+                'sent_count' => count($sentIds),
+                'skipped_count' => count($skippedIds),
+            ]);
+        }
+
+        return [
+            'sent_registrant_ids' => $sentIds,
+            'skipped_registrant_ids' => $skippedIds,
+            'attempted' => count($registrants),
+        ];
+    }
+
+    private function sendSingleViaZeptoMail(Webinar $webinar, WebinarRegistrant $registrant, string $subject, string $intro, ?string $emailType = null): bool
+    {
+        $apiKey = $this->zeptoMailApiKey();
+        $configuredFrom = (string) config('services.zeptomail.from', config('mail.from.address', 'hello@example.com'));
+
+        if ($apiKey === '') {
+            Log::warning('ZEPTOMAIL_API_KEY not configured. Skipping ZeptoMail single email send.', [
+                'webinar_id' => $webinar->id,
+                'registrant_id' => $registrant->id,
+            ]);
+
+            return false;
+        }
+
+        $from = $this->resolveDynamicFrom($configuredFrom, $webinar->host_name);
+        $payload = $this->buildZeptoMailPayload(
+            $from,
+            $registrant->email,
+            $registrant->name,
+            $subject,
+            $this->buildWebinarEmailHtml($webinar, $registrant, $intro),
+        );
+
+        try {
+            $response = $this->postToZeptoMailWithRateLimitRetry($apiKey, $payload);
+
+            if ($this->zeptoMailResponseSucceeded($response)) {
+                Log::debug('webinar_email.provider.zeptomail.single.sent', [
+                    'webinar_id' => $webinar->id,
+                    'registrant_id' => $registrant->id,
+                    'email_type' => $emailType,
+                    'request_id' => data_get($response?->json(), 'request_id'),
+                ]);
+
+                return true;
+            }
+
+            Log::warning('ZeptoMail API request failed.', [
+                'webinar_id' => $webinar->id,
+                'registrant_id' => $registrant->id,
+                'status' => $response?->status(),
+                'body' => $response?->body(),
+            ]);
+
+            return false;
+        } catch (\Throwable $exception) {
+            Log::error('ZeptoMail API exception.', [
+                'webinar_id' => $webinar->id,
+                'registrant_id' => $registrant->id,
+                'message' => $exception->getMessage(),
+            ]);
+
+            return false;
+        }
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function buildZeptoMailPayload(string $from, string $to, ?string $toName, string $subject, string $html): array
+    {
+        $recipient = [
+            'email_address' => [
+                'address' => $to,
+            ],
+        ];
+
+        $recipientName = trim((string) $toName);
+        if ($recipientName !== '') {
+            $recipient['email_address']['name'] = $recipientName;
+        }
+
+        return [
+            'from' => [
+                'address' => $this->extractEmailAddress($from),
+                'name' => $this->extractDisplayName($from) ?: 'OnPage CV',
+            ],
+            'to' => [$recipient],
+            'subject' => $subject,
+            'htmlbody' => $html,
+        ];
+    }
+
+    private function zeptoMailResponseSucceeded(?Response $response): bool
+    {
+        if (! $response || $response->failed()) {
+            return false;
+        }
+
+        $body = $response->json();
+        if (! is_array($body)) {
+            return false;
+        }
+
+        if (data_get($body, 'error') !== null) {
+            return false;
+        }
+
+        $requestId = trim((string) data_get($body, 'request_id', ''));
+        $data = data_get($body, 'data');
+
+        return $requestId !== '' || (is_array($data) && $data !== []);
+    }
+
+    /**
+     * @param  array<string, mixed>  $payload
+     */
+    private function postToZeptoMailWithRateLimitRetry(string $apiKey, array $payload, int $attempt = 0): ?Response
+    {
+        Log::debug('zeptomail.http.request', [
+            'attempt' => $attempt + 1,
+        ]);
+
+        $response = Http::withHeaders([
+            'Authorization' => 'Zoho-enczapikey '.$apiKey,
+        ])
+            ->acceptJson()
+            ->asJson()
+            ->timeout(30)
+            ->connectTimeout(10)
+            ->post('https://api.zeptomail.com/v1.1/email', $payload);
+
+        if ($response->status() !== 429) {
+            return $response;
+        }
+
+        Log::warning('zeptomail.http.rate_limited', [
+            'attempt' => $attempt + 1,
+            'retry_after' => $response->header('retry-after'),
+            'status' => $response->status(),
+            'body' => $response->body(),
+        ]);
+
+        if ($attempt >= 3) {
+            Log::error('zeptomail.http.rate_limit_give_up', [
+                'attempts' => $attempt + 1,
+            ]);
+
+            return $response;
+        }
+
+        $retryAfter = max(1, min(30, (int) ($response->header('retry-after') ?? 1)));
+        sleep($retryAfter);
+
+        return $this->postToZeptoMailWithRateLimitRetry($apiKey, $payload, $attempt + 1);
+    }
+
+    private function zeptoMailApiKey(): string
+    {
+        return (string) config('services.zeptomail.key', '');
+    }
+
+    /**
+     * @param  array<int, WebinarRegistrant>  $registrants
+     * @return array{sent_registrant_ids: array<int, int>, skipped_registrant_ids: array<int, int>, attempted: int}
+     */
     private function sendBatchViaSmtp(Webinar $webinar, array $registrants, string $subject, string $intro): array
     {
         $sentIds = [];
@@ -806,7 +1006,7 @@ class ResendService
 
         $provider = strtolower(trim((string) config('services.email.primary', 'postmark')));
 
-        return in_array($provider, ['resend', 'postmark', 'elastic', 'elasticemail', 'ses_smtp', 'smtp'], true)
+        return in_array($provider, ['resend', 'postmark', 'elastic', 'elasticemail', 'zeptomail', 'ses_smtp', 'smtp'], true)
             ? $this->normalizeEmailProvider($provider)
             : 'postmark';
     }
@@ -818,7 +1018,7 @@ class ResendService
             return null;
         }
 
-        return in_array($provider, ['resend', 'postmark', 'elastic', 'elasticemail', 'ses_smtp', 'smtp'], true)
+        return in_array($provider, ['resend', 'postmark', 'elastic', 'elasticemail', 'zeptomail', 'ses_smtp', 'smtp'], true)
             ? $this->normalizeEmailProvider($provider)
             : null;
     }

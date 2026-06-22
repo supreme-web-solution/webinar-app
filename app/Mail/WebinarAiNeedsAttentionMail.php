@@ -53,6 +53,8 @@ class WebinarAiNeedsAttentionMail extends Mailable
         $rawFrom = trim((string) match ($primaryProvider) {
             'postmark' => config('services.postmark.from', ''),
             'resend' => config('services.resend.from', ''),
+            'elastic', 'elasticemail' => config('services.elastic.from', ''),
+            'zeptomail' => config('services.zeptomail.from', ''),
             'ses_smtp', 'smtp' => config('services.email.ses_smtp_from_address', ''),
             default => '',
         });
