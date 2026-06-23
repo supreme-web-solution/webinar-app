@@ -150,6 +150,7 @@ class EmailCampaignDeliveryService
             'postmark' => $this->sendBatchViaPostmark($campaign, $recipients),
             'elastic', 'elasticemail' => $this->sendBatchViaElasticEmail($campaign, $recipients),
             'zeptomail' => $this->sendBatchViaZeptoMail($campaign, $recipients),
+            'sendgrid' => $this->sendBatchViaSendGrid($campaign, $recipients),
             'ses_smtp', 'smtp' => $this->sendBatchViaSmtp($campaign, $owner, $recipients),
             default => $this->sendBatchViaResend($campaign, $recipients),
         };
@@ -686,6 +687,163 @@ class EmailCampaignDeliveryService
      * @param  array<int, EmailCampaignRecipient>  $recipients
      * @return array{sent_recipient_ids: array<int, int>, skipped_recipient_ids: array<int, int>, attempted: int}
      */
+    private function sendBatchViaSendGrid(EmailCampaign $campaign, array $recipients): array
+    {
+        $apiKey = $this->sendGridApiKey();
+        $configuredFrom = (string) config('services.sendgrid.from', config('mail.from.address', 'hello@example.com'));
+
+        if ($apiKey === '') {
+            Log::warning('SENDGRID_API_KEY not configured. Skipping campaign emails.', [
+                'campaign_id' => $campaign->id,
+            ]);
+
+            return [
+                'sent_recipient_ids' => [],
+                'skipped_recipient_ids' => [],
+                'attempted' => count($recipients),
+            ];
+        }
+
+        $from = $this->resolveDynamicFrom($configuredFrom, $campaign->sender_name);
+        $subject = $campaign->prefixedTitleLine();
+        $sentIds = [];
+
+        foreach ($recipients as $recipient) {
+            $payload = $this->buildSendGridPayload(
+                $from,
+                $recipient->email,
+                $recipient->name,
+                $subject,
+                $this->buildCampaignEmailHtml($campaign, $recipient),
+                $this->sendGridCampaignMetadata($campaign, $recipient),
+            );
+
+            try {
+                $response = $this->postToSendGridWithRateLimitRetry($apiKey, $payload);
+
+                if ($this->sendGridResponseSucceeded($response)) {
+                    $sentIds[] = $recipient->id;
+                } else {
+                    Log::warning('SendGrid campaign recipient failed.', [
+                        'campaign_id' => $campaign->id,
+                        'recipient_id' => $recipient->id,
+                        'status' => $response?->status(),
+                        'body' => $response?->body(),
+                    ]);
+                }
+            } catch (\Throwable $exception) {
+                Log::error('SendGrid campaign API exception.', [
+                    'campaign_id' => $campaign->id,
+                    'recipient_id' => $recipient->id,
+                    'message' => $exception->getMessage(),
+                ]);
+            }
+        }
+
+        if ($sentIds !== []) {
+            Log::info('email_campaign.provider.sendgrid.batch.sent', [
+                'campaign_id' => $campaign->id,
+                'attempted' => count($recipients),
+                'sent_count' => count($sentIds),
+            ]);
+        }
+
+        return [
+            'sent_recipient_ids' => $sentIds,
+            'skipped_recipient_ids' => [],
+            'attempted' => count($recipients),
+        ];
+    }
+
+    /**
+     * @param  array<string, string>  $customArgs
+     * @return array<string, mixed>
+     */
+    private function buildSendGridPayload(string $from, string $to, ?string $toName, string $subject, string $html, array $customArgs = []): array
+    {
+        $toRecipient = ['email' => $to];
+        $recipientName = trim((string) $toName);
+        if ($recipientName !== '') {
+            $toRecipient['name'] = $recipientName;
+        }
+
+        $personalization = [
+            'to' => [$toRecipient],
+            'subject' => $subject,
+        ];
+
+        if ($customArgs !== []) {
+            $personalization['custom_args'] = $customArgs;
+        }
+
+        return [
+            'personalizations' => [$personalization],
+            'from' => [
+                'email' => $this->extractEmailAddress($from),
+                'name' => $this->extractDisplayName($from) ?: 'OnPage CV',
+            ],
+            'content' => [
+                [
+                    'type' => 'text/html',
+                    'value' => $html,
+                ],
+            ],
+        ];
+    }
+
+    private function sendGridResponseSucceeded(?Response $response): bool
+    {
+        return $response !== null && $response->status() === 202;
+    }
+
+    /**
+     * @param  array<string, mixed>  $payload
+     */
+    private function postToSendGridWithRateLimitRetry(string $apiKey, array $payload, int $attempt = 0): ?Response
+    {
+        $response = Http::withToken($apiKey)
+            ->acceptJson()
+            ->asJson()
+            ->timeout(30)
+            ->connectTimeout(10)
+            ->post('https://api.sendgrid.com/v3/mail/send', $payload);
+
+        if ($response->status() !== 429) {
+            return $response;
+        }
+
+        if ($attempt >= 3) {
+            return $response;
+        }
+
+        $retryAfter = max(1, min(30, (int) ($response->header('retry-after') ?? 1)));
+        sleep($retryAfter);
+
+        return $this->postToSendGridWithRateLimitRetry($apiKey, $payload, $attempt + 1);
+    }
+
+    private function sendGridApiKey(): string
+    {
+        return (string) config('services.sendgrid.key', '');
+    }
+
+    /**
+     * @return array<string, string>
+     */
+    private function sendGridCampaignMetadata(EmailCampaign $campaign, EmailCampaignRecipient $recipient): array
+    {
+        return [
+            'source' => 'campaign',
+            'campaign_id' => (string) $campaign->id,
+            'recipient_id' => (string) $recipient->id,
+            'email_type' => 'campaign',
+        ];
+    }
+
+    /**
+     * @param  array<int, EmailCampaignRecipient>  $recipients
+     * @return array{sent_recipient_ids: array<int, int>, skipped_recipient_ids: array<int, int>, attempted: int}
+     */
     private function sendBatchViaSmtp(EmailCampaign $campaign, User $owner, array $recipients): array
     {
         $smtpConfig = $this->resolveSmtpTransportConfigFromUser($owner);
@@ -776,7 +934,7 @@ class EmailCampaignDeliveryService
 
         $provider = strtolower(trim((string) config('services.email.primary', 'postmark')));
 
-        return in_array($provider, ['resend', 'postmark', 'elastic', 'elasticemail', 'zeptomail', 'ses_smtp', 'smtp'], true)
+        return in_array($provider, ['resend', 'postmark', 'elastic', 'elasticemail', 'zeptomail', 'sendgrid', 'ses_smtp', 'smtp'], true)
             ? $this->normalizeEmailProvider($provider)
             : 'postmark';
     }
@@ -788,7 +946,7 @@ class EmailCampaignDeliveryService
             return null;
         }
 
-        return in_array($provider, ['resend', 'postmark', 'elastic', 'elasticemail', 'zeptomail', 'ses_smtp', 'smtp'], true)
+        return in_array($provider, ['resend', 'postmark', 'elastic', 'elasticemail', 'zeptomail', 'sendgrid', 'ses_smtp', 'smtp'], true)
             ? $this->normalizeEmailProvider($provider)
             : null;
     }

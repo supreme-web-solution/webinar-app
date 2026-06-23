@@ -55,6 +55,7 @@ class WebinarAiNeedsAttentionMail extends Mailable
             'resend' => config('services.resend.from', ''),
             'elastic', 'elasticemail' => config('services.elastic.from', ''),
             'zeptomail' => config('services.zeptomail.from', ''),
+            'sendgrid' => config('services.sendgrid.from', ''),
             'ses_smtp', 'smtp' => config('services.email.ses_smtp_from_address', ''),
             default => '',
         });

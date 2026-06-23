@@ -171,3 +171,76 @@ Artisan::command('email:test-zeptomail {to : Recipient email address} {--subject
 
     return 0;
 })->purpose('Send a test email through ZeptoMail using configured API credentials');
+
+Artisan::command('email:test-sendgrid {to : Recipient email address} {--subject=SendGrid test : Email subject}', function () {
+    $apiKey = (string) config('services.sendgrid.key', '');
+    $configuredFrom = (string) config('services.sendgrid.from', config('mail.from.address', 'hello@example.com'));
+
+    if ($apiKey === '') {
+        $this->error('SENDGRID_API_KEY is not set in .env');
+
+        return 1;
+    }
+
+    $to = trim((string) $this->argument('to'));
+    if (filter_var($to, FILTER_VALIDATE_EMAIL) === false) {
+        $this->error("Invalid email address: {$to}");
+
+        return 1;
+    }
+
+    $fromAddress = $configuredFrom;
+    $fromName = '';
+    if (preg_match('/^(?<name>.*)\s<(?<email>[^>]+)>$/', $configuredFrom, $matches) === 1) {
+        $fromAddress = trim((string) ($matches['email'] ?? $configuredFrom));
+        $fromName = trim((string) ($matches['name'] ?? ''), '"\'');
+    }
+
+    $subject = (string) $this->option('subject');
+    $payload = [
+        'personalizations' => [
+            [
+                'to' => [
+                    ['email' => $to],
+                ],
+                'subject' => $subject,
+            ],
+        ],
+        'from' => [
+            'email' => $fromAddress,
+            'name' => $fromName !== '' ? $fromName : (string) config('app.name', 'Laravel'),
+        ],
+        'content' => [
+            [
+                'type' => 'text/html',
+                'value' => '<p>This is a test email from <strong>'.e(config('app.name')).'</strong> via SendGrid.</p><p>Sent at '.now()->toDateTimeString().'</p>',
+            ],
+        ],
+    ];
+
+    $this->info('Sending test email via SendGrid...');
+    $this->line("From: {$configuredFrom}");
+    $this->line("To: {$to}");
+
+    $response = Http::withToken($apiKey)
+        ->acceptJson()
+        ->asJson()
+        ->timeout(30)
+        ->connectTimeout(10)
+        ->post('https://api.sendgrid.com/v3/mail/send', $payload);
+
+    if ($response->status() !== 202) {
+        $this->error("SendGrid API failed (HTTP {$response->status()})");
+        $this->line($response->body());
+
+        return 1;
+    }
+
+    $this->info('Email accepted by SendGrid.');
+    $messageId = $response->header('X-Message-Id');
+    if ($messageId) {
+        $this->line("Message ID: {$messageId}");
+    }
+
+    return 0;
+})->purpose('Send a test email through SendGrid using configured API credentials');

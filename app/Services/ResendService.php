@@ -152,6 +152,7 @@ class ResendService
             'postmark' => $this->sendBatchViaPostmark($webinar, $registrants, $subject, $intro, $emailType),
             'elastic', 'elasticemail' => $this->sendBatchViaElasticEmail($webinar, $registrants, $subject, $intro, $emailType),
             'zeptomail' => $this->sendBatchViaZeptoMail($webinar, $registrants, $subject, $intro, $emailType),
+            'sendgrid' => $this->sendBatchViaSendGrid($webinar, $registrants, $subject, $intro, $emailType),
             'ses_smtp', 'smtp' => $this->sendBatchViaSmtp($webinar, $registrants, $subject, $intro),
             default => $this->sendBatchViaResend($webinar, $registrants, $subject, $intro),
         };
@@ -169,6 +170,7 @@ class ResendService
             'postmark' => $this->sendSingleViaPostmark($webinar, $registrant, $subject, $intro, $emailType),
             'elastic', 'elasticemail' => $this->sendSingleViaElasticEmail($webinar, $registrant, $subject, $intro, $emailType),
             'zeptomail' => $this->sendSingleViaZeptoMail($webinar, $registrant, $subject, $intro, $emailType),
+            'sendgrid' => $this->sendSingleViaSendGrid($webinar, $registrant, $subject, $intro, $emailType),
             'ses_smtp', 'smtp' => $this->sendSingleViaSmtp($webinar, $registrant, $subject, $intro),
             default => $this->sendSingleViaResend($webinar, $registrant, $subject, $intro),
         };
@@ -937,6 +939,214 @@ class ResendService
      * @param  array<int, WebinarRegistrant>  $registrants
      * @return array{sent_registrant_ids: array<int, int>, skipped_registrant_ids: array<int, int>, attempted: int}
      */
+    private function sendBatchViaSendGrid(Webinar $webinar, array $registrants, string $subject, string $intro, ?string $emailType = null): array
+    {
+        $apiKey = $this->sendGridApiKey();
+        $configuredFrom = (string) config('services.sendgrid.from', config('mail.from.address', 'hello@example.com'));
+
+        if ($apiKey === '') {
+            Log::warning('SENDGRID_API_KEY not configured. Skipping SendGrid batch email send.', [
+                'webinar_id' => $webinar->id,
+            ]);
+
+            return [
+                'sent_registrant_ids' => [],
+                'skipped_registrant_ids' => [],
+                'attempted' => count($registrants),
+            ];
+        }
+
+        $sentIds = [];
+        $skippedIds = [];
+
+        foreach ($registrants as $registrant) {
+            if ($this->sendSingleViaSendGrid($webinar, $registrant, $subject, $intro, $emailType)) {
+                $sentIds[] = $registrant->id;
+            }
+        }
+
+        if ($sentIds !== []) {
+            Log::info('webinar_email.provider.sendgrid.batch.sent', [
+                'webinar_id' => $webinar->id,
+                'attempted' => count($registrants),
+                'sent_count' => count($sentIds),
+                'skipped_count' => count($skippedIds),
+            ]);
+        }
+
+        return [
+            'sent_registrant_ids' => $sentIds,
+            'skipped_registrant_ids' => $skippedIds,
+            'attempted' => count($registrants),
+        ];
+    }
+
+    private function sendSingleViaSendGrid(Webinar $webinar, WebinarRegistrant $registrant, string $subject, string $intro, ?string $emailType = null): bool
+    {
+        $apiKey = $this->sendGridApiKey();
+        $configuredFrom = (string) config('services.sendgrid.from', config('mail.from.address', 'hello@example.com'));
+
+        if ($apiKey === '') {
+            Log::warning('SENDGRID_API_KEY not configured. Skipping SendGrid single email send.', [
+                'webinar_id' => $webinar->id,
+                'registrant_id' => $registrant->id,
+            ]);
+
+            return false;
+        }
+
+        $from = $this->resolveDynamicFrom($configuredFrom, $webinar->host_name);
+        $payload = $this->buildSendGridPayload(
+            $from,
+            $registrant->email,
+            $registrant->name,
+            $subject,
+            $this->buildWebinarEmailHtml($webinar, $registrant, $intro),
+            $this->sendGridWebinarMetadata($webinar, $registrant, $emailType),
+        );
+
+        try {
+            $response = $this->postToSendGridWithRateLimitRetry($apiKey, $payload);
+
+            if ($this->sendGridResponseSucceeded($response)) {
+                Log::debug('webinar_email.provider.sendgrid.single.sent', [
+                    'webinar_id' => $webinar->id,
+                    'registrant_id' => $registrant->id,
+                    'email_type' => $emailType,
+                    'message_id' => $response?->header('X-Message-Id'),
+                ]);
+
+                return true;
+            }
+
+            Log::warning('SendGrid API request failed.', [
+                'webinar_id' => $webinar->id,
+                'registrant_id' => $registrant->id,
+                'status' => $response?->status(),
+                'body' => $response?->body(),
+            ]);
+
+            return false;
+        } catch (\Throwable $exception) {
+            Log::error('SendGrid API exception.', [
+                'webinar_id' => $webinar->id,
+                'registrant_id' => $registrant->id,
+                'message' => $exception->getMessage(),
+            ]);
+
+            return false;
+        }
+    }
+
+    /**
+     * @param  array<string, string>  $customArgs
+     * @return array<string, mixed>
+     */
+    private function buildSendGridPayload(string $from, string $to, ?string $toName, string $subject, string $html, array $customArgs = []): array
+    {
+        $toRecipient = ['email' => $to];
+        $recipientName = trim((string) $toName);
+        if ($recipientName !== '') {
+            $toRecipient['name'] = $recipientName;
+        }
+
+        $personalization = [
+            'to' => [$toRecipient],
+            'subject' => $subject,
+        ];
+
+        if ($customArgs !== []) {
+            $personalization['custom_args'] = $customArgs;
+        }
+
+        return [
+            'personalizations' => [$personalization],
+            'from' => [
+                'email' => $this->extractEmailAddress($from),
+                'name' => $this->extractDisplayName($from) ?: 'OnPage CV',
+            ],
+            'content' => [
+                [
+                    'type' => 'text/html',
+                    'value' => $html,
+                ],
+            ],
+        ];
+    }
+
+    private function sendGridResponseSucceeded(?Response $response): bool
+    {
+        return $response !== null && $response->status() === 202;
+    }
+
+    /**
+     * @param  array<string, mixed>  $payload
+     */
+    private function postToSendGridWithRateLimitRetry(string $apiKey, array $payload, int $attempt = 0): ?Response
+    {
+        Log::debug('sendgrid.http.request', [
+            'attempt' => $attempt + 1,
+        ]);
+
+        $response = Http::withToken($apiKey)
+            ->acceptJson()
+            ->asJson()
+            ->timeout(30)
+            ->connectTimeout(10)
+            ->post('https://api.sendgrid.com/v3/mail/send', $payload);
+
+        if ($response->status() !== 429) {
+            return $response;
+        }
+
+        Log::warning('sendgrid.http.rate_limited', [
+            'attempt' => $attempt + 1,
+            'retry_after' => $response->header('retry-after'),
+            'status' => $response->status(),
+            'body' => $response->body(),
+        ]);
+
+        if ($attempt >= 3) {
+            Log::error('sendgrid.http.rate_limit_give_up', [
+                'attempts' => $attempt + 1,
+            ]);
+
+            return $response;
+        }
+
+        $retryAfter = max(1, min(30, (int) ($response->header('retry-after') ?? 1)));
+        sleep($retryAfter);
+
+        return $this->postToSendGridWithRateLimitRetry($apiKey, $payload, $attempt + 1);
+    }
+
+    private function sendGridApiKey(): string
+    {
+        return (string) config('services.sendgrid.key', '');
+    }
+
+    /**
+     * @return array<string, string>
+     */
+    private function sendGridWebinarMetadata(Webinar $webinar, WebinarRegistrant $registrant, ?string $emailType): array
+    {
+        $metadata = [
+            'source' => 'webinar',
+            'webinar_id' => (string) $webinar->id,
+            'registrant_id' => (string) $registrant->id,
+        ];
+
+        if ($emailType !== null && $emailType !== '') {
+            $metadata['email_type'] = $emailType;
+        }
+
+        return $metadata;
+    }
+
+    /**
+     * @param  array<int, WebinarRegistrant>  $registrants
+     * @return array{sent_registrant_ids: array<int, int>, skipped_registrant_ids: array<int, int>, attempted: int}
+     */
     private function sendBatchViaSmtp(Webinar $webinar, array $registrants, string $subject, string $intro): array
     {
         $sentIds = [];
@@ -1006,7 +1216,7 @@ class ResendService
 
         $provider = strtolower(trim((string) config('services.email.primary', 'postmark')));
 
-        return in_array($provider, ['resend', 'postmark', 'elastic', 'elasticemail', 'zeptomail', 'ses_smtp', 'smtp'], true)
+        return in_array($provider, ['resend', 'postmark', 'elastic', 'elasticemail', 'zeptomail', 'sendgrid', 'ses_smtp', 'smtp'], true)
             ? $this->normalizeEmailProvider($provider)
             : 'postmark';
     }
@@ -1018,7 +1228,7 @@ class ResendService
             return null;
         }
 
-        return in_array($provider, ['resend', 'postmark', 'elastic', 'elasticemail', 'zeptomail', 'ses_smtp', 'smtp'], true)
+        return in_array($provider, ['resend', 'postmark', 'elastic', 'elasticemail', 'zeptomail', 'sendgrid', 'ses_smtp', 'smtp'], true)
             ? $this->normalizeEmailProvider($provider)
             : null;
     }

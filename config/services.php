@@ -53,6 +53,11 @@ return [
         'from' => env('ZEPTOMAIL_FROM', env('MAIL_FROM_ADDRESS', 'hello@example.com')),
     ],
 
+    'sendgrid' => [
+        'key' => env('SENDGRID_API_KEY'),
+        'from' => env('SENDGRID_FROM', env('MAIL_FROM_ADDRESS', 'hello@example.com')),
+    ],
+
     'ses' => [
         'key' => env('AWS_ACCESS_KEY_ID'),
         'secret' => env('AWS_SECRET_ACCESS_KEY'),
