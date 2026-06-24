@@ -26,6 +26,7 @@ class WebinarController extends Controller
             ->withCount(['registrants', 'views'])
             ->latest()
             ->paginate(10)
+            ->withQueryString()
             ->through(fn (Webinar $webinar) => [
                 'id' => $webinar->id,
                 'uuid' => $webinar->uuid,

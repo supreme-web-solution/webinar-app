@@ -48,9 +48,19 @@ type WebinarListItem = {
     updated_at: string | null;
 };
 
+type PaginationLink = {
+    url: string | null;
+    label: string;
+    active: boolean;
+};
+
 const props = defineProps<{
     webinars: {
         data: WebinarListItem[];
+        links: PaginationLink[];
+        total: number;
+        from: number | null;
+        to: number | null;
     };
 }>();
 
@@ -1684,6 +1694,15 @@ watch(
     },
 );
 
+const readableLabel = (label: string): string => {
+    return label
+        .replace(/&laquo;/g, '<<')
+        .replace(/&raquo;/g, '>>')
+        .replace(/&#039;/g, "'")
+        .replace(/<[^>]*>/g, '')
+        .trim();
+};
+
 const videoSourceIcon = (source: string): string => {
     if (source === 'youtube') {
 return 'solar:playback-speed-bold-duotone';
@@ -1763,7 +1782,12 @@ return 'solar:play-circle-bold-duotone';
                     <div>
                         <CardTitle class="text-sm font-semibold">All Webinars</CardTitle>
                         <CardDescription class="text-xs mt-0.5">
-                            {{ filteredWebinars.length }} shown / {{ webinars.data.length }} total
+                            <template v-if="activeFilterCount > 0">
+                                {{ filteredWebinars.length }} shown on this page · {{ webinars.total }} total webinars
+                            </template>
+                            <template v-else>
+                                Showing {{ webinars.from ?? 0 }}-{{ webinars.to ?? 0 }} of {{ webinars.total }} webinars
+                            </template>
                         </CardDescription>
                     </div>
                     <div class="flex items-center gap-2">
@@ -1830,7 +1854,7 @@ return 'solar:play-circle-bold-duotone';
                     </div>
                     <!-- Empty state -->
                     <div
-                        v-if="webinars.data.length === 0"
+                        v-if="webinars.total === 0"
                         class="flex flex-col items-center justify-center px-6 py-16 text-center"
                     >
                         <div class="flex h-14 w-14 items-center justify-center rounded-2xl bg-indigo-100 text-indigo-500 dark:bg-indigo-950/60 dark:text-indigo-400 mb-4">
@@ -2049,6 +2073,32 @@ return 'solar:play-circle-bold-duotone';
                         </tr>
                     </tbody>
                 </table>
+
+                    <div
+                        v-if="webinars.links?.length > 3"
+                        class="flex flex-wrap items-center gap-2 border-t border-border/40 px-5 py-3"
+                    >
+                        <template v-for="link in webinars.links" :key="link.label">
+                            <Button
+                                v-if="link.url"
+                                as-child
+                                :variant="link.active ? 'default' : 'outline'"
+                                size="sm"
+                                class="h-7 text-xs"
+                            >
+                                <Link :href="link.url">{{ readableLabel(link.label) }}</Link>
+                            </Button>
+                            <Button
+                                v-else
+                                variant="outline"
+                                size="sm"
+                                class="h-7 text-xs"
+                                disabled
+                            >
+                                {{ readableLabel(link.label) }}
+                            </Button>
+                        </template>
+                    </div>
             </div>
                 </CardContent>
             </Card>
