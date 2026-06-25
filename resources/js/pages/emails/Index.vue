@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { Icon } from '@iconify/vue';
 import { Head, Link, router } from '@inertiajs/vue3';
-import { ref } from 'vue';
+import { ref, watch } from 'vue';
 import { Button } from '@/components/ui/button';
 import {
     Card,
@@ -32,14 +32,19 @@ type CampaignListItem = {
     updated_at: string | null;
 };
 
+type PaginationLink = {
+    url: string | null;
+    label: string;
+    active: boolean;
+};
+
 const props = defineProps<{
     campaigns: {
         data: CampaignListItem[];
-        links: Array<{
-            url: string | null;
-            label: string;
-            active: boolean;
-        }>;
+        links: PaginationLink[];
+        total: number;
+        from: number | null;
+        to: number | null;
     };
 }>();
 
@@ -105,6 +110,13 @@ const bulkDeleteCampaigns = (): void => {
     selectedCampaignIds.value = [];
 };
 
+watch(
+    () => props.campaigns.data.map((campaign) => campaign.id),
+    (currentIds) => {
+        selectedCampaignIds.value = selectedCampaignIds.value.filter((id) => currentIds.includes(id));
+    },
+);
+
 const readableLabel = (label: string): string => {
     return label
         .replace(/&laquo;/g, '<<')
@@ -145,7 +157,7 @@ const readableLabel = (label: string): string => {
                     <div>
                         <CardTitle class="text-sm font-semibold">All Campaigns</CardTitle>
                         <CardDescription class="mt-0.5 text-xs">
-                            {{ campaigns.data.length }} campaign(s)
+                            Showing {{ campaigns.from ?? 0 }}-{{ campaigns.to ?? 0 }} of {{ campaigns.total }} campaign(s)
                         </CardDescription>
                     </div>
                     <div class="flex items-center gap-2">
@@ -165,7 +177,7 @@ const readableLabel = (label: string): string => {
                 <CardContent class="px-0 pb-0">
                     <!-- Empty state -->
                     <div
-                        v-if="campaigns.data.length === 0"
+                        v-if="campaigns.total === 0"
                         class="flex flex-col items-center justify-center px-6 py-16 text-center"
                     >
                         <div class="mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-indigo-100 text-indigo-500 dark:bg-indigo-950/60 dark:text-indigo-400">
@@ -333,32 +345,32 @@ const readableLabel = (label: string): string => {
                                 </tr>
                             </tbody>
                         </table>
-                    </div>
 
-                    <div
-                        v-if="campaigns.links?.length > 3"
-                        class="flex flex-wrap items-center gap-2 border-t border-border/40 px-5 py-3"
-                    >
-                        <template v-for="link in campaigns.links" :key="link.label">
-                            <Button
-                                v-if="link.url"
-                                as-child
-                                :variant="link.active ? 'default' : 'outline'"
-                                size="sm"
-                                class="h-7 text-xs"
-                            >
-                                <Link :href="link.url">{{ readableLabel(link.label) }}</Link>
-                            </Button>
-                            <Button
-                                v-else
-                                variant="outline"
-                                size="sm"
-                                class="h-7 text-xs"
-                                disabled
-                            >
-                                {{ readableLabel(link.label) }}
-                            </Button>
-                        </template>
+                        <div
+                            v-if="campaigns.links?.length > 3"
+                            class="flex flex-wrap items-center gap-2 border-t border-border/40 px-5 py-3"
+                        >
+                            <template v-for="link in campaigns.links" :key="link.label">
+                                <Button
+                                    v-if="link.url"
+                                    as-child
+                                    :variant="link.active ? 'default' : 'outline'"
+                                    size="sm"
+                                    class="h-7 text-xs"
+                                >
+                                    <Link :href="link.url">{{ readableLabel(link.label) }}</Link>
+                                </Button>
+                                <Button
+                                    v-else
+                                    variant="outline"
+                                    size="sm"
+                                    class="h-7 text-xs"
+                                    disabled
+                                >
+                                    {{ readableLabel(link.label) }}
+                                </Button>
+                            </template>
+                        </div>
                     </div>
                 </CardContent>
             </Card>

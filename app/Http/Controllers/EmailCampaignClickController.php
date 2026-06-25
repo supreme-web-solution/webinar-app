@@ -7,7 +7,6 @@ use App\Models\EmailCampaignRecipient;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
-use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 
 class EmailCampaignClickController extends Controller
@@ -39,14 +38,16 @@ class EmailCampaignClickController extends Controller
             'clicked_at' => $now,
         ]);
 
-        $timestamp = $now->toDateTimeString();
-        EmailCampaignRecipient::query()
-            ->where('id', $recipient->id)
-            ->update([
-                'click_count' => DB::raw('click_count + 1'),
-                'last_clicked_at' => $now,
-                'first_clicked_at' => DB::raw("COALESCE(first_clicked_at, '{$timestamp}')"),
-            ]);
+        $recipientUpdates = [
+            'click_count' => $recipient->click_count + 1,
+            'last_clicked_at' => $now,
+        ];
+
+        if ($recipient->first_clicked_at === null) {
+            $recipientUpdates['first_clicked_at'] = $now;
+        }
+
+        $recipient->update($recipientUpdates);
 
         Log::info('email_campaign.click.tracked', [
             'campaign_id' => $campaign->id,

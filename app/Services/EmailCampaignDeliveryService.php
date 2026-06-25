@@ -994,11 +994,12 @@ class EmailCampaignDeliveryService
 
     private function buildCampaignEmailHtml(EmailCampaign $campaign, EmailCampaignRecipient $recipient): string
     {
-        $trackLink = route('email.campaign.click', ['token' => $recipient->access_token]);
-        $unsubscribeLink = route('email.campaign.unsubscribe', ['token' => $recipient->access_token]);
-        $bodyHtml = $this->formatBodyForEmail((string) ($campaign->body ?? ''));
+        $trackLink = route('email.campaign.click', ['token' => $recipient->access_token], absolute: true);
+        $unsubscribeLink = route('email.campaign.unsubscribe', ['token' => $recipient->access_token], absolute: true);
+        $bodyHtml = $this->formatBodyForEmail((string) ($campaign->body ?? ''), $trackLink);
         $title = e($campaign->prefixedTitleLine());
         $ctaLabel = e(trim((string) $campaign->cta_label) !== '' ? (string) $campaign->cta_label : 'Open Link');
+        $escapedTrackLink = e($trackLink);
 
         return "
             <div style=\"background:#f3f4f6;padding:24px 12px;font-family:Arial,Helvetica,sans-serif;color:#111827;\">
@@ -1014,7 +1015,12 @@ class EmailCampaignDeliveryService
                         <p style=\"margin:0 0 12px 0;font-size:14px;color:#4b5563;line-height:1.5;\">Click the button below to access your link.</p>
 
                         <div style=\"margin:0 0 8px 0;\">
-                            <a href=\"{$trackLink}\" style=\"display:inline-block;background:#2563eb;color:#ffffff;text-decoration:none;padding:12px 18px;border-radius:10px;font-weight:700;font-size:14px;\">{$ctaLabel}</a>
+                            <a href=\"{$escapedTrackLink}\" style=\"display:inline-block;background:#2563eb;color:#ffffff;text-decoration:none;padding:12px 18px;border-radius:10px;font-weight:700;font-size:14px;\">{$ctaLabel}</a>
+                        </div>
+
+                        <div style=\"border:1px dashed #cbd5e1;border-radius:10px;padding:10px 12px;background:#f8fafc;margin-top:12px;\">
+                            <p style=\"margin:0 0 6px 0;font-size:12px;color:#64748b;font-weight:700;text-transform:uppercase;letter-spacing:.04em;\">Direct Link</p>
+                            <a href=\"{$escapedTrackLink}\" style=\"font-size:13px;word-break:break-all;color:#2563eb;text-decoration:underline;\">{$escapedTrackLink}</a>
                         </div>
                     </div>
 
@@ -1027,7 +1033,7 @@ class EmailCampaignDeliveryService
         ";
     }
 
-    private function formatBodyForEmail(string $body): string
+    private function formatBodyForEmail(string $body, string $trackLink): string
     {
         $trimmed = trim($body);
         if ($trimmed === '') {
@@ -1035,10 +1041,61 @@ class EmailCampaignDeliveryService
         }
 
         if (! str_contains($trimmed, '<')) {
-            return nl2br(e($trimmed));
+            return $this->linkifyPlainTextUrlsWithTracking(nl2br(e($trimmed)), $trackLink);
         }
 
-        return $trimmed;
+        return $this->wrapHtmlLinksWithTracking($trimmed, $trackLink);
+    }
+
+    private function linkifyPlainTextUrlsWithTracking(string $html, string $trackLink): string
+    {
+        $escapedTrackLink = e($trackLink);
+
+        return (string) preg_replace_callback(
+            '/(https?:\/\/[^\s<]+)/i',
+            static fn (array $matches): string => '<a href="'.$escapedTrackLink.'" style="color:#2563eb;text-decoration:underline;word-break:break-all;">'.$matches[1].'</a>',
+            $html,
+        );
+    }
+
+    private function wrapHtmlLinksWithTracking(string $html, string $trackLink): string
+    {
+        if (! str_contains($html, '<a')) {
+            return $html;
+        }
+
+        $escapedTrackLink = e($trackLink);
+
+        return (string) preg_replace_callback(
+            '/<a\b([^>]*?)href\s*=\s*(["\'])([^"\']+)\2([^>]*)>/i',
+            function (array $matches) use ($escapedTrackLink): string {
+                $href = trim($matches[3]);
+
+                if ($this->shouldSkipLinkTracking($href)) {
+                    return $matches[0];
+                }
+
+                return '<a'.$matches[1].'href='.$matches[2].$escapedTrackLink.$matches[2].$matches[4].'>';
+            },
+            $html,
+        );
+    }
+
+    private function shouldSkipLinkTracking(string $href): bool
+    {
+        if ($href === '' || str_starts_with($href, '#')) {
+            return true;
+        }
+
+        if (preg_match('/^mailto:/i', $href)) {
+            return true;
+        }
+
+        if (str_contains($href, '/email/click/') || str_contains($href, '/email/unsubscribe/')) {
+            return true;
+        }
+
+        return ! preg_match('/^https?:\/\//i', $href);
     }
 
     private function resolveDynamicFrom(string $configuredFrom, string $senderName): string

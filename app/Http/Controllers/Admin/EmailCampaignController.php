@@ -28,6 +28,7 @@ class EmailCampaignController extends Controller
             ])
             ->latest()
             ->paginate(10)
+            ->withQueryString()
             ->through(fn (EmailCampaign $campaign) => [
                 'id' => $campaign->id,
                 'title' => $campaign->title,
