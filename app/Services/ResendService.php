@@ -153,6 +153,10 @@ class ResendService
             'elastic', 'elasticemail' => $this->sendBatchViaElasticEmail($webinar, $registrants, $subject, $intro, $emailType),
             'zeptomail' => $this->sendBatchViaZeptoMail($webinar, $registrants, $subject, $intro, $emailType),
             'sendgrid' => $this->sendBatchViaSendGrid($webinar, $registrants, $subject, $intro, $emailType),
+            'brevo' => $this->sendBatchViaBrevo($webinar, $registrants, $subject, $intro, $emailType),
+            'lettermint' => $this->sendBatchViaLettermint($webinar, $registrants, $subject, $intro, $emailType),
+            'sweego' => $this->sendBatchViaSweego($webinar, $registrants, $subject, $intro, $emailType),
+            'scaleway' => $this->sendBatchViaScaleway($webinar, $registrants, $subject, $intro, $emailType),
             'ses_smtp', 'smtp' => $this->sendBatchViaSmtp($webinar, $registrants, $subject, $intro),
             default => $this->sendBatchViaResend($webinar, $registrants, $subject, $intro),
         };
@@ -171,6 +175,10 @@ class ResendService
             'elastic', 'elasticemail' => $this->sendSingleViaElasticEmail($webinar, $registrant, $subject, $intro, $emailType),
             'zeptomail' => $this->sendSingleViaZeptoMail($webinar, $registrant, $subject, $intro, $emailType),
             'sendgrid' => $this->sendSingleViaSendGrid($webinar, $registrant, $subject, $intro, $emailType),
+            'brevo' => $this->sendSingleViaBrevo($webinar, $registrant, $subject, $intro, $emailType),
+            'lettermint' => $this->sendSingleViaLettermint($webinar, $registrant, $subject, $intro, $emailType),
+            'sweego' => $this->sendSingleViaSweego($webinar, $registrant, $subject, $intro, $emailType),
+            'scaleway' => $this->sendSingleViaScaleway($webinar, $registrant, $subject, $intro, $emailType),
             'ses_smtp', 'smtp' => $this->sendSingleViaSmtp($webinar, $registrant, $subject, $intro),
             default => $this->sendSingleViaResend($webinar, $registrant, $subject, $intro),
         };
@@ -1147,6 +1155,803 @@ class ResendService
      * @param  array<int, WebinarRegistrant>  $registrants
      * @return array{sent_registrant_ids: array<int, int>, skipped_registrant_ids: array<int, int>, attempted: int}
      */
+    private function sendBatchViaBrevo(Webinar $webinar, array $registrants, string $subject, string $intro, ?string $emailType = null): array
+    {
+        $apiKey = $this->brevoApiKey();
+
+        if ($apiKey === '') {
+            Log::warning('BREVO_API_KEY not configured. Skipping Brevo batch email send.', [
+                'webinar_id' => $webinar->id,
+            ]);
+
+            return [
+                'sent_registrant_ids' => [],
+                'skipped_registrant_ids' => [],
+                'attempted' => count($registrants),
+            ];
+        }
+
+        $sentIds = [];
+        $skippedIds = [];
+
+        foreach ($registrants as $registrant) {
+            if ($this->sendSingleViaBrevo($webinar, $registrant, $subject, $intro, $emailType)) {
+                $sentIds[] = $registrant->id;
+            }
+        }
+
+        if ($sentIds !== []) {
+            Log::info('webinar_email.provider.brevo.batch.sent', [
+                'webinar_id' => $webinar->id,
+                'attempted' => count($registrants),
+                'sent_count' => count($sentIds),
+                'skipped_count' => count($skippedIds),
+            ]);
+        }
+
+        return [
+            'sent_registrant_ids' => $sentIds,
+            'skipped_registrant_ids' => $skippedIds,
+            'attempted' => count($registrants),
+        ];
+    }
+
+    private function sendSingleViaBrevo(Webinar $webinar, WebinarRegistrant $registrant, string $subject, string $intro, ?string $emailType = null): bool
+    {
+        $apiKey = $this->brevoApiKey();
+        $configuredFrom = (string) config('services.brevo.from', config('mail.from.address', 'hello@example.com'));
+
+        if ($apiKey === '') {
+            Log::warning('BREVO_API_KEY not configured. Skipping Brevo single email send.', [
+                'webinar_id' => $webinar->id,
+                'registrant_id' => $registrant->id,
+            ]);
+
+            return false;
+        }
+
+        $from = $this->resolveDynamicFrom($configuredFrom, $webinar->host_name);
+        $payload = $this->buildBrevoPayload(
+            $from,
+            $registrant->email,
+            $registrant->name,
+            $subject,
+            $this->buildWebinarEmailHtml($webinar, $registrant, $intro),
+            $this->brevoWebinarMetadata($webinar, $registrant, $emailType),
+        );
+
+        try {
+            $response = $this->postToBrevoWithRateLimitRetry($apiKey, $payload);
+
+            if ($this->brevoResponseSucceeded($response)) {
+                Log::debug('webinar_email.provider.brevo.single.sent', [
+                    'webinar_id' => $webinar->id,
+                    'registrant_id' => $registrant->id,
+                    'email_type' => $emailType,
+                    'message_id' => data_get($response?->json(), 'messageId'),
+                ]);
+
+                return true;
+            }
+
+            Log::warning('Brevo API request failed.', [
+                'webinar_id' => $webinar->id,
+                'registrant_id' => $registrant->id,
+                'status' => $response?->status(),
+                'body' => $response?->body(),
+            ]);
+
+            return false;
+        } catch (\Throwable $exception) {
+            Log::error('Brevo API exception.', [
+                'webinar_id' => $webinar->id,
+                'registrant_id' => $registrant->id,
+                'message' => $exception->getMessage(),
+            ]);
+
+            return false;
+        }
+    }
+
+    /**
+     * @param  array<string, string>  $metadata
+     * @return array<string, mixed>
+     */
+    private function buildBrevoPayload(string $from, string $to, ?string $toName, string $subject, string $html, array $metadata = []): array
+    {
+        $toRecipient = ['email' => $to];
+        $recipientName = trim((string) $toName);
+        if ($recipientName !== '') {
+            $toRecipient['name'] = $recipientName;
+        }
+
+        $payload = [
+            'sender' => [
+                'email' => $this->extractEmailAddress($from),
+                'name' => $this->extractDisplayName($from) ?: 'OnPage CV',
+            ],
+            'to' => [$toRecipient],
+            'subject' => $subject,
+            'htmlContent' => $html,
+        ];
+
+        if ($metadata !== []) {
+            $payload['headers'] = $metadata;
+        }
+
+        return $payload;
+    }
+
+    private function brevoResponseSucceeded(?Response $response): bool
+    {
+        return $response !== null && $response->status() === 201;
+    }
+
+    /**
+     * @param  array<string, mixed>  $payload
+     */
+    private function postToBrevoWithRateLimitRetry(string $apiKey, array $payload, int $attempt = 0): ?Response
+    {
+        Log::debug('brevo.http.request', [
+            'attempt' => $attempt + 1,
+        ]);
+
+        $response = Http::withHeaders(['api-key' => $apiKey])
+            ->acceptJson()
+            ->asJson()
+            ->timeout(30)
+            ->connectTimeout(10)
+            ->post('https://api.brevo.com/v3/smtp/email', $payload);
+
+        if ($response->status() !== 429) {
+            return $response;
+        }
+
+        Log::warning('brevo.http.rate_limited', [
+            'attempt' => $attempt + 1,
+            'retry_after' => $response->header('retry-after'),
+            'status' => $response->status(),
+            'body' => $response->body(),
+        ]);
+
+        if ($attempt >= 3) {
+            Log::error('brevo.http.rate_limit_give_up', [
+                'attempts' => $attempt + 1,
+            ]);
+
+            return $response;
+        }
+
+        $retryAfter = max(1, min(30, (int) ($response->header('retry-after') ?? 1)));
+        sleep($retryAfter);
+
+        return $this->postToBrevoWithRateLimitRetry($apiKey, $payload, $attempt + 1);
+    }
+
+    private function brevoApiKey(): string
+    {
+        return (string) config('services.brevo.key', '');
+    }
+
+    /**
+     * @return array<string, string>
+     */
+    private function brevoWebinarMetadata(Webinar $webinar, WebinarRegistrant $registrant, ?string $emailType): array
+    {
+        $metadata = [
+            'X-Source' => 'webinar',
+            'X-Webinar-Id' => (string) $webinar->id,
+            'X-Registrant-Id' => (string) $registrant->id,
+        ];
+
+        if ($emailType !== null && $emailType !== '') {
+            $metadata['X-Email-Type'] = $emailType;
+        }
+
+        return $metadata;
+    }
+
+    /**
+     * @param  array<int, WebinarRegistrant>  $registrants
+     * @return array{sent_registrant_ids: array<int, int>, skipped_registrant_ids: array<int, int>, attempted: int}
+     */
+    private function sendBatchViaLettermint(Webinar $webinar, array $registrants, string $subject, string $intro, ?string $emailType = null): array
+    {
+        $apiKey = $this->lettermintApiKey();
+
+        if ($apiKey === '') {
+            Log::warning('LETTERMINT_API_KEY not configured. Skipping Lettermint batch email send.', [
+                'webinar_id' => $webinar->id,
+            ]);
+
+            return [
+                'sent_registrant_ids' => [],
+                'skipped_registrant_ids' => [],
+                'attempted' => count($registrants),
+            ];
+        }
+
+        $sentIds = [];
+        $skippedIds = [];
+
+        foreach ($registrants as $registrant) {
+            if ($this->sendSingleViaLettermint($webinar, $registrant, $subject, $intro, $emailType)) {
+                $sentIds[] = $registrant->id;
+            }
+        }
+
+        if ($sentIds !== []) {
+            Log::info('webinar_email.provider.lettermint.batch.sent', [
+                'webinar_id' => $webinar->id,
+                'attempted' => count($registrants),
+                'sent_count' => count($sentIds),
+                'skipped_count' => count($skippedIds),
+            ]);
+        }
+
+        return [
+            'sent_registrant_ids' => $sentIds,
+            'skipped_registrant_ids' => $skippedIds,
+            'attempted' => count($registrants),
+        ];
+    }
+
+    private function sendSingleViaLettermint(Webinar $webinar, WebinarRegistrant $registrant, string $subject, string $intro, ?string $emailType = null): bool
+    {
+        $apiKey = $this->lettermintApiKey();
+        $configuredFrom = (string) config('services.lettermint.from', config('mail.from.address', 'hello@example.com'));
+
+        if ($apiKey === '') {
+            Log::warning('LETTERMINT_API_KEY not configured. Skipping Lettermint single email send.', [
+                'webinar_id' => $webinar->id,
+                'registrant_id' => $registrant->id,
+            ]);
+
+            return false;
+        }
+
+        $from = $this->resolveDynamicFrom($configuredFrom, $webinar->host_name);
+        $payload = $this->buildLettermintPayload(
+            $from,
+            $registrant->email,
+            $subject,
+            $this->buildWebinarEmailHtml($webinar, $registrant, $intro),
+            $this->lettermintWebinarMetadata($webinar, $registrant, $emailType),
+        );
+
+        try {
+            $response = $this->postToLettermintWithRateLimitRetry($apiKey, $payload);
+
+            if ($this->lettermintResponseSucceeded($response)) {
+                Log::debug('webinar_email.provider.lettermint.single.sent', [
+                    'webinar_id' => $webinar->id,
+                    'registrant_id' => $registrant->id,
+                    'email_type' => $emailType,
+                    'message_id' => data_get($response?->json(), 'message_id'),
+                ]);
+
+                return true;
+            }
+
+            Log::warning('Lettermint API request failed.', [
+                'webinar_id' => $webinar->id,
+                'registrant_id' => $registrant->id,
+                'status' => $response?->status(),
+                'body' => $response?->body(),
+            ]);
+
+            return false;
+        } catch (\Throwable $exception) {
+            Log::error('Lettermint API exception.', [
+                'webinar_id' => $webinar->id,
+                'registrant_id' => $registrant->id,
+                'message' => $exception->getMessage(),
+            ]);
+
+            return false;
+        }
+    }
+
+    /**
+     * @param  array<string, string>  $metadata
+     * @return array<string, mixed>
+     */
+    private function buildLettermintPayload(string $from, string $to, string $subject, string $html, array $metadata = []): array
+    {
+        $payload = [
+            'from' => $from,
+            'to' => [$to],
+            'subject' => $subject,
+            'html' => $html,
+        ];
+
+        if ($metadata !== []) {
+            $payload['metadata'] = $metadata;
+        }
+
+        return $payload;
+    }
+
+    private function lettermintResponseSucceeded(?Response $response): bool
+    {
+        return $response !== null && $response->status() === 202;
+    }
+
+    /**
+     * @param  array<string, mixed>  $payload
+     */
+    private function postToLettermintWithRateLimitRetry(string $apiKey, array $payload, int $attempt = 0): ?Response
+    {
+        Log::debug('lettermint.http.request', [
+            'attempt' => $attempt + 1,
+        ]);
+
+        $response = Http::withHeaders(['x-lettermint-token' => $apiKey])
+            ->acceptJson()
+            ->asJson()
+            ->timeout(30)
+            ->connectTimeout(10)
+            ->post('https://api.lettermint.co/v1/send', $payload);
+
+        if ($response->status() !== 429) {
+            return $response;
+        }
+
+        Log::warning('lettermint.http.rate_limited', [
+            'attempt' => $attempt + 1,
+            'retry_after' => $response->header('retry-after'),
+            'status' => $response->status(),
+            'body' => $response->body(),
+        ]);
+
+        if ($attempt >= 3) {
+            Log::error('lettermint.http.rate_limit_give_up', [
+                'attempts' => $attempt + 1,
+            ]);
+
+            return $response;
+        }
+
+        $retryAfter = max(1, min(30, (int) ($response->header('retry-after') ?? 1)));
+        sleep($retryAfter);
+
+        return $this->postToLettermintWithRateLimitRetry($apiKey, $payload, $attempt + 1);
+    }
+
+    private function lettermintApiKey(): string
+    {
+        return (string) config('services.lettermint.key', '');
+    }
+
+    /**
+     * @return array<string, string>
+     */
+    private function lettermintWebinarMetadata(Webinar $webinar, WebinarRegistrant $registrant, ?string $emailType): array
+    {
+        $metadata = [
+            'source' => 'webinar',
+            'webinar_id' => (string) $webinar->id,
+            'registrant_id' => (string) $registrant->id,
+        ];
+
+        if ($emailType !== null && $emailType !== '') {
+            $metadata['email_type'] = $emailType;
+        }
+
+        return $metadata;
+    }
+
+    /**
+     * @param  array<int, WebinarRegistrant>  $registrants
+     * @return array{sent_registrant_ids: array<int, int>, skipped_registrant_ids: array<int, int>, attempted: int}
+     */
+    private function sendBatchViaSweego(Webinar $webinar, array $registrants, string $subject, string $intro, ?string $emailType = null): array
+    {
+        $apiKey = $this->sweegoApiKey();
+
+        if ($apiKey === '') {
+            Log::warning('SWEEGO_API_KEY not configured. Skipping Sweego batch email send.', [
+                'webinar_id' => $webinar->id,
+            ]);
+
+            return [
+                'sent_registrant_ids' => [],
+                'skipped_registrant_ids' => [],
+                'attempted' => count($registrants),
+            ];
+        }
+
+        $sentIds = [];
+        $skippedIds = [];
+
+        foreach ($registrants as $registrant) {
+            if ($this->sendSingleViaSweego($webinar, $registrant, $subject, $intro, $emailType)) {
+                $sentIds[] = $registrant->id;
+            }
+        }
+
+        if ($sentIds !== []) {
+            Log::info('webinar_email.provider.sweego.batch.sent', [
+                'webinar_id' => $webinar->id,
+                'attempted' => count($registrants),
+                'sent_count' => count($sentIds),
+                'skipped_count' => count($skippedIds),
+            ]);
+        }
+
+        return [
+            'sent_registrant_ids' => $sentIds,
+            'skipped_registrant_ids' => $skippedIds,
+            'attempted' => count($registrants),
+        ];
+    }
+
+    private function sendSingleViaSweego(Webinar $webinar, WebinarRegistrant $registrant, string $subject, string $intro, ?string $emailType = null): bool
+    {
+        $apiKey = $this->sweegoApiKey();
+        $configuredFrom = (string) config('services.sweego.from', config('mail.from.address', 'hello@example.com'));
+
+        if ($apiKey === '') {
+            Log::warning('SWEEGO_API_KEY not configured. Skipping Sweego single email send.', [
+                'webinar_id' => $webinar->id,
+                'registrant_id' => $registrant->id,
+            ]);
+
+            return false;
+        }
+
+        $from = $this->resolveDynamicFrom($configuredFrom, $webinar->host_name);
+        $payload = $this->buildSweegoPayload(
+            $from,
+            $registrant->email,
+            $registrant->name,
+            $subject,
+            $this->buildWebinarEmailHtml($webinar, $registrant, $intro),
+            $this->sweegoWebinarMetadata($webinar, $registrant, $emailType),
+        );
+
+        try {
+            $response = $this->postToSweegoWithRateLimitRetry($apiKey, $payload);
+
+            if ($this->sweegoResponseSucceeded($response)) {
+                Log::debug('webinar_email.provider.sweego.single.sent', [
+                    'webinar_id' => $webinar->id,
+                    'registrant_id' => $registrant->id,
+                    'email_type' => $emailType,
+                    'message_id' => data_get($response?->json(), 'message-id'),
+                ]);
+
+                return true;
+            }
+
+            Log::warning('Sweego API request failed.', [
+                'webinar_id' => $webinar->id,
+                'registrant_id' => $registrant->id,
+                'status' => $response?->status(),
+                'body' => $response?->body(),
+            ]);
+
+            return false;
+        } catch (\Throwable $exception) {
+            Log::error('Sweego API exception.', [
+                'webinar_id' => $webinar->id,
+                'registrant_id' => $registrant->id,
+                'message' => $exception->getMessage(),
+            ]);
+
+            return false;
+        }
+    }
+
+    /**
+     * @param  array<string, string>  $headers
+     * @return array<string, mixed>
+     */
+    private function buildSweegoPayload(string $from, string $to, ?string $toName, string $subject, string $html, array $headers = []): array
+    {
+        $recipient = ['email' => $to];
+        $recipientName = trim((string) $toName);
+        if ($recipientName !== '') {
+            $recipient['name'] = $recipientName;
+        }
+
+        $payload = [
+            'channel' => 'email',
+            'provider' => 'sweego',
+            'recipients' => [$recipient],
+            'from' => [
+                'email' => $this->extractEmailAddress($from),
+                'name' => $this->extractDisplayName($from) ?: 'OnPage CV',
+            ],
+            'subject' => $subject,
+            'message-html' => $html,
+        ];
+
+        if ($headers !== []) {
+            $payload['headers'] = $headers;
+        }
+
+        return $payload;
+    }
+
+    private function sweegoResponseSucceeded(?Response $response): bool
+    {
+        return $response !== null && $response->successful();
+    }
+
+    /**
+     * @param  array<string, mixed>  $payload
+     */
+    private function postToSweegoWithRateLimitRetry(string $apiKey, array $payload, int $attempt = 0): ?Response
+    {
+        Log::debug('sweego.http.request', [
+            'attempt' => $attempt + 1,
+        ]);
+
+        $response = Http::withHeaders(['Api-Key' => $apiKey])
+            ->acceptJson()
+            ->asJson()
+            ->timeout(30)
+            ->connectTimeout(10)
+            ->post('https://api.sweego.io/send', $payload);
+
+        if ($response->status() !== 429) {
+            return $response;
+        }
+
+        Log::warning('sweego.http.rate_limited', [
+            'attempt' => $attempt + 1,
+            'retry_after' => $response->header('retry-after'),
+            'status' => $response->status(),
+            'body' => $response->body(),
+        ]);
+
+        if ($attempt >= 3) {
+            Log::error('sweego.http.rate_limit_give_up', [
+                'attempts' => $attempt + 1,
+            ]);
+
+            return $response;
+        }
+
+        $retryAfter = max(1, min(30, (int) ($response->header('retry-after') ?? 1)));
+        sleep($retryAfter);
+
+        return $this->postToSweegoWithRateLimitRetry($apiKey, $payload, $attempt + 1);
+    }
+
+    private function sweegoApiKey(): string
+    {
+        return (string) config('services.sweego.key', '');
+    }
+
+    /**
+     * @return array<string, string>
+     */
+    private function sweegoWebinarMetadata(Webinar $webinar, WebinarRegistrant $registrant, ?string $emailType): array
+    {
+        $metadata = [
+            'X-Source' => 'webinar',
+            'X-Webinar-Id' => (string) $webinar->id,
+            'X-Registrant-Id' => (string) $registrant->id,
+        ];
+
+        if ($emailType !== null && $emailType !== '') {
+            $metadata['X-Email-Type'] = $emailType;
+        }
+
+        return $metadata;
+    }
+
+    /**
+     * @param  array<int, WebinarRegistrant>  $registrants
+     * @return array{sent_registrant_ids: array<int, int>, skipped_registrant_ids: array<int, int>, attempted: int}
+     */
+    private function sendBatchViaScaleway(Webinar $webinar, array $registrants, string $subject, string $intro, ?string $emailType = null): array
+    {
+        if (! $this->scalewayConfigured()) {
+            Log::warning('Scaleway TEM not configured. Skipping Scaleway batch email send.', [
+                'webinar_id' => $webinar->id,
+            ]);
+
+            return [
+                'sent_registrant_ids' => [],
+                'skipped_registrant_ids' => [],
+                'attempted' => count($registrants),
+            ];
+        }
+
+        $sentIds = [];
+        $skippedIds = [];
+
+        foreach ($registrants as $registrant) {
+            if ($this->sendSingleViaScaleway($webinar, $registrant, $subject, $intro, $emailType)) {
+                $sentIds[] = $registrant->id;
+            }
+        }
+
+        if ($sentIds !== []) {
+            Log::info('webinar_email.provider.scaleway.batch.sent', [
+                'webinar_id' => $webinar->id,
+                'attempted' => count($registrants),
+                'sent_count' => count($sentIds),
+                'skipped_count' => count($skippedIds),
+            ]);
+        }
+
+        return [
+            'sent_registrant_ids' => $sentIds,
+            'skipped_registrant_ids' => $skippedIds,
+            'attempted' => count($registrants),
+        ];
+    }
+
+    private function sendSingleViaScaleway(Webinar $webinar, WebinarRegistrant $registrant, string $subject, string $intro, ?string $emailType = null): bool
+    {
+        if (! $this->scalewayConfigured()) {
+            Log::warning('Scaleway TEM not configured. Skipping Scaleway single email send.', [
+                'webinar_id' => $webinar->id,
+                'registrant_id' => $registrant->id,
+            ]);
+
+            return false;
+        }
+
+        $configuredFrom = (string) config('services.scaleway.from', config('mail.from.address', 'hello@example.com'));
+        $from = $this->resolveDynamicFrom($configuredFrom, $webinar->host_name);
+        $payload = $this->buildScalewayPayload(
+            $from,
+            $registrant->email,
+            $registrant->name,
+            $subject,
+            $this->buildWebinarEmailHtml($webinar, $registrant, $intro),
+            $this->scalewayWebinarMetadata($webinar, $registrant, $emailType),
+        );
+
+        try {
+            $response = $this->postToScalewayWithRateLimitRetry($payload);
+
+            if ($this->scalewayResponseSucceeded($response)) {
+                Log::debug('webinar_email.provider.scaleway.single.sent', [
+                    'webinar_id' => $webinar->id,
+                    'registrant_id' => $registrant->id,
+                    'email_type' => $emailType,
+                    'email_id' => data_get($response?->json(), 'emails.0.id'),
+                ]);
+
+                return true;
+            }
+
+            Log::warning('Scaleway TEM API request failed.', [
+                'webinar_id' => $webinar->id,
+                'registrant_id' => $registrant->id,
+                'status' => $response?->status(),
+                'body' => $response?->body(),
+            ]);
+
+            return false;
+        } catch (\Throwable $exception) {
+            Log::error('Scaleway TEM API exception.', [
+                'webinar_id' => $webinar->id,
+                'registrant_id' => $registrant->id,
+                'message' => $exception->getMessage(),
+            ]);
+
+            return false;
+        }
+    }
+
+    /**
+     * @param  array<string, string>  $metadata
+     * @return array<string, mixed>
+     */
+    private function buildScalewayPayload(string $from, string $to, ?string $toName, string $subject, string $html, array $metadata = []): array
+    {
+        $toRecipient = ['email' => $to];
+        $recipientName = trim((string) $toName);
+        if ($recipientName !== '') {
+            $toRecipient['name'] = $recipientName;
+        }
+
+        $payload = [
+            'from' => [
+                'email' => $this->extractEmailAddress($from),
+                'name' => $this->extractDisplayName($from) ?: 'OnPage CV',
+            ],
+            'to' => [$toRecipient],
+            'subject' => $subject,
+            'html' => $html,
+            'project_id' => (string) config('services.scaleway.project_id', ''),
+        ];
+
+        if ($metadata !== []) {
+            $payload['additional_headers'] = collect($metadata)
+                ->map(fn (string $value, string $key): array => ['key' => $key, 'value' => $value])
+                ->values()
+                ->all();
+        }
+
+        return $payload;
+    }
+
+    private function scalewayResponseSucceeded(?Response $response): bool
+    {
+        return $response !== null && $response->successful();
+    }
+
+    /**
+     * @param  array<string, mixed>  $payload
+     */
+    private function postToScalewayWithRateLimitRetry(array $payload, int $attempt = 0): ?Response
+    {
+        $apiKey = (string) config('services.scaleway.key', '');
+        $region = (string) config('services.scaleway.region', 'fr-par');
+
+        Log::debug('scaleway.http.request', [
+            'attempt' => $attempt + 1,
+            'region' => $region,
+        ]);
+
+        $response = Http::withHeaders(['X-Auth-Token' => $apiKey])
+            ->acceptJson()
+            ->asJson()
+            ->timeout(30)
+            ->connectTimeout(10)
+            ->post("https://api.scaleway.com/transactional-email/v1alpha1/regions/{$region}/emails", $payload);
+
+        if ($response->status() !== 429) {
+            return $response;
+        }
+
+        Log::warning('scaleway.http.rate_limited', [
+            'attempt' => $attempt + 1,
+            'retry_after' => $response->header('retry-after'),
+            'status' => $response->status(),
+            'body' => $response->body(),
+        ]);
+
+        if ($attempt >= 3) {
+            Log::error('scaleway.http.rate_limit_give_up', [
+                'attempts' => $attempt + 1,
+            ]);
+
+            return $response;
+        }
+
+        $retryAfter = max(1, min(30, (int) ($response->header('retry-after') ?? 1)));
+        sleep($retryAfter);
+
+        return $this->postToScalewayWithRateLimitRetry($payload, $attempt + 1);
+    }
+
+    private function scalewayConfigured(): bool
+    {
+        return trim((string) config('services.scaleway.key', '')) !== ''
+            && trim((string) config('services.scaleway.project_id', '')) !== '';
+    }
+
+    /**
+     * @return array<string, string>
+     */
+    private function scalewayWebinarMetadata(Webinar $webinar, WebinarRegistrant $registrant, ?string $emailType): array
+    {
+        $metadata = [
+            'X-Source' => 'webinar',
+            'X-Webinar-Id' => (string) $webinar->id,
+            'X-Registrant-Id' => (string) $registrant->id,
+        ];
+
+        if ($emailType !== null && $emailType !== '') {
+            $metadata['X-Email-Type'] = $emailType;
+        }
+
+        return $metadata;
+    }
+
+    /**
+     * @param  array<int, WebinarRegistrant>  $registrants
+     * @return array{sent_registrant_ids: array<int, int>, skipped_registrant_ids: array<int, int>, attempted: int}
+     */
     private function sendBatchViaSmtp(Webinar $webinar, array $registrants, string $subject, string $intro): array
     {
         $sentIds = [];
@@ -1216,7 +2021,7 @@ class ResendService
 
         $provider = strtolower(trim((string) config('services.email.primary', 'postmark')));
 
-        return in_array($provider, ['resend', 'postmark', 'elastic', 'elasticemail', 'zeptomail', 'sendgrid', 'ses_smtp', 'smtp'], true)
+        return in_array($provider, ['resend', 'postmark', 'elastic', 'elasticemail', 'zeptomail', 'sendgrid', 'brevo', 'lettermint', 'sweego', 'scaleway', 'ses_smtp', 'smtp'], true)
             ? $this->normalizeEmailProvider($provider)
             : 'postmark';
     }
@@ -1228,7 +2033,7 @@ class ResendService
             return null;
         }
 
-        return in_array($provider, ['resend', 'postmark', 'elastic', 'elasticemail', 'zeptomail', 'sendgrid', 'ses_smtp', 'smtp'], true)
+        return in_array($provider, ['resend', 'postmark', 'elastic', 'elasticemail', 'zeptomail', 'sendgrid', 'brevo', 'lettermint', 'sweego', 'scaleway', 'ses_smtp', 'smtp'], true)
             ? $this->normalizeEmailProvider($provider)
             : null;
     }

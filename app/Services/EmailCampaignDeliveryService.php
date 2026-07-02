@@ -151,6 +151,10 @@ class EmailCampaignDeliveryService
             'elastic', 'elasticemail' => $this->sendBatchViaElasticEmail($campaign, $recipients),
             'zeptomail' => $this->sendBatchViaZeptoMail($campaign, $recipients),
             'sendgrid' => $this->sendBatchViaSendGrid($campaign, $recipients),
+            'brevo' => $this->sendBatchViaBrevo($campaign, $recipients),
+            'lettermint' => $this->sendBatchViaLettermint($campaign, $recipients),
+            'sweego' => $this->sendBatchViaSweego($campaign, $recipients),
+            'scaleway' => $this->sendBatchViaScaleway($campaign, $recipients),
             'ses_smtp', 'smtp' => $this->sendBatchViaSmtp($campaign, $owner, $recipients),
             default => $this->sendBatchViaResend($campaign, $recipients),
         };
@@ -844,6 +848,604 @@ class EmailCampaignDeliveryService
      * @param  array<int, EmailCampaignRecipient>  $recipients
      * @return array{sent_recipient_ids: array<int, int>, skipped_recipient_ids: array<int, int>, attempted: int}
      */
+    private function sendBatchViaBrevo(EmailCampaign $campaign, array $recipients): array
+    {
+        $apiKey = $this->brevoApiKey();
+        $configuredFrom = (string) config('services.brevo.from', config('mail.from.address', 'hello@example.com'));
+
+        if ($apiKey === '') {
+            Log::warning('BREVO_API_KEY not configured. Skipping campaign emails.', [
+                'campaign_id' => $campaign->id,
+            ]);
+
+            return [
+                'sent_recipient_ids' => [],
+                'skipped_recipient_ids' => [],
+                'attempted' => count($recipients),
+            ];
+        }
+
+        $from = $this->resolveDynamicFrom($configuredFrom, $campaign->sender_name);
+        $subject = $campaign->prefixedTitleLine();
+        $sentIds = [];
+
+        foreach ($recipients as $recipient) {
+            $payload = $this->buildBrevoPayload(
+                $from,
+                $recipient->email,
+                $recipient->name,
+                $subject,
+                $this->buildCampaignEmailHtml($campaign, $recipient),
+                $this->brevoCampaignMetadata($campaign, $recipient),
+            );
+
+            try {
+                $response = $this->postToBrevoWithRateLimitRetry($apiKey, $payload);
+
+                if ($this->brevoResponseSucceeded($response)) {
+                    $sentIds[] = $recipient->id;
+                } else {
+                    Log::warning('Brevo campaign recipient failed.', [
+                        'campaign_id' => $campaign->id,
+                        'recipient_id' => $recipient->id,
+                        'status' => $response?->status(),
+                        'body' => $response?->body(),
+                    ]);
+                }
+            } catch (\Throwable $exception) {
+                Log::error('Brevo campaign API exception.', [
+                    'campaign_id' => $campaign->id,
+                    'recipient_id' => $recipient->id,
+                    'message' => $exception->getMessage(),
+                ]);
+            }
+        }
+
+        if ($sentIds !== []) {
+            Log::info('email_campaign.provider.brevo.batch.sent', [
+                'campaign_id' => $campaign->id,
+                'attempted' => count($recipients),
+                'sent_count' => count($sentIds),
+            ]);
+        }
+
+        return [
+            'sent_recipient_ids' => $sentIds,
+            'skipped_recipient_ids' => [],
+            'attempted' => count($recipients),
+        ];
+    }
+
+    /**
+     * @param  array<string, string>  $metadata
+     * @return array<string, mixed>
+     */
+    private function buildBrevoPayload(string $from, string $to, ?string $toName, string $subject, string $html, array $metadata = []): array
+    {
+        $toRecipient = ['email' => $to];
+        $recipientName = trim((string) $toName);
+        if ($recipientName !== '') {
+            $toRecipient['name'] = $recipientName;
+        }
+
+        $payload = [
+            'sender' => [
+                'email' => $this->extractEmailAddress($from),
+                'name' => $this->extractDisplayName($from) ?: 'OnPage CV',
+            ],
+            'to' => [$toRecipient],
+            'subject' => $subject,
+            'htmlContent' => $html,
+        ];
+
+        if ($metadata !== []) {
+            $payload['headers'] = $metadata;
+        }
+
+        return $payload;
+    }
+
+    private function brevoResponseSucceeded(?Response $response): bool
+    {
+        return $response !== null && $response->status() === 201;
+    }
+
+    /**
+     * @param  array<string, mixed>  $payload
+     */
+    private function postToBrevoWithRateLimitRetry(string $apiKey, array $payload, int $attempt = 0): ?Response
+    {
+        $response = Http::withHeaders(['api-key' => $apiKey])
+            ->acceptJson()
+            ->asJson()
+            ->timeout(30)
+            ->connectTimeout(10)
+            ->post('https://api.brevo.com/v3/smtp/email', $payload);
+
+        if ($response->status() !== 429) {
+            return $response;
+        }
+
+        if ($attempt >= 3) {
+            return $response;
+        }
+
+        $retryAfter = max(1, min(30, (int) ($response->header('retry-after') ?? 1)));
+        sleep($retryAfter);
+
+        return $this->postToBrevoWithRateLimitRetry($apiKey, $payload, $attempt + 1);
+    }
+
+    private function brevoApiKey(): string
+    {
+        return (string) config('services.brevo.key', '');
+    }
+
+    /**
+     * @return array<string, string>
+     */
+    private function brevoCampaignMetadata(EmailCampaign $campaign, EmailCampaignRecipient $recipient): array
+    {
+        return [
+            'X-Source' => 'campaign',
+            'X-Campaign-Id' => (string) $campaign->id,
+            'X-Recipient-Id' => (string) $recipient->id,
+            'X-Email-Type' => 'campaign',
+        ];
+    }
+
+    /**
+     * @param  array<int, EmailCampaignRecipient>  $recipients
+     * @return array{sent_recipient_ids: array<int, int>, skipped_recipient_ids: array<int, int>, attempted: int}
+     */
+    private function sendBatchViaLettermint(EmailCampaign $campaign, array $recipients): array
+    {
+        $apiKey = $this->lettermintApiKey();
+        $configuredFrom = (string) config('services.lettermint.from', config('mail.from.address', 'hello@example.com'));
+
+        if ($apiKey === '') {
+            Log::warning('LETTERMINT_API_KEY not configured. Skipping campaign emails.', [
+                'campaign_id' => $campaign->id,
+            ]);
+
+            return [
+                'sent_recipient_ids' => [],
+                'skipped_recipient_ids' => [],
+                'attempted' => count($recipients),
+            ];
+        }
+
+        $from = $this->resolveDynamicFrom($configuredFrom, $campaign->sender_name);
+        $subject = $campaign->prefixedTitleLine();
+        $sentIds = [];
+
+        foreach ($recipients as $recipient) {
+            $payload = $this->buildLettermintPayload(
+                $from,
+                $recipient->email,
+                $subject,
+                $this->buildCampaignEmailHtml($campaign, $recipient),
+                $this->lettermintCampaignMetadata($campaign, $recipient),
+            );
+
+            try {
+                $response = $this->postToLettermintWithRateLimitRetry($apiKey, $payload);
+
+                if ($this->lettermintResponseSucceeded($response)) {
+                    $sentIds[] = $recipient->id;
+                } else {
+                    Log::warning('Lettermint campaign recipient failed.', [
+                        'campaign_id' => $campaign->id,
+                        'recipient_id' => $recipient->id,
+                        'status' => $response?->status(),
+                        'body' => $response?->body(),
+                    ]);
+                }
+            } catch (\Throwable $exception) {
+                Log::error('Lettermint campaign API exception.', [
+                    'campaign_id' => $campaign->id,
+                    'recipient_id' => $recipient->id,
+                    'message' => $exception->getMessage(),
+                ]);
+            }
+        }
+
+        if ($sentIds !== []) {
+            Log::info('email_campaign.provider.lettermint.batch.sent', [
+                'campaign_id' => $campaign->id,
+                'attempted' => count($recipients),
+                'sent_count' => count($sentIds),
+            ]);
+        }
+
+        return [
+            'sent_recipient_ids' => $sentIds,
+            'skipped_recipient_ids' => [],
+            'attempted' => count($recipients),
+        ];
+    }
+
+    /**
+     * @param  array<string, string>  $metadata
+     * @return array<string, mixed>
+     */
+    private function buildLettermintPayload(string $from, string $to, string $subject, string $html, array $metadata = []): array
+    {
+        $payload = [
+            'from' => $from,
+            'to' => [$to],
+            'subject' => $subject,
+            'html' => $html,
+        ];
+
+        if ($metadata !== []) {
+            $payload['metadata'] = $metadata;
+        }
+
+        return $payload;
+    }
+
+    private function lettermintResponseSucceeded(?Response $response): bool
+    {
+        return $response !== null && $response->status() === 202;
+    }
+
+    /**
+     * @param  array<string, mixed>  $payload
+     */
+    private function postToLettermintWithRateLimitRetry(string $apiKey, array $payload, int $attempt = 0): ?Response
+    {
+        $response = Http::withHeaders(['x-lettermint-token' => $apiKey])
+            ->acceptJson()
+            ->asJson()
+            ->timeout(30)
+            ->connectTimeout(10)
+            ->post('https://api.lettermint.co/v1/send', $payload);
+
+        if ($response->status() !== 429) {
+            return $response;
+        }
+
+        if ($attempt >= 3) {
+            return $response;
+        }
+
+        $retryAfter = max(1, min(30, (int) ($response->header('retry-after') ?? 1)));
+        sleep($retryAfter);
+
+        return $this->postToLettermintWithRateLimitRetry($apiKey, $payload, $attempt + 1);
+    }
+
+    private function lettermintApiKey(): string
+    {
+        return (string) config('services.lettermint.key', '');
+    }
+
+    /**
+     * @return array<string, string>
+     */
+    private function lettermintCampaignMetadata(EmailCampaign $campaign, EmailCampaignRecipient $recipient): array
+    {
+        return [
+            'source' => 'campaign',
+            'campaign_id' => (string) $campaign->id,
+            'recipient_id' => (string) $recipient->id,
+            'email_type' => 'campaign',
+        ];
+    }
+
+    /**
+     * @param  array<int, EmailCampaignRecipient>  $recipients
+     * @return array{sent_recipient_ids: array<int, int>, skipped_recipient_ids: array<int, int>, attempted: int}
+     */
+    private function sendBatchViaSweego(EmailCampaign $campaign, array $recipients): array
+    {
+        $apiKey = $this->sweegoApiKey();
+        $configuredFrom = (string) config('services.sweego.from', config('mail.from.address', 'hello@example.com'));
+
+        if ($apiKey === '') {
+            Log::warning('SWEEGO_API_KEY not configured. Skipping campaign emails.', [
+                'campaign_id' => $campaign->id,
+            ]);
+
+            return [
+                'sent_recipient_ids' => [],
+                'skipped_recipient_ids' => [],
+                'attempted' => count($recipients),
+            ];
+        }
+
+        $from = $this->resolveDynamicFrom($configuredFrom, $campaign->sender_name);
+        $subject = $campaign->prefixedTitleLine();
+        $sentIds = [];
+
+        foreach ($recipients as $recipient) {
+            $payload = $this->buildSweegoPayload(
+                $from,
+                $recipient->email,
+                $recipient->name,
+                $subject,
+                $this->buildCampaignEmailHtml($campaign, $recipient),
+                $this->sweegoCampaignMetadata($campaign, $recipient),
+            );
+
+            try {
+                $response = $this->postToSweegoWithRateLimitRetry($apiKey, $payload);
+
+                if ($this->sweegoResponseSucceeded($response)) {
+                    $sentIds[] = $recipient->id;
+                } else {
+                    Log::warning('Sweego campaign recipient failed.', [
+                        'campaign_id' => $campaign->id,
+                        'recipient_id' => $recipient->id,
+                        'status' => $response?->status(),
+                        'body' => $response?->body(),
+                    ]);
+                }
+            } catch (\Throwable $exception) {
+                Log::error('Sweego campaign API exception.', [
+                    'campaign_id' => $campaign->id,
+                    'recipient_id' => $recipient->id,
+                    'message' => $exception->getMessage(),
+                ]);
+            }
+        }
+
+        if ($sentIds !== []) {
+            Log::info('email_campaign.provider.sweego.batch.sent', [
+                'campaign_id' => $campaign->id,
+                'attempted' => count($recipients),
+                'sent_count' => count($sentIds),
+            ]);
+        }
+
+        return [
+            'sent_recipient_ids' => $sentIds,
+            'skipped_recipient_ids' => [],
+            'attempted' => count($recipients),
+        ];
+    }
+
+    /**
+     * @param  array<string, string>  $headers
+     * @return array<string, mixed>
+     */
+    private function buildSweegoPayload(string $from, string $to, ?string $toName, string $subject, string $html, array $headers = []): array
+    {
+        $recipient = ['email' => $to];
+        $recipientName = trim((string) $toName);
+        if ($recipientName !== '') {
+            $recipient['name'] = $recipientName;
+        }
+
+        $payload = [
+            'channel' => 'email',
+            'provider' => 'sweego',
+            'recipients' => [$recipient],
+            'from' => [
+                'email' => $this->extractEmailAddress($from),
+                'name' => $this->extractDisplayName($from) ?: 'OnPage CV',
+            ],
+            'subject' => $subject,
+            'message-html' => $html,
+        ];
+
+        if ($headers !== []) {
+            $payload['headers'] = $headers;
+        }
+
+        return $payload;
+    }
+
+    private function sweegoResponseSucceeded(?Response $response): bool
+    {
+        return $response !== null && $response->successful();
+    }
+
+    /**
+     * @param  array<string, mixed>  $payload
+     */
+    private function postToSweegoWithRateLimitRetry(string $apiKey, array $payload, int $attempt = 0): ?Response
+    {
+        $response = Http::withHeaders(['Api-Key' => $apiKey])
+            ->acceptJson()
+            ->asJson()
+            ->timeout(30)
+            ->connectTimeout(10)
+            ->post('https://api.sweego.io/send', $payload);
+
+        if ($response->status() !== 429) {
+            return $response;
+        }
+
+        if ($attempt >= 3) {
+            return $response;
+        }
+
+        $retryAfter = max(1, min(30, (int) ($response->header('retry-after') ?? 1)));
+        sleep($retryAfter);
+
+        return $this->postToSweegoWithRateLimitRetry($apiKey, $payload, $attempt + 1);
+    }
+
+    private function sweegoApiKey(): string
+    {
+        return (string) config('services.sweego.key', '');
+    }
+
+    /**
+     * @return array<string, string>
+     */
+    private function sweegoCampaignMetadata(EmailCampaign $campaign, EmailCampaignRecipient $recipient): array
+    {
+        return [
+            'X-Source' => 'campaign',
+            'X-Campaign-Id' => (string) $campaign->id,
+            'X-Recipient-Id' => (string) $recipient->id,
+            'X-Email-Type' => 'campaign',
+        ];
+    }
+
+    /**
+     * @param  array<int, EmailCampaignRecipient>  $recipients
+     * @return array{sent_recipient_ids: array<int, int>, skipped_recipient_ids: array<int, int>, attempted: int}
+     */
+    private function sendBatchViaScaleway(EmailCampaign $campaign, array $recipients): array
+    {
+        if (! $this->scalewayConfigured()) {
+            Log::warning('Scaleway TEM not configured. Skipping campaign emails.', [
+                'campaign_id' => $campaign->id,
+            ]);
+
+            return [
+                'sent_recipient_ids' => [],
+                'skipped_recipient_ids' => [],
+                'attempted' => count($recipients),
+            ];
+        }
+
+        $configuredFrom = (string) config('services.scaleway.from', config('mail.from.address', 'hello@example.com'));
+        $from = $this->resolveDynamicFrom($configuredFrom, $campaign->sender_name);
+        $subject = $campaign->prefixedTitleLine();
+        $sentIds = [];
+
+        foreach ($recipients as $recipient) {
+            $payload = $this->buildScalewayPayload(
+                $from,
+                $recipient->email,
+                $recipient->name,
+                $subject,
+                $this->buildCampaignEmailHtml($campaign, $recipient),
+                $this->scalewayCampaignMetadata($campaign, $recipient),
+            );
+
+            try {
+                $response = $this->postToScalewayWithRateLimitRetry($payload);
+
+                if ($this->scalewayResponseSucceeded($response)) {
+                    $sentIds[] = $recipient->id;
+                } else {
+                    Log::warning('Scaleway campaign recipient failed.', [
+                        'campaign_id' => $campaign->id,
+                        'recipient_id' => $recipient->id,
+                        'status' => $response?->status(),
+                        'body' => $response?->body(),
+                    ]);
+                }
+            } catch (\Throwable $exception) {
+                Log::error('Scaleway campaign API exception.', [
+                    'campaign_id' => $campaign->id,
+                    'recipient_id' => $recipient->id,
+                    'message' => $exception->getMessage(),
+                ]);
+            }
+        }
+
+        if ($sentIds !== []) {
+            Log::info('email_campaign.provider.scaleway.batch.sent', [
+                'campaign_id' => $campaign->id,
+                'attempted' => count($recipients),
+                'sent_count' => count($sentIds),
+            ]);
+        }
+
+        return [
+            'sent_recipient_ids' => $sentIds,
+            'skipped_recipient_ids' => [],
+            'attempted' => count($recipients),
+        ];
+    }
+
+    /**
+     * @param  array<string, string>  $metadata
+     * @return array<string, mixed>
+     */
+    private function buildScalewayPayload(string $from, string $to, ?string $toName, string $subject, string $html, array $metadata = []): array
+    {
+        $toRecipient = ['email' => $to];
+        $recipientName = trim((string) $toName);
+        if ($recipientName !== '') {
+            $toRecipient['name'] = $recipientName;
+        }
+
+        $payload = [
+            'from' => [
+                'email' => $this->extractEmailAddress($from),
+                'name' => $this->extractDisplayName($from) ?: 'OnPage CV',
+            ],
+            'to' => [$toRecipient],
+            'subject' => $subject,
+            'html' => $html,
+            'project_id' => (string) config('services.scaleway.project_id', ''),
+        ];
+
+        if ($metadata !== []) {
+            $payload['additional_headers'] = collect($metadata)
+                ->map(fn (string $value, string $key): array => ['key' => $key, 'value' => $value])
+                ->values()
+                ->all();
+        }
+
+        return $payload;
+    }
+
+    private function scalewayResponseSucceeded(?Response $response): bool
+    {
+        return $response !== null && $response->successful();
+    }
+
+    /**
+     * @param  array<string, mixed>  $payload
+     */
+    private function postToScalewayWithRateLimitRetry(array $payload, int $attempt = 0): ?Response
+    {
+        $apiKey = (string) config('services.scaleway.key', '');
+        $region = (string) config('services.scaleway.region', 'fr-par');
+
+        $response = Http::withHeaders(['X-Auth-Token' => $apiKey])
+            ->acceptJson()
+            ->asJson()
+            ->timeout(30)
+            ->connectTimeout(10)
+            ->post("https://api.scaleway.com/transactional-email/v1alpha1/regions/{$region}/emails", $payload);
+
+        if ($response->status() !== 429) {
+            return $response;
+        }
+
+        if ($attempt >= 3) {
+            return $response;
+        }
+
+        $retryAfter = max(1, min(30, (int) ($response->header('retry-after') ?? 1)));
+        sleep($retryAfter);
+
+        return $this->postToScalewayWithRateLimitRetry($payload, $attempt + 1);
+    }
+
+    private function scalewayConfigured(): bool
+    {
+        return trim((string) config('services.scaleway.key', '')) !== ''
+            && trim((string) config('services.scaleway.project_id', '')) !== '';
+    }
+
+    /**
+     * @return array<string, string>
+     */
+    private function scalewayCampaignMetadata(EmailCampaign $campaign, EmailCampaignRecipient $recipient): array
+    {
+        return [
+            'X-Source' => 'campaign',
+            'X-Campaign-Id' => (string) $campaign->id,
+            'X-Recipient-Id' => (string) $recipient->id,
+            'X-Email-Type' => 'campaign',
+        ];
+    }
+
+    /**
+     * @param  array<int, EmailCampaignRecipient>  $recipients
+     * @return array{sent_recipient_ids: array<int, int>, skipped_recipient_ids: array<int, int>, attempted: int}
+     */
     private function sendBatchViaSmtp(EmailCampaign $campaign, User $owner, array $recipients): array
     {
         $smtpConfig = $this->resolveSmtpTransportConfigFromUser($owner);
@@ -934,7 +1536,7 @@ class EmailCampaignDeliveryService
 
         $provider = strtolower(trim((string) config('services.email.primary', 'postmark')));
 
-        return in_array($provider, ['resend', 'postmark', 'elastic', 'elasticemail', 'zeptomail', 'sendgrid', 'ses_smtp', 'smtp'], true)
+        return in_array($provider, ['resend', 'postmark', 'elastic', 'elasticemail', 'zeptomail', 'sendgrid', 'brevo', 'lettermint', 'sweego', 'scaleway', 'ses_smtp', 'smtp'], true)
             ? $this->normalizeEmailProvider($provider)
             : 'postmark';
     }
@@ -946,7 +1548,7 @@ class EmailCampaignDeliveryService
             return null;
         }
 
-        return in_array($provider, ['resend', 'postmark', 'elastic', 'elasticemail', 'zeptomail', 'sendgrid', 'ses_smtp', 'smtp'], true)
+        return in_array($provider, ['resend', 'postmark', 'elastic', 'elasticemail', 'zeptomail', 'sendgrid', 'brevo', 'lettermint', 'sweego', 'scaleway', 'ses_smtp', 'smtp'], true)
             ? $this->normalizeEmailProvider($provider)
             : null;
     }

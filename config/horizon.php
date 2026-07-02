@@ -239,10 +239,10 @@ return [
             'connection' => 'redis',
             'queue' => ['ai-ingest'],
             'balance' => 'simple',
-            'maxProcesses' => 2,
+            'maxProcesses' => 1,
             'maxTime' => 0,
             'maxJobs' => 0,
-            'memory' => 512,
+            'memory' => 384,
             'tries' => 2,
             'timeout' => 900,
             'nice' => 0,
@@ -251,7 +251,7 @@ return [
             'connection' => 'redis',
             'queue' => ['ai-chat'],
             'balance' => 'simple',
-            'maxProcesses' => 2,
+            'maxProcesses' => 1,
             'maxTime' => 0,
             'maxJobs' => 0,
             'memory' => 256,
@@ -275,12 +275,12 @@ return [
             'connection' => 'redis',
             'queue' => ['ai-video-compose'],
             'balance' => 'simple',
-            'maxProcesses' => 4,   // ✅ allow up to 4 parallel jobs
-            'minProcesses' => 2,   // ✅ keep at least 2 always running
+            'maxProcesses' => 2,
+            'minProcesses' => 1,
             'maxTime' => 0,
             'maxJobs' => 0,
-            'memory' => 1024,      // ⚠️ increase for FFmpeg safety
-            'tries' => 3,          // ✅ avoid job loss
+            'memory' => 768,
+            'tries' => 3,
             'timeout' => 7200,
             'nice' => 0,
         ],
@@ -289,7 +289,7 @@ return [
     'environments' => [
         'production' => [
             'supervisor-1' => [
-                'maxProcesses' => 2,
+                'maxProcesses' => 1,
                 'balanceMaxShift' => 1,
                 'balanceCooldown' => 3,
             ],
@@ -300,16 +300,17 @@ return [
                 'maxProcesses' => 1,
             ],
             'ai-ingest-supervisor' => [
-                'maxProcesses' => 2,
+                'maxProcesses' => 1,
             ],
             'ai-chat-supervisor' => [
-                'maxProcesses' => 2,
+                'maxProcesses' => 1,
             ],
             'apollo-fetch-supervisor' => [
                 'maxProcesses' => 1,
             ],
             'ai-video-compose-supervisor' => [
-                'maxProcesses' => 4,
+                'maxProcesses' => 2,
+                'minProcesses' => 1,
             ],
         ],
 

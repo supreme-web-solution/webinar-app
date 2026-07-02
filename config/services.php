@@ -58,6 +58,28 @@ return [
         'from' => env('SENDGRID_FROM', env('MAIL_FROM_ADDRESS', 'hello@example.com')),
     ],
 
+    'brevo' => [
+        'key' => env('BREVO_API_KEY'),
+        'from' => env('BREVO_FROM', env('MAIL_FROM_ADDRESS', 'hello@example.com')),
+    ],
+
+    'lettermint' => [
+        'key' => env('LETTERMINT_API_KEY'),
+        'from' => env('LETTERMINT_FROM', env('MAIL_FROM_ADDRESS', 'hello@example.com')),
+    ],
+
+    'sweego' => [
+        'key' => env('SWEEGO_API_KEY'),
+        'from' => env('SWEEGO_FROM', env('MAIL_FROM_ADDRESS', 'hello@example.com')),
+    ],
+
+    'scaleway' => [
+        'key' => env('SCALEWAY_SECRET_KEY'),
+        'project_id' => env('SCALEWAY_PROJECT_ID'),
+        'region' => env('SCALEWAY_TEM_REGION', 'fr-par'),
+        'from' => env('SCALEWAY_TEM_FROM', env('MAIL_FROM_ADDRESS', 'hello@example.com')),
+    ],
+
     'ses' => [
         'key' => env('AWS_ACCESS_KEY_ID'),
         'secret' => env('AWS_SECRET_ACCESS_KEY'),

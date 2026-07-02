@@ -239,6 +239,10 @@ class GenerateWebinarAiReplyJob implements ShouldQueue
             'elastic', 'elasticemail' => (string) config('services.elastic.from', ''),
             'zeptomail' => (string) config('services.zeptomail.from', ''),
             'sendgrid' => (string) config('services.sendgrid.from', ''),
+            'brevo' => (string) config('services.brevo.from', ''),
+            'lettermint' => (string) config('services.lettermint.from', ''),
+            'sweego' => (string) config('services.sweego.from', ''),
+            'scaleway' => (string) config('services.scaleway.from', ''),
             (string) config('services.email.ses_smtp_mailer', 'ses') => (string) config('services.email.ses_smtp_from_address', ''),
             default => '',
         };
