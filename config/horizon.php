@@ -184,101 +184,67 @@ return [
     |
     */
 
-    'memory_limit' => 256,
+    // Horizon master process only — keep low on small VPSes.
+    'memory_limit' => 128,
 
     /*
     |--------------------------------------------------------------------------
     | Queue Worker Configuration
     |--------------------------------------------------------------------------
     |
-    | Here you may define the queue worker settings used by your application
-    | in all environments. These supervisors and settings handle all your
-    | queued jobs and will be provisioned by Horizon during deployment.
+    | Tuned for a ~4GB VPS: group queues by resource profile (not feature),
+    | keep max workers low, and recycle workers to limit memory growth.
+    | Job onQueue() names stay the same — only supervisors are consolidated.
     |
     */
 
     'defaults' => [
-        'supervisor-1' => [
+        // Short / latency-sensitive work
+        'interactive' => [
             'connection' => 'redis',
-            'queue' => ['default'],
+            'queue' => ['default', 'emails', 'apollo-fetch'],
             'balance' => 'auto',
             'autoScalingStrategy' => 'time',
-            'maxProcesses' => 1,
-            'maxTime' => 0,
-            'maxJobs' => 0,
-            'memory' => 128,
-            'tries' => 1,
-            'timeout' => 60,
-            'nice' => 0,
-        ],
-        'emails-supervisor' => [
-            'connection' => 'redis',
-            'queue' => ['emails'],
-            'balance' => 'simple',
-            'maxProcesses' => 1,
-            'maxTime' => 0,
-            'maxJobs' => 0,
+            'minProcesses' => 1,
+            'maxProcesses' => 2,
+            'balanceMaxShift' => 1,
+            'balanceCooldown' => 3,
+            'maxTime' => 3600,
+            'maxJobs' => 250,
             'memory' => 128,
             'tries' => 3,
             'timeout' => 120,
             'nice' => 0,
         ],
-        'ai-transcript-supervisor' => [
+
+        // AI work that is heavier than email but lighter than FFmpeg
+        'ai' => [
             'connection' => 'redis',
-            'queue' => ['ai-transcript'],
-            'balance' => 'simple',
-            'maxProcesses' => 1,
-            'maxTime' => 0,
-            'maxJobs' => 0,
-            'memory' => 256,
-            'tries' => 1,
+            // Prefer chat first so interactive AI isn't starved by long ingest/transcript jobs.
+            'queue' => ['ai-chat', 'ai-ingest', 'ai-transcript'],
+            'balance' => 'auto',
+            'autoScalingStrategy' => 'time',
+            'minProcesses' => 1,
+            'maxProcesses' => 2,
+            'balanceMaxShift' => 1,
+            'balanceCooldown' => 3,
+            'maxTime' => 3600,
+            'maxJobs' => 50,
+            'memory' => 384,
+            'tries' => 3,
             'timeout' => 3600,
             'nice' => 0,
         ],
-        'ai-ingest-supervisor' => [
-            'connection' => 'redis',
-            'queue' => ['ai-ingest'],
-            'balance' => 'simple',
-            'maxProcesses' => 1,
-            'maxTime' => 0,
-            'maxJobs' => 0,
-            'memory' => 384,
-            'tries' => 2,
-            'timeout' => 900,
-            'nice' => 0,
-        ],
-        'ai-chat-supervisor' => [
-            'connection' => 'redis',
-            'queue' => ['ai-chat'],
-            'balance' => 'simple',
-            'maxProcesses' => 1,
-            'maxTime' => 0,
-            'maxJobs' => 0,
-            'memory' => 256,
-            'tries' => 2,
-            'timeout' => 180,
-            'nice' => 0,
-        ],
-        'apollo-fetch-supervisor' => [
-            'connection' => 'redis',
-            'queue' => ['apollo-fetch'],
-            'balance' => 'simple',
-            'maxProcesses' => 1,
-            'maxTime' => 0,
-            'maxJobs' => 0,
-            'memory' => 256,
-            'tries' => 3,
-            'timeout' => 120,
-            'nice' => 0,
-        ],
-        'ai-video-compose-supervisor' => [
+
+        // FFmpeg / video compose — one at a time on 4GB
+        'media' => [
             'connection' => 'redis',
             'queue' => ['ai-video-compose'],
             'balance' => 'simple',
-            'maxProcesses' => 2,
             'minProcesses' => 1,
-            'maxTime' => 0,
-            'maxJobs' => 0,
+            'maxProcesses' => 1,
+            'maxTime' => 7200,
+            'maxJobs' => 5,
             'memory' => 768,
             'tries' => 3,
             'timeout' => 7200,
@@ -288,52 +254,25 @@ return [
 
     'environments' => [
         'production' => [
-            'supervisor-1' => [
-                'maxProcesses' => 1,
-                'balanceMaxShift' => 1,
-                'balanceCooldown' => 3,
-            ],
-            'emails-supervisor' => [
-                'maxProcesses' => 1,
-            ],
-            'ai-transcript-supervisor' => [
-                'maxProcesses' => 1,
-            ],
-            'ai-ingest-supervisor' => [
-                'maxProcesses' => 1,
-            ],
-            'ai-chat-supervisor' => [
-                'maxProcesses' => 1,
-            ],
-            'apollo-fetch-supervisor' => [
-                'maxProcesses' => 1,
-            ],
-            'ai-video-compose-supervisor' => [
+            'interactive' => [
                 'maxProcesses' => 2,
-                'minProcesses' => 1,
+            ],
+            'ai' => [
+                'maxProcesses' => 2,
+            ],
+            'media' => [
+                'maxProcesses' => 1,
             ],
         ],
 
         'local' => [
-            'supervisor-1' => [
-                'maxProcesses' => 3,
-            ],
-            'emails-supervisor' => [
+            'interactive' => [
                 'maxProcesses' => 1,
             ],
-            'ai-transcript-supervisor' => [
+            'ai' => [
                 'maxProcesses' => 1,
             ],
-            'ai-ingest-supervisor' => [
-                'maxProcesses' => 1,
-            ],
-            'ai-chat-supervisor' => [
-                'maxProcesses' => 1,
-            ],
-            'apollo-fetch-supervisor' => [
-                'maxProcesses' => 1,
-            ],
-            'ai-video-compose-supervisor' => [
+            'media' => [
                 'maxProcesses' => 1,
             ],
         ],
