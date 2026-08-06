@@ -12,6 +12,11 @@ use Illuminate\Support\Facades\Mail;
 
 class EmailCampaignDeliveryService
 {
+    public function __construct(
+        private readonly EmailRichTextFormatter $emailRichTextFormatter,
+    ) {
+    }
+
     /**
      * @return array{sent_recipient_ids: array<int, int>, skipped_recipient_ids: array<int, int>, attempted: int}
      */
@@ -1639,14 +1644,18 @@ class EmailCampaignDeliveryService
     {
         $trimmed = trim($body);
         if ($trimmed === '') {
-            return '<p style="margin:0;">Thank you for being part of this campaign. Please use the button below.</p>';
+            return '<p style="margin:0;color:#374151;font-size:15px;line-height:1.6;">Thank you for being part of this campaign. Please use the button below.</p>';
         }
 
         if (! str_contains($trimmed, '<')) {
-            return $this->linkifyPlainTextUrlsWithTracking(nl2br(e($trimmed)), $trackLink);
+            $formatted = $this->emailRichTextFormatter->formatPlainTextForEmail($trimmed);
+
+            return $this->linkifyPlainTextUrlsWithTracking($formatted !== '' ? $formatted : nl2br(e($trimmed)), $trackLink);
         }
 
-        return $this->wrapHtmlLinksWithTracking($trimmed, $trackLink);
+        $formatted = $this->emailRichTextFormatter->formatForEmail($trimmed);
+
+        return $this->wrapHtmlLinksWithTracking($formatted, $trackLink);
     }
 
     private function linkifyPlainTextUrlsWithTracking(string $html, string $trackLink): string

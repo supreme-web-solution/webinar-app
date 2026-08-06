@@ -2,7 +2,7 @@
 
 namespace App\Http\Controllers\Admin;
 
-use App\Http\Controllers\Controller;
+use App\Services\EmailRichTextFormatter;
 use App\Http\Requests\EmailCampaign\StoreEmailCampaignRequest;
 use App\Http\Requests\EmailCampaign\UpdateEmailCampaignRequest;
 use App\Jobs\SendEmailCampaignBatchJob;
@@ -247,31 +247,7 @@ class EmailCampaignController extends Controller
 
     private function sanitizeBody(string $body): string
     {
-        $body = trim($body);
-        if ($body === '') {
-            return '';
-        }
-
-        $allowedTags = '<p><br><strong><em><b><i><u><ul><ol><li><a>';
-        $sanitized = strip_tags($body, $allowedTags);
-
-        $sanitized = preg_replace_callback('/<a\b[^>]*>/i', static function (array $matches): string {
-            $tag = $matches[0] ?? '';
-            if (! preg_match('/href\s*=\s*["\']([^"\']+)["\']/i', $tag, $hrefMatch)) {
-                return '<a>';
-            }
-
-            $href = trim((string) ($hrefMatch[1] ?? ''));
-            if (! preg_match('/^https?:\/\//i', $href)) {
-                return '<a>';
-            }
-
-            return '<a href="'.e($href).'" target="_blank" rel="noopener noreferrer">';
-        }, $sanitized) ?? '';
-
-        $sanitized = preg_replace('/<(p|br|strong|em|b|i|u|ul|ol|li)\b[^>]*>/i', '<$1>', $sanitized) ?? '';
-
-        return trim($sanitized);
+        return app(EmailRichTextFormatter::class)->sanitizeForStorage($body);
     }
 
     private function redirectIfBasicsNotReady(EmailCampaign $campaign): ?RedirectResponse
