@@ -11,6 +11,11 @@ use Illuminate\Support\Facades\Mail;
 
 class ResendService
 {
+    public function __construct(
+        private readonly EmailRichTextFormatter $emailRichTextFormatter,
+    ) {
+    }
+
     /**
      * @return array{sent_registrant_ids: array<int, int>, skipped_registrant_ids: array<int, int>, attempted: int}
      */
@@ -2126,26 +2131,12 @@ class ResendService
 
     private function formatDescriptionForEmail(string $description): string
     {
-        $normalized = trim(str_replace(["\r\n", "\r"], "\n", $description));
-        if ($normalized === '') {
+        $formatted = $this->emailRichTextFormatter->formatForEmail($description);
+        if ($formatted === '') {
             return '';
         }
 
-        if (! str_contains($normalized, '<')) {
-            return '<p style="margin: 0 0 12px 0; color: #4b5563; font-size: 14px; line-height: 1.55;">'
-                .nl2br(e($normalized))
-                .'</p>';
-        }
-
-        $html = $normalized;
-        $html = str_ireplace('<p>', '<p style="margin: 0 0 12px 0;">', $html);
-        $html = str_ireplace('<ul>', '<ul style="margin: 0 0 12px 20px; padding: 0;">', $html);
-        $html = str_ireplace('<ol>', '<ol style="margin: 0 0 12px 20px; padding: 0;">', $html);
-        $html = str_ireplace('<li>', '<li style="margin: 0 0 6px 0;">', $html);
-
-        return '<div style="margin: 0 0 12px 0; color: #4b5563; font-size: 14px; line-height: 1.55;">'
-            .$html
-            .'</div>';
+        return '<div style="margin:0 0 12px 0;">'.$formatted.'</div>';
     }
 
     private function formatIntroForEmail(string $intro): string
@@ -2156,84 +2147,23 @@ class ResendService
         }
 
         if ($this->introLooksLikeHtml($trimmed)) {
-            return $this->sanitizeIntroHtml($trimmed);
+            return $this->emailRichTextFormatter->formatForEmail($trimmed);
         }
 
         $escaped = e($trimmed);
         $withLineBreaks = nl2br($escaped);
-
-        return (string) preg_replace_callback(
+        $withLinks = (string) preg_replace_callback(
             '/(https?:\/\/[^\s<]+)/i',
             static fn (array $matches): string => '<a href="'.$matches[1].'" style="color:#2563eb;text-decoration:underline;word-break:break-all;">'.$matches[1].'</a>',
             $withLineBreaks,
         );
+
+        return '<p style="margin:0 0 14px 0;color:#374151;font-size:15px;line-height:1.6;">'.$withLinks.'</p>';
     }
 
     private function introLooksLikeHtml(string $intro): bool
     {
         return (bool) preg_match('/<(p|div|br|ul|ol|li|strong|em|b|i|u|h[1-3]|a|blockquote)\b/i', $intro);
-    }
-
-    private function sanitizeIntroHtml(string $html): string
-    {
-        $allowedTags = '<p><br><strong><b><em><i><u><a><ul><ol><li><h1><h2><h3><blockquote>';
-        $clean = strip_tags($html, $allowedTags);
-        $clean = trim($clean);
-        if ($clean === '') {
-            return '';
-        }
-
-        $wrapped = '<?xml encoding="UTF-8"><div id="__intro_root">'.$clean.'</div>';
-
-        libxml_use_internal_errors(true);
-        $dom = new \DOMDocument;
-        $loaded = $dom->loadHTML($wrapped, LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD);
-        libxml_clear_errors();
-
-        if (! $loaded) {
-            return '';
-        }
-
-        $root = $dom->getElementById('__intro_root');
-        if (! $root) {
-            return '';
-        }
-
-        foreach (iterator_to_array($root->getElementsByTagName('*')) as $el) {
-            if ($el instanceof \DOMElement) {
-                $this->sanitizeIntroDomElement($el);
-            }
-        }
-
-        $out = '';
-        foreach ($root->childNodes as $child) {
-            $out .= $dom->saveHTML($child);
-        }
-
-        return $out;
-    }
-
-    private function sanitizeIntroDomElement(\DOMElement $el): void
-    {
-        $tag = strtolower($el->tagName);
-        $attrs = iterator_to_array($el->attributes);
-        foreach ($attrs as $attr) {
-            $name = strtolower($attr->nodeName);
-            if (str_starts_with($name, 'on')) {
-                $el->removeAttribute($attr->nodeName);
-
-                continue;
-            }
-            if ($tag === 'a' && $name === 'href') {
-                $href = trim($attr->nodeValue);
-                if ($href === '' || ! preg_match('#\Ahttps?://#i', $href)) {
-                    $el->removeAttribute('href');
-                }
-
-                continue;
-            }
-            $el->removeAttribute($attr->nodeName);
-        }
     }
 
     private function postWithRateLimitRetry(string $apiKey, string $endpoint, array $payload, int $attempt = 0): ?Response

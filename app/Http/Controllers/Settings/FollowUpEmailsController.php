@@ -2,7 +2,7 @@
 
 namespace App\Http\Controllers\Settings;
 
-use App\Http\Controllers\Controller;
+use App\Services\EmailRichTextFormatter;
 use App\Http\Requests\Settings\FollowUpEmailsUpdateRequest;
 use Illuminate\Http\RedirectResponse;
 use Inertia\Inertia;
@@ -14,20 +14,7 @@ class FollowUpEmailsController extends Controller
 
     private function normalizeFollowUpBody(string $body): string
     {
-        $trimmed = trim($body);
-        if ($trimmed === '') {
-            return '';
-        }
-
-        if (preg_match('/^(?:\s*<p>\s*(?:<br\s*\/?>\s*)?<\/p>\s*)+$/i', $trimmed)) {
-            return '';
-        }
-
-        if (preg_match('/^(?:\s*<p>\s*<\/p>\s*)+$/i', $trimmed)) {
-            return '';
-        }
-
-        return $trimmed;
+        return app(EmailRichTextFormatter::class)->sanitizeForStorage($body);
     }
 
     public function edit(): Response
