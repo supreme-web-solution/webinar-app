@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\Settings;
 
+use App\Http\Controllers\Controller;
 use App\Services\EmailRichTextFormatter;
 use App\Http\Requests\Settings\FollowUpEmailsUpdateRequest;
 use Illuminate\Http\RedirectResponse;
