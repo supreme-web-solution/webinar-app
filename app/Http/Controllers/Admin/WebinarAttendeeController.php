@@ -8,10 +8,12 @@ use App\Http\Controllers\Controller;
 use App\Models\EmailUnsubscribe;
 use App\Models\Webinar;
 use App\Models\WebinarRegistrant;
+use App\Services\EngagedAudienceExportService;
 use App\Services\Leads\LeadProviderManager;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Symfony\Component\HttpFoundation\StreamedResponse;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Log;
@@ -497,5 +499,12 @@ class WebinarAttendeeController extends Controller
         }
 
         return $chunks->sum(fn ($chunk) => $chunk->count());
+    }
+
+    public function exportClicked(Webinar $webinar, EngagedAudienceExportService $exportService): StreamedResponse
+    {
+        abort_unless($webinar->user_id === Auth::id(), 403);
+
+        return $exportService->exportWebinarClickedRegistrants($webinar);
     }
 }

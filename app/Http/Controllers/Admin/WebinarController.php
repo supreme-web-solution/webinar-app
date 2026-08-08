@@ -9,6 +9,7 @@ use App\Models\Webinar;
 use App\Models\WebinarOffer;
 use App\Models\EmailUnsubscribe;
 use App\Services\EmailRichTextFormatter;
+use App\Services\EngagedAudienceExportService;
 use Illuminate\Http\Request;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Support\Carbon;
@@ -155,6 +156,7 @@ class WebinarController extends Controller
         $attendeesPreviewLimit = 200;
         $subscribedTotal = $webinar->registrants()->where('is_subscribed', true)->count();
         $unsubscribedTotal = $webinar->registrants()->where('is_subscribed', false)->count();
+        $exportService = app(EngagedAudienceExportService::class);
 
         return Inertia::render('webinars/Edit', [
             'webinar' => [
@@ -272,10 +274,12 @@ class WebinarController extends Controller
                 'chat_messages' => $webinar->chatMessages()->count(),
                 'offers' => $webinar->offers()->count(),
                 'cta_clicks' => $webinar->analyticsEvents()->where('event_type', 'offer_cta_clicked')->count(),
+                'clicked_registrants' => $exportService->clickedWebinarRegistrantsQuery($webinar)->count(),
                 'segment_below_50' => $webinar->registrants()->where('engagement_segment', 'below_50')->count(),
                 'segment_above_50' => $webinar->registrants()->where('engagement_segment', 'above_50')->count(),
                 'segment_completed_no_click' => $webinar->registrants()->where('engagement_segment', 'completed_no_click')->count(),
             ],
+            'exportClickedUrl' => route('admin.webinars.attendees.export-clicked', ['webinar' => $webinar->id]),
         ]);
     }
 

@@ -57,6 +57,7 @@ Route::middleware(['auth', 'verified'])->group(function () {
         Route::post('webinars/{webinar}/attendees/unsubscribe-bulk', [WebinarAttendeeController::class, 'moveManyToUnsubscribed'])->name('webinars.attendees.unsubscribe.bulk');
         Route::delete('webinars/{webinar}/attendees/{registrant}', [WebinarAttendeeController::class, 'deleteUnsubscribed'])->name('webinars.attendees.delete');
         Route::post('webinars/{webinar}/attendees/delete-bulk', [WebinarAttendeeController::class, 'deleteManyUnsubscribed'])->name('webinars.attendees.delete.bulk');
+        Route::get('webinars/{webinar}/attendees/export-clicked', [WebinarAttendeeController::class, 'exportClicked'])->name('webinars.attendees.export-clicked');
         Route::post('webinars/{webinar}/notify', [WebinarAttendeeController::class, 'notifyAll'])->name('webinars.notify');
         Route::get('postmark-delivery', [PostmarkDeliveryStatsController::class, 'index'])->name('postmark-delivery.index');
         Route::get('webinars/{webinar}/ai/sources', [WebinarAiKnowledgeController::class, 'indexSources'])->name('webinars.ai.sources.index');
@@ -88,6 +89,7 @@ Route::middleware(['auth', 'verified'])->group(function () {
             Route::post('emails/{campaign}/attendees/unsubscribe-bulk', [EmailCampaignAttendeeController::class, 'moveManyToUnsubscribed'])->name('emails.attendees.unsubscribe.bulk');
             Route::delete('emails/{campaign}/attendees/{recipient}', [EmailCampaignAttendeeController::class, 'deleteUnsubscribed'])->name('emails.attendees.delete');
             Route::post('emails/{campaign}/attendees/delete-bulk', [EmailCampaignAttendeeController::class, 'deleteManyUnsubscribed'])->name('emails.attendees.delete.bulk');
+            Route::get('emails/{campaign}/attendees/export-clicked', [EmailCampaignAttendeeController::class, 'exportClicked'])->name('emails.attendees.export-clicked');
             Route::post('emails/{campaign}/send', [EmailCampaignController::class, 'send'])->name('emails.send');
 
             Route::get('users', [UserManagementController::class, 'index'])->name('users.index');

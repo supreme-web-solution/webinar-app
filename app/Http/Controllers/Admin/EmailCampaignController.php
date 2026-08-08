@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Admin;
 
 use App\Http\Controllers\Controller;
 use App\Services\EmailRichTextFormatter;
+use App\Services\EngagedAudienceExportService;
 use App\Http\Requests\EmailCampaign\StoreEmailCampaignRequest;
 use App\Http\Requests\EmailCampaign\UpdateEmailCampaignRequest;
 use App\Jobs\SendEmailCampaignBatchJob;
@@ -97,6 +98,7 @@ class EmailCampaignController extends Controller
         $attendeesPreviewLimit = 200;
         $subscribedTotal = $campaign->recipients()->where('is_subscribed', true)->count();
         $unsubscribedTotal = $campaign->recipients()->where('is_subscribed', false)->count();
+        $exportService = app(EngagedAudienceExportService::class);
 
         return Inertia::render('emails/Edit', [
             'campaign' => [
@@ -159,7 +161,9 @@ class EmailCampaignController extends Controller
                 'recipients' => $campaign->recipients()->count(),
                 'sent_recipients' => $campaign->recipients()->where('send_count', '>', 0)->count(),
                 'clicks' => $campaign->clicks()->count(),
+                'clicked_recipients' => $exportService->clickedCampaignRecipientsQuery($campaign)->count(),
             ],
+            'exportClickedUrl' => route('admin.emails.attendees.export-clicked', ['campaign' => $campaign->id]),
             'basics_ready' => $campaign->isReadyToSend(),
             'missing_basics' => $campaign->missingBasicsFields(),
         ]);

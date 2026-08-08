@@ -2,6 +2,7 @@
 import { Head } from '@inertiajs/vue3';
 import { computed, ref } from 'vue';
 import WebinarWizardForm from '@/components/webinars/WebinarWizardForm.vue';
+import { Button } from '@/components/ui/button';
 import AppLayout from '@/layouts/AppLayout.vue';
 import type { BreadcrumbItem } from '@/types';
 
@@ -71,6 +72,7 @@ type Stats = {
     chat_messages: number;
     offers: number;
     cta_clicks: number;
+    clicked_registrants: number;
     segment_below_50: number;
     segment_above_50: number;
     segment_completed_no_click: number;
@@ -79,6 +81,7 @@ type Stats = {
 const props = defineProps<{
     webinar: WebinarPayload;
     stats: Stats;
+    exportClickedUrl: string;
     aiSourceUrls: {
         index: string | null;
         url: string | null;
@@ -261,6 +264,16 @@ const copyLink = async (value: string, label: string): Promise<void> => {
                             </span>
                         </p>
                         <p class="font-semibold">{{ stats.cta_clicks }}</p>
+                        <p class="text-xs text-muted-foreground">{{ stats.clicked_registrants }} unique clickers</p>
+                        <Button
+                            as-child
+                            variant="outline"
+                            size="sm"
+                            class="mt-2 h-7 px-2 text-xs"
+                            :disabled="stats.clicked_registrants === 0"
+                        >
+                            <a :href="exportClickedUrl">Export clicked emails</a>
+                        </Button>
                     </div>
                     <div class="rounded-md border px-3 py-2 relative group">
                         <p class="text-muted-foreground flex items-center gap-1">

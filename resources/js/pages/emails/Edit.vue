@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { Head } from '@inertiajs/vue3';
 import EmailCampaignForm from '@/components/emails/EmailCampaignForm.vue';
+import { Button } from '@/components/ui/button';
 import AppLayout from '@/layouts/AppLayout.vue';
 import type { BreadcrumbItem } from '@/types';
 
@@ -50,7 +51,9 @@ const props = defineProps<{
         recipients: number;
         sent_recipients: number;
         clicks: number;
+        clicked_recipients: number;
     };
+    exportClickedUrl: string;
 }>();
 
 const breadcrumbs: BreadcrumbItem[] = [
@@ -108,6 +111,16 @@ const breadcrumbs: BreadcrumbItem[] = [
                             </span>
                         </p>
                         <p class="font-semibold">{{ stats.clicks }}</p>
+                        <p class="text-xs text-muted-foreground">{{ stats.clicked_recipients }} unique clickers</p>
+                        <Button
+                            as-child
+                            variant="outline"
+                            size="sm"
+                            class="mt-2 h-7 px-2 text-xs"
+                            :disabled="stats.clicked_recipients === 0"
+                        >
+                            <a :href="exportClickedUrl">Export clicked emails</a>
+                        </Button>
                     </div>
                 </div>
             </div>

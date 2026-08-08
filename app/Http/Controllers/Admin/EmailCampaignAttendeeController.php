@@ -7,8 +7,10 @@ use App\Jobs\SendEmailCampaignBatchJob;
 use App\Models\EmailCampaign;
 use App\Models\EmailCampaignRecipient;
 use App\Models\EmailCampaignUnsubscribe;
+use App\Services\EngagedAudienceExportService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Symfony\Component\HttpFoundation\StreamedResponse;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Log;
@@ -359,5 +361,12 @@ class EmailCampaignAttendeeController extends Controller
         }
 
         return $chunks->sum(fn ($chunk) => $chunk->count());
+    }
+
+    public function exportClicked(EmailCampaign $campaign, EngagedAudienceExportService $exportService): StreamedResponse
+    {
+        abort_unless($campaign->user_id === Auth::id(), 403);
+
+        return $exportService->exportCampaignClickedRecipients($campaign);
     }
 }
