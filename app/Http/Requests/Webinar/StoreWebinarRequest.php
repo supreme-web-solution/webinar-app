@@ -2,6 +2,7 @@
 
 namespace App\Http\Requests\Webinar;
 
+use App\Rules\PersonDisplayName;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
 
@@ -26,7 +27,7 @@ class StoreWebinarRequest extends FormRequest
             'title' => ['required', 'string', 'max:255'],
             'title_prefix' => ['nullable', 'string', 'max:255'],
             'schedule_mode' => ['required', Rule::in(['auto', 'scheduled'])],
-            'host_name' => ['required', 'string', 'max:255'],
+            'host_name' => ['required', 'string', 'max:255', new PersonDisplayName],
             'description' => ['nullable', 'string'],
             'scheduled_at' => ['nullable', 'required_if:schedule_mode,scheduled', 'date_format:Y-m-d\\TH:i'],
             'scheduled_timezone' => ['nullable', 'required_if:schedule_mode,scheduled', 'string', 'timezone:all'],

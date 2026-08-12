@@ -16,14 +16,14 @@ class EmailRichTextFormatterTest extends TestCase
 {
     use RefreshDatabase;
 
-    public function test_it_removes_quill_empty_paragraphs(): void
+    public function test_it_preserves_blank_line_spacing_in_email_output(): void
     {
         $formatter = app(EmailRichTextFormatter::class);
 
         $input = '<p><strong>Hey there,</strong></p><p><br></p><p>Can you imagine what it feels like?</p>';
         $output = $formatter->formatForEmail($input);
 
-        $this->assertStringNotContainsString('<p><br></p>', $output);
+        $this->assertStringContainsString('font-size:1px;line-height:14px', $output);
         $this->assertStringContainsString('<strong', $output);
         $this->assertStringContainsString('Hey there,', $output);
         $this->assertStringContainsString('Can you imagine what it feels like?', $output);
@@ -39,13 +39,24 @@ class EmailRichTextFormatterTest extends TestCase
         $this->assertStringContainsString('<em style="font-style:italic;">Line two</em>', $output);
     }
 
-    public function test_it_sanitizes_storage_html_and_strips_empty_quill_blocks(): void
+    public function test_it_preserves_blank_lines_in_storage_html(): void
     {
         $formatter = app(EmailRichTextFormatter::class);
 
         $output = $formatter->sanitizeForStorage('<p>Hello</p><p><br></p><p><a href="javascript:alert(1)">Bad</a></p>');
 
-        $this->assertSame('<p>Hello</p><p><a>Bad</a></p>', $output);
+        $this->assertSame('<p>Hello</p><p><br></p><p><a>Bad</a></p>', $output);
+    }
+
+    public function test_plain_text_blank_lines_render_as_email_spacers(): void
+    {
+        $formatter = app(EmailRichTextFormatter::class);
+
+        $output = $formatter->formatPlainTextForEmail("Line one\n\nLine two");
+
+        $this->assertStringContainsString('Line one', $output);
+        $this->assertStringContainsString('Line two', $output);
+        $this->assertStringContainsString('font-size:1px;line-height:14px', $output);
     }
 
     public function test_campaign_email_body_receives_inline_styles(): void
@@ -78,7 +89,7 @@ class EmailRichTextFormatterTest extends TestCase
 
         $this->assertStringContainsString('style="color:#2563eb;text-decoration:underline;word-break:break-word;"', $html);
         $this->assertStringContainsString('style="font-weight:700;"', $html);
-        $this->assertStringNotContainsString('<p><br></p>', $html);
+        $this->assertStringContainsString('font-size:1px;line-height:14px', $html);
     }
 
     public function test_resend_service_formats_webinar_description_for_email(): void
@@ -92,8 +103,23 @@ class EmailRichTextFormatterTest extends TestCase
         );
 
         $this->assertStringContainsString('style="font-weight:700;"', $html);
-        $this->assertStringNotContainsString('<p><br></p>', $html);
+        $this->assertStringContainsString('font-size:1px;line-height:14px', $html);
         $this->assertStringContainsString('Intro', $html);
         $this->assertStringContainsString('Bold line', $html);
+    }
+
+    public function test_resend_service_formats_plain_text_intro_with_blank_lines(): void
+    {
+        $method = new \ReflectionMethod(ResendService::class, 'formatIntroForEmail');
+        $method->setAccessible(true);
+
+        $html = $method->invoke(
+            app(ResendService::class),
+            "First paragraph\n\nSecond paragraph",
+        );
+
+        $this->assertStringContainsString('First paragraph', $html);
+        $this->assertStringContainsString('Second paragraph', $html);
+        $this->assertStringContainsString('font-size:1px;line-height:14px', $html);
     }
 }

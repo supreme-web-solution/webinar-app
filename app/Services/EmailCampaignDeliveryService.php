@@ -1463,7 +1463,7 @@ class EmailCampaignDeliveryService
             ? (string) ($smtpConfig['from_name'] ?? config('mail.from.name'))
             : (string) config('services.email.ses_smtp_from_name', config('mail.from.name'));
         $dynamicFromName = trim($campaign->sender_name) !== ''
-            ? trim($campaign->sender_name).' via '.$fromName
+            ? trim($campaign->sender_name)
             : $fromName;
 
         $sentIds = [];
@@ -1712,11 +1712,10 @@ class EmailCampaignDeliveryService
     private function resolveDynamicFrom(string $configuredFrom, string $senderName): string
     {
         $email = $this->extractEmailAddress($configuredFrom);
-        $baseName = $this->extractDisplayName($configuredFrom) ?: 'OnPage CV';
-        $sender = trim($senderName) !== '' ? trim($senderName) : 'Sender';
-        $dynamicName = "{$sender} via {$baseName}";
+        $fallbackName = $this->extractDisplayName($configuredFrom) ?: 'Sender';
+        $name = trim($senderName) !== '' ? trim($senderName) : $fallbackName;
 
-        return "{$dynamicName} <{$email}>";
+        return "{$name} <{$email}>";
     }
 
     private function extractEmailAddress(string $from): string

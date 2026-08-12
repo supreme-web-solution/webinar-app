@@ -6,6 +6,10 @@ class EmailRichTextFormatter
 {
     private const ALLOWED_TAGS = '<p><br><strong><b><em><i><u><ul><ol><li><a><h1><h2><h3><blockquote>';
 
+    private const PARAGRAPH_STYLE = 'margin:0 0 14px 0;color:#374151;font-size:15px;line-height:1.6;';
+
+    private const SPACER_STYLE = 'margin:0 0 14px 0;font-size:1px;line-height:14px;color:transparent;';
+
     /**
      * Sanitize editor HTML before storing in the database.
      */
@@ -56,25 +60,40 @@ class EmailRichTextFormatter
             return '';
         }
 
-        $paragraphs = preg_split("/\n{2,}/", $text) ?: [];
-        $chunks = [];
+        $lines = explode("\n", $text);
+        $html = '';
+        $buffer = [];
 
-        foreach ($paragraphs as $paragraph) {
-            $paragraph = trim($paragraph);
-            if ($paragraph === '') {
+        $flushBuffer = function () use (&$buffer, &$html): void {
+            if ($buffer === []) {
+                return;
+            }
+
+            $paragraph = implode("\n", $buffer);
+            $html .= '<p style="'.self::PARAGRAPH_STYLE.'">'
+                .nl2br(e($paragraph))
+                .'</p>';
+            $buffer = [];
+        };
+
+        foreach ($lines as $line) {
+            if (trim($line) === '') {
+                $flushBuffer();
+                $html .= '<p style="'.self::SPACER_STYLE.'">&nbsp;</p>';
+
                 continue;
             }
 
-            $chunks[] = '<p style="margin:0 0 14px 0;color:#374151;font-size:15px;line-height:1.6;">'
-                .nl2br(e($paragraph))
-                .'</p>';
+            $buffer[] = $line;
         }
 
-        return implode('', $chunks);
+        $flushBuffer();
+
+        return $html;
     }
 
     /**
-     * Remove Quill empty blocks and extra spacing artifacts.
+     * Normalize Quill spacing artifacts while preserving intentional blank lines.
      */
     public function normalizeQuillHtml(string $html): string
     {
@@ -83,8 +102,8 @@ class EmailRichTextFormatter
             return '';
         }
 
-        $html = preg_replace('/<p>\s*(?:&nbsp;|&#160;|&#xA0;)?\s*(?:<br\s*\/?>)?\s*<\/p>/i', '', $html) ?? $html;
-        $html = preg_replace('/<p>\s*<\/p>/i', '', $html) ?? $html;
+        $html = preg_replace('/<p>\s*(?:&nbsp;|&#160;|&#xA0;)?\s*(?:<br\s*\/?>)?\s*<\/p>/i', '<p><br></p>', $html) ?? $html;
+        $html = preg_replace('/<p>\s*<\/p>/i', '<p><br></p>', $html) ?? $html;
         $html = preg_replace('/(?:<br\s*\/?>\s*){3,}/i', '<br><br>', $html) ?? $html;
 
         return trim($html);
@@ -164,8 +183,18 @@ class EmailRichTextFormatter
             $element->removeAttribute($attr->nodeName);
         }
 
+        if ($tag === 'p' && $this->paragraphIsBlank($element)) {
+            $element->setAttribute('style', self::SPACER_STYLE);
+            while ($element->firstChild !== null) {
+                $element->removeChild($element->firstChild);
+            }
+            $element->appendChild($element->ownerDocument->createTextNode("\xc2\xa0"));
+
+            return;
+        }
+
         $style = match ($tag) {
-            'p' => 'margin:0 0 14px 0;color:#374151;font-size:15px;line-height:1.6;',
+            'p' => self::PARAGRAPH_STYLE,
             'h1' => 'margin:0 0 14px 0;color:#111827;font-size:22px;line-height:1.3;font-weight:700;',
             'h2' => 'margin:0 0 12px 0;color:#111827;font-size:20px;line-height:1.35;font-weight:700;',
             'h3' => 'margin:0 0 10px 0;color:#111827;font-size:18px;line-height:1.4;font-weight:700;',
@@ -183,5 +212,13 @@ class EmailRichTextFormatter
         if ($style !== null) {
             $element->setAttribute('style', $style);
         }
+    }
+
+    private function paragraphIsBlank(\DOMElement $element): bool
+    {
+        $text = html_entity_decode($element->textContent ?? '', ENT_QUOTES | ENT_HTML5, 'UTF-8');
+        $text = str_replace(["\xc2\xa0", "\u{00A0}"], '', $text);
+
+        return trim($text) === '';
     }
 }

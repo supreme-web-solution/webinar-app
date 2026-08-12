@@ -1595,7 +1595,8 @@ const stepMeta: Array<{ icon: string; color: string }> = [
                 <div class="grid gap-2 md:grid-cols-2 md:gap-4">
                     <div class="grid gap-2">
                         <Label for="host_name">{{ markRequired('Host Name') }}</Label>
-                        <Input id="host_name" v-model="form.host_name" required />
+                        <Input id="host_name" v-model="form.host_name" required placeholder="John Smith or Domain Profits Team" />
+                        <p class="text-xs text-muted-foreground">Use a person or brand name only — not an email address or URL.</p>
                         <InputError :message="form.errors.host_name" />
                     </div>
                     <div class="grid gap-2">

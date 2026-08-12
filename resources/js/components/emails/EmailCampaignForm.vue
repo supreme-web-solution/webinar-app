@@ -574,9 +574,10 @@ const deleteCampaign = (): void => {
 
                     <div class="grid gap-2 md:grid-cols-2 md:gap-4">
                         <div class="grid gap-2">
-                            <Label for="sender_name">{{ markRequired('Sender Name') }}</Label>
-                            <Input id="sender_name" v-model="form.sender_name" required placeholder="Your name or brand" />
-                            <InputError :message="form.errors.sender_name" />
+                        <Label for="sender_name">{{ markRequired('Sender Name') }}</Label>
+                        <Input id="sender_name" v-model="form.sender_name" required placeholder="John Smith or Domain Profits Team" />
+                        <p class="text-xs text-muted-foreground">Use a person or brand name only — not an email address or URL.</p>
+                        <InputError :message="form.errors.sender_name" />
                         </div>
                         <div class="grid gap-2">
                             <Label for="cta_label">{{ markRequired('CTA Label') }}</Label>

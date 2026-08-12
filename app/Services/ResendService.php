@@ -1984,7 +1984,7 @@ class ResendService
         $fromName = $usingUserSmtp
             ? (string) ($smtpConfig['from_name'] ?? config('mail.from.name'))
             : (string) config('services.email.ses_smtp_from_name', config('mail.from.name'));
-        $dynamicFromName = trim($webinar->host_name) !== '' ? trim($webinar->host_name).' via '.$fromName : $fromName;
+        $dynamicFromName = trim($webinar->host_name) !== '' ? trim($webinar->host_name) : $fromName;
         $html = $this->buildWebinarEmailHtml($webinar, $registrant, $intro);
 
         try {
@@ -2150,15 +2150,16 @@ class ResendService
             return $this->emailRichTextFormatter->formatForEmail($trimmed);
         }
 
-        $escaped = e($trimmed);
-        $withLineBreaks = nl2br($escaped);
-        $withLinks = (string) preg_replace_callback(
+        $formatted = $this->emailRichTextFormatter->formatPlainTextForEmail($trimmed);
+        if ($formatted === '') {
+            return '';
+        }
+
+        return (string) preg_replace_callback(
             '/(https?:\/\/[^\s<]+)/i',
             static fn (array $matches): string => '<a href="'.$matches[1].'" style="color:#2563eb;text-decoration:underline;word-break:break-all;">'.$matches[1].'</a>',
-            $withLineBreaks,
+            $formatted,
         );
-
-        return '<p style="margin:0 0 14px 0;color:#374151;font-size:15px;line-height:1.6;">'.$withLinks.'</p>';
     }
 
     private function introLooksLikeHtml(string $intro): bool
@@ -2281,11 +2282,10 @@ class ResendService
     private function resolveDynamicFrom(string $configuredFrom, string $hostName): string
     {
         $email = $this->extractEmailAddress($configuredFrom);
-        $baseName = $this->extractDisplayName($configuredFrom) ?: 'OnPage CV';
-        $host = trim($hostName) !== '' ? trim($hostName) : 'Host';
-        $dynamicName = "{$host} via {$baseName}";
+        $fallbackName = $this->extractDisplayName($configuredFrom) ?: 'Host';
+        $name = trim($hostName) !== '' ? trim($hostName) : $fallbackName;
 
-        return "{$dynamicName} <{$email}>";
+        return "{$name} <{$email}>";
     }
 
     private function extractEmailAddress(string $from): string
