@@ -4,6 +4,7 @@ namespace App\Jobs;
 
 use App\Models\EmailCampaign;
 use App\Models\EmailCampaignRecipient;
+use App\Services\EmailActivityLogger;
 use App\Services\EmailCampaignDeliveryService;
 use App\Services\EmailSuppressionService;
 use Illuminate\Bus\Queueable;
@@ -31,8 +32,11 @@ class SendEmailCampaignBatchJob implements ShouldQueue
     ) {
     }
 
-    public function handle(EmailCampaignDeliveryService $deliveryService, EmailSuppressionService $suppressionService): void
-    {
+    public function handle(
+        EmailCampaignDeliveryService $deliveryService,
+        EmailSuppressionService $suppressionService,
+        EmailActivityLogger $activityLogger,
+    ): void {
         if ($this->recipientIds === []) {
             Log::warning('email_campaign_batch_job.skipped_empty_batch', [
                 'campaign_id' => $this->campaignId,
@@ -96,6 +100,17 @@ class SendEmailCampaignBatchJob implements ShouldQueue
                 'queue_job_id' => $this->job?->getJobId(),
             ]);
 
+            $activityLogger->record(
+                'warning',
+                'email_campaign_batch_job.no_emails_sent',
+                'No campaign emails sent for "'.$campaign->prefixedTitleLine().'" ('.$result['attempted'].' attempted).',
+                [
+                    'campaign_id' => $campaign->id,
+                    'attempted' => $result['attempted'],
+                ],
+                (int) $campaign->user_id,
+            );
+
             return;
         }
 
@@ -130,6 +145,21 @@ class SendEmailCampaignBatchJob implements ShouldQueue
             'failed_count' => $failedCount,
             'queue_job_id' => $this->job?->getJobId(),
         ]);
+
+        $level = $failedCount > 0 ? 'warning' : 'info';
+        $activityLogger->record(
+            $level,
+            'email_campaign_batch_job.completed',
+            "Campaign email batch: {$sentCount} sent, {$skippedCount} skipped, {$failedCount} failed — \"{$campaign->prefixedTitleLine()}\"",
+            [
+                'campaign_id' => $campaign->id,
+                'attempted' => $result['attempted'],
+                'sent_count' => $sentCount,
+                'skipped_count' => $skippedCount,
+                'failed_count' => $failedCount,
+            ],
+            (int) $campaign->user_id,
+        );
     }
 
     public function failed(\Throwable $exception): void
@@ -140,5 +170,18 @@ class SendEmailCampaignBatchJob implements ShouldQueue
             'queue_job_id' => $this->job?->getJobId(),
             'error' => $exception->getMessage(),
         ]);
+
+        $ownerUserId = (int) (EmailCampaign::query()->whereKey($this->campaignId)->value('user_id') ?? 0);
+
+        app(EmailActivityLogger::class)->record(
+            'error',
+            'email_campaign_batch_job.failed',
+            'Campaign email batch failed: '.$exception->getMessage(),
+            [
+                'campaign_id' => $this->campaignId,
+                'recipient_ids_count' => count($this->recipientIds),
+            ],
+            $ownerUserId > 0 ? $ownerUserId : null,
+        );
     }
 }

@@ -4,6 +4,7 @@ namespace App\Jobs;
 
 use App\Models\Webinar;
 use App\Models\WebinarRegistrant;
+use App\Services\EmailActivityLogger;
 use App\Services\EmailSuppressionService;
 use App\Services\ResendService;
 use Illuminate\Bus\Queueable;
@@ -47,8 +48,11 @@ class SendWebinarEmailsBatchJob implements ShouldQueue
         $this->forceResend = $forceResend;
     }
 
-    public function handle(ResendService $resendService, EmailSuppressionService $suppressionService): void
-    {
+    public function handle(
+        ResendService $resendService,
+        EmailSuppressionService $suppressionService,
+        EmailActivityLogger $activityLogger,
+    ): void {
         if ($this->registrantIds === []) {
             Log::warning('webinar_email_batch_job.skipped_empty_batch', [
                 'webinar_id' => $this->webinarId,
@@ -76,6 +80,8 @@ class SendWebinarEmailsBatchJob implements ShouldQueue
 
             return;
         }
+
+        $ownerUserId = (int) $webinar->user_id;
 
         $registrants = WebinarRegistrant::query()
             ->where('webinar_id', $this->webinarId)
@@ -153,6 +159,17 @@ class SendWebinarEmailsBatchJob implements ShouldQueue
                 'queue_job_id' => $this->job?->getJobId(),
             ]);
 
+            $activityLogger->record(
+                'warning',
+                'webinar_email_batch_job.no_emails_sent',
+                "No webinar emails sent for \"{$this->subject}\" ({$result['attempted']} attempted). Check provider API keys and logs.",
+                [
+                    'webinar_id' => $this->webinarId,
+                    'attempted' => $result['attempted'],
+                ],
+                $ownerUserId,
+            );
+
             return;
         }
 
@@ -166,6 +183,22 @@ class SendWebinarEmailsBatchJob implements ShouldQueue
             'failed_count' => $failedCount,
             'queue_job_id' => $this->job?->getJobId(),
         ]);
+
+        $level = $failedCount > 0 ? 'warning' : 'info';
+        $activityLogger->record(
+            $level,
+            'webinar_email_batch_job.completed',
+            "Webinar email batch: {$sentCount} sent, {$skippedCount} skipped, {$failedCount} failed — \"{$this->subject}\"",
+            [
+                'webinar_id' => $this->webinarId,
+                'attempted' => $result['attempted'],
+                'sent_count' => $sentCount,
+                'skipped_count' => $skippedCount,
+                'failed_count' => $failedCount,
+                'mark_sent_column' => $this->markSentColumn,
+            ],
+            $ownerUserId,
+        );
     }
 
     private function resolveEmailType(?string $markSentColumn): ?string
@@ -190,5 +223,19 @@ class SendWebinarEmailsBatchJob implements ShouldQueue
             'queue_job_id' => $this->job?->getJobId(),
             'error' => $exception->getMessage(),
         ]);
+
+        $ownerUserId = (int) (Webinar::query()->whereKey($this->webinarId)->value('user_id') ?? 0);
+
+        app(EmailActivityLogger::class)->record(
+            'error',
+            'webinar_email_batch_job.failed',
+            'Webinar email batch failed: '.$exception->getMessage(),
+            [
+                'webinar_id' => $this->webinarId,
+                'subject' => $this->subject,
+                'registrant_ids_count' => count($this->registrantIds),
+            ],
+            $ownerUserId > 0 ? $ownerUserId : null,
+        );
     }
 }

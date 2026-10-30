@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Admin;
 
 use App\Http\Controllers\Controller;
+use App\Services\EmailActivityLogger;
 use App\Services\EmailRichTextFormatter;
 use App\Services\EngagedAudienceExportService;
 use App\Http\Requests\EmailCampaign\StoreEmailCampaignRequest;
@@ -204,6 +205,18 @@ class EmailCampaignController extends Controller
         ]);
 
         $queued = $this->dispatchEmailBatches($campaign, $recipientIdList, 'manual_send');
+
+        app(EmailActivityLogger::class)->record(
+            'info',
+            'email_campaign.send.requested',
+            "Campaign send queued for {$queued} recipient(s): \"{$campaign->prefixedTitleLine()}\"",
+            [
+                'campaign_id' => $campaign->id,
+                'recipient_count' => $queued,
+                'source' => 'manual_send',
+            ],
+            (int) $campaign->user_id,
+        );
 
         return back()->with('success', "Campaign send queued for {$queued} recipient(s).");
     }

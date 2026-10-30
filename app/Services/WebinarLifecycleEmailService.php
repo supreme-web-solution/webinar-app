@@ -3,6 +3,7 @@
 namespace App\Services;
 
 use App\Jobs\SendWebinarEmailsBatchJob;
+use App\Services\EmailActivityLogger;
 use App\Models\Webinar;
 use App\Models\WebinarRegistrant;
 use App\Services\WebinarProfitFollowUpService;
@@ -111,6 +112,8 @@ class WebinarLifecycleEmailService
             ->values()
             ->chunk($batchSize);
 
+        $recipientTotal = 0;
+
         foreach ($chunks as $index => $chunk) {
             $delaySeconds = $baseDelaySeconds + ((int) $index * $delayIncrementSeconds);
             SendWebinarEmailsBatchJob::dispatch(
@@ -122,8 +125,26 @@ class WebinarLifecycleEmailService
             )
                 ->onQueue($emailQueue)
                 ->delay(now()->addSeconds($delaySeconds));
+
+            $recipientTotal += $chunk->count();
         }
 
-        return $chunks->sum(fn ($chunk) => $chunk->count());
+        if ($recipientTotal > 0) {
+            app(EmailActivityLogger::class)->record(
+                'info',
+                'webinar_lifecycle.emails_queued',
+                "Queued {$recipientTotal} lifecycle email(s) in {$chunks->count()} batch(es) — \"{$subject}\"",
+                [
+                    'webinar_id' => $webinar->id,
+                    'recipient_count' => $recipientTotal,
+                    'batch_count' => $chunks->count(),
+                    'mark_sent_column' => $markSentColumn,
+                    'queue' => $emailQueue,
+                ],
+                (int) $webinar->user_id,
+            );
+        }
+
+        return $recipientTotal;
     }
 }

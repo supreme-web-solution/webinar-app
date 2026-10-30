@@ -7,6 +7,7 @@ use App\Http\Controllers\Admin\WebinarChatController as AdminWebinarChatControll
 use App\Http\Controllers\Admin\WebinarAiKnowledgeController;
 use App\Http\Controllers\Admin\WebinarAiStudioController;
 use App\Http\Controllers\Admin\UserManagementController;
+use App\Http\Controllers\Admin\EmailActivityController;
 use App\Http\Controllers\Admin\PostmarkDeliveryStatsController;
 use App\Http\Controllers\Admin\EmailCampaignController;
 use App\Http\Controllers\Admin\EmailCampaignAttendeeController;
@@ -59,6 +60,7 @@ Route::middleware(['auth', 'verified'])->group(function () {
         Route::post('webinars/{webinar}/attendees/delete-bulk', [WebinarAttendeeController::class, 'deleteManyUnsubscribed'])->name('webinars.attendees.delete.bulk');
         Route::get('webinars/{webinar}/attendees/export-clicked', [WebinarAttendeeController::class, 'exportClicked'])->name('webinars.attendees.export-clicked');
         Route::post('webinars/{webinar}/notify', [WebinarAttendeeController::class, 'notifyAll'])->name('webinars.notify');
+        Route::get('email-activity', [EmailActivityController::class, 'index'])->name('email-activity.index');
         Route::get('postmark-delivery', [PostmarkDeliveryStatsController::class, 'index'])->name('postmark-delivery.index');
         Route::get('webinars/{webinar}/ai/sources', [WebinarAiKnowledgeController::class, 'indexSources'])->name('webinars.ai.sources.index');
         Route::get('webinars/{webinar}/ai/sources/{source}/chunks', [WebinarAiKnowledgeController::class, 'sourceChunks'])->name('webinars.ai.sources.chunks');
