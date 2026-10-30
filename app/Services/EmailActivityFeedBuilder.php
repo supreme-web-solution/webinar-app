@@ -94,9 +94,11 @@ class EmailActivityFeedBuilder
         );
     }
 
-    private function sortKey(?Carbon $time, int $id, string $prefix): string
+    private function sortKey(?\DateTimeInterface $time, int $id, string $prefix): string
     {
-        $timestamp = $time?->format('Y-m-d H:i:s.u') ?? '1970-01-01 00:00:00.000000';
+        $timestamp = $time !== null
+            ? $time->format('Y-m-d H:i:s.u')
+            : '1970-01-01 00:00:00.000000';
 
         return $timestamp.'-'.$prefix.'-'.str_pad((string) $id, 12, '0', STR_PAD_LEFT);
     }
