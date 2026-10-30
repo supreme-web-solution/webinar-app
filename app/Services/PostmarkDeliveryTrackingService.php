@@ -2,6 +2,7 @@
 
 namespace App\Services;
 
+use App\Models\EmailCampaign;
 use App\Models\PostmarkEmailDelivery;
 use App\Models\Webinar;
 use App\Models\WebinarRegistrant;
@@ -18,6 +19,7 @@ class PostmarkDeliveryTrackingService
     /**
      * @param  array<int, array{
      *     message_id: string,
+     *     provider?: string,
      *     email: string,
      *     user_id: int,
      *     source_type: string,
@@ -31,46 +33,197 @@ class PostmarkDeliveryTrackingService
      */
     public function recordAccepted(array $records): void
     {
+        $normalized = [];
+
+        foreach ($records as $record) {
+            $normalized[] = [
+                ...$record,
+                'provider' => $this->normalizeProvider((string) ($record['provider'] ?? 'postmark')),
+                'status' => PostmarkEmailDelivery::STATUS_ACCEPTED,
+            ];
+        }
+
+        $this->recordOutcomes($normalized);
+    }
+
+    /**
+     * @param  array<int, array<string, mixed>>  $records
+     */
+    public function recordOutcomes(array $records): void
+    {
         if ($records === []) {
             return;
         }
 
         $now = Carbon::now();
-        $rows = [];
 
         foreach ($records as $record) {
+            $provider = $this->normalizeProvider((string) ($record['provider'] ?? 'postmark'));
             $messageId = trim((string) ($record['message_id'] ?? ''));
-            if ($messageId === '') {
-                continue;
-            }
+            $status = (string) ($record['status'] ?? PostmarkEmailDelivery::STATUS_ACCEPTED);
+            $statusDetail = trim((string) ($record['status_detail'] ?? ''));
 
-            $rows[] = [
-                'user_id' => $record['user_id'],
-                'postmark_message_id' => $messageId,
-                'email' => $record['email'],
-                'status' => PostmarkEmailDelivery::STATUS_ACCEPTED,
-                'source_type' => $record['source_type'],
+            $attributes = [
+                'user_id' => (int) $record['user_id'],
+                'provider' => $provider,
+                'postmark_message_id' => $messageId !== '' ? $messageId : null,
+                'email' => (string) $record['email'],
+                'status' => $status,
+                'source_type' => (string) $record['source_type'],
                 'webinar_id' => $record['webinar_id'] ?? null,
                 'registrant_id' => $record['registrant_id'] ?? null,
                 'campaign_id' => $record['campaign_id'] ?? null,
                 'recipient_id' => $record['recipient_id'] ?? null,
                 'email_type' => $record['email_type'] ?? null,
                 'subject' => $record['subject'] ?? null,
-                'accepted_at' => $now,
-                'created_at' => $now,
+                'status_detail' => $statusDetail !== '' ? $statusDetail : null,
+                'accepted_at' => $status === PostmarkEmailDelivery::STATUS_ACCEPTED ? $now : ($record['accepted_at'] ?? null),
                 'updated_at' => $now,
+            ];
+
+            if ($messageId !== '') {
+                PostmarkEmailDelivery::query()->updateOrCreate(
+                    [
+                        'provider' => $provider,
+                        'postmark_message_id' => $messageId,
+                    ],
+                    $attributes,
+                );
+
+                continue;
+            }
+
+            PostmarkEmailDelivery::query()->create([
+                ...$attributes,
+                'created_at' => $now,
+            ]);
+        }
+    }
+
+    /**
+     * @param  array<int, WebinarRegistrant>  $registrants
+     * @param  array{sent_registrant_ids: array<int, int>, skipped_registrant_ids: array<int, int>, attempted: int}  $result
+     */
+    public function syncWebinarProviderBatch(
+        string $provider,
+        Webinar $webinar,
+        array $registrants,
+        string $subject,
+        ?string $emailType,
+        array $result,
+    ): void {
+        $provider = $this->normalizeProvider($provider);
+        $sent = array_flip($result['sent_registrant_ids']);
+        $skipped = array_flip($result['skipped_registrant_ids']);
+        $records = [];
+
+        foreach ($registrants as $registrant) {
+            if (isset($sent[$registrant->id])) {
+                if ($provider !== 'postmark') {
+                    $records[] = [
+                        'provider' => $provider,
+                        'status' => PostmarkEmailDelivery::STATUS_ACCEPTED,
+                        'email' => $registrant->email,
+                        'user_id' => (int) $webinar->user_id,
+                        'source_type' => 'webinar_registrant',
+                        'webinar_id' => $webinar->id,
+                        'registrant_id' => $registrant->id,
+                        'email_type' => $emailType,
+                        'subject' => $subject,
+                        'status_detail' => 'Accepted for delivery',
+                    ];
+                }
+
+                continue;
+            }
+
+            if (isset($skipped[$registrant->id])) {
+                continue;
+            }
+
+            $records[] = [
+                'provider' => $provider,
+                'status' => PostmarkEmailDelivery::STATUS_FAILED,
+                'email' => $registrant->email,
+                'user_id' => (int) $webinar->user_id,
+                'source_type' => 'webinar_registrant',
+                'webinar_id' => $webinar->id,
+                'registrant_id' => $registrant->id,
+                'email_type' => $emailType,
+                'subject' => $subject,
+                'status_detail' => 'Send failed or rejected',
             ];
         }
 
-        if ($rows === []) {
-            return;
+        $this->recordOutcomes($records);
+    }
+
+    /**
+     * @param  array<int, EmailCampaignRecipient>  $recipients
+     * @param  array{sent_recipient_ids: array<int, int>, skipped_recipient_ids: array<int, int>, attempted: int}  $result
+     */
+    public function syncCampaignProviderBatch(
+        string $provider,
+        EmailCampaign $campaign,
+        array $recipients,
+        string $subject,
+        array $result,
+    ): void {
+        $provider = $this->normalizeProvider($provider);
+        $userId = (int) $campaign->user_id;
+        $sent = array_flip($result['sent_recipient_ids']);
+        $skipped = array_flip($result['skipped_recipient_ids']);
+        $records = [];
+
+        foreach ($recipients as $recipient) {
+            if (isset($sent[$recipient->id])) {
+                if ($provider !== 'postmark') {
+                    $records[] = [
+                        'provider' => $provider,
+                        'status' => PostmarkEmailDelivery::STATUS_ACCEPTED,
+                        'email' => $recipient->email,
+                        'user_id' => $userId,
+                        'source_type' => 'campaign_recipient',
+                        'campaign_id' => $campaign->id,
+                        'recipient_id' => $recipient->id,
+                        'email_type' => 'campaign',
+                        'subject' => $subject,
+                        'status_detail' => 'Accepted for delivery',
+                    ];
+                }
+
+                continue;
+            }
+
+            if (isset($skipped[$recipient->id])) {
+                continue;
+            }
+
+            $records[] = [
+                'provider' => $provider,
+                'status' => PostmarkEmailDelivery::STATUS_FAILED,
+                'email' => $recipient->email,
+                'user_id' => $userId,
+                'source_type' => 'campaign_recipient',
+                'campaign_id' => $campaign->id,
+                'recipient_id' => $recipient->id,
+                'email_type' => 'campaign',
+                'subject' => $subject,
+                'status_detail' => 'Send failed or rejected',
+            ];
         }
 
-        PostmarkEmailDelivery::query()->upsert(
-            $rows,
-            ['postmark_message_id'],
-            ['status', 'accepted_at', 'updated_at']
-        );
+        $this->recordOutcomes($records);
+    }
+
+    private function normalizeProvider(string $provider): string
+    {
+        $provider = strtolower(trim($provider));
+
+        return match ($provider) {
+            'elastic' => 'elasticemail',
+            default => $provider !== '' ? $provider : 'unknown',
+        };
     }
 
     /**
@@ -97,6 +250,7 @@ class PostmarkDeliveryTrackingService
         foreach ($records as $record) {
             PostmarkEmailDelivery::query()->create([
                 'user_id' => $record['user_id'],
+                'provider' => 'postmark',
                 'postmark_message_id' => null,
                 'email' => $record['email'],
                 'status' => PostmarkEmailDelivery::STATUS_SUPPRESSED,
@@ -193,6 +347,7 @@ class PostmarkDeliveryTrackingService
         }
 
         $delivery = PostmarkEmailDelivery::query()
+            ->where('provider', 'postmark')
             ->where('postmark_message_id', $messageId)
             ->first();
 
@@ -231,6 +386,7 @@ class PostmarkDeliveryTrackingService
         $bouncedAt = $this->parsePostmarkTimestamp(data_get($payload, 'BouncedAt'));
 
         $delivery = PostmarkEmailDelivery::query()
+            ->where('provider', 'postmark')
             ->where('postmark_message_id', $messageId)
             ->first();
 
@@ -270,6 +426,7 @@ class PostmarkDeliveryTrackingService
         }
 
         $delivery = PostmarkEmailDelivery::query()
+            ->where('provider', 'postmark')
             ->where('postmark_message_id', $messageId)
             ->first();
 
@@ -314,6 +471,7 @@ class PostmarkDeliveryTrackingService
 
         return PostmarkEmailDelivery::query()->create([
             'user_id' => $userId,
+            'provider' => 'postmark',
             'postmark_message_id' => $messageId !== '' ? $messageId : null,
             'email' => $email,
             'status' => $status,

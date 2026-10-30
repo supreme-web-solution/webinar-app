@@ -153,7 +153,7 @@ class ResendService
         string $intro,
         ?string $emailType = null,
     ): array {
-        return match ($provider) {
+        $result = match ($provider) {
             'postmark' => $this->sendBatchViaPostmark($webinar, $registrants, $subject, $intro, $emailType),
             'elastic', 'elasticemail' => $this->sendBatchViaElasticEmail($webinar, $registrants, $subject, $intro, $emailType),
             'zeptomail' => $this->sendBatchViaZeptoMail($webinar, $registrants, $subject, $intro, $emailType),
@@ -165,6 +165,17 @@ class ResendService
             'ses_smtp', 'smtp' => $this->sendBatchViaSmtp($webinar, $registrants, $subject, $intro),
             default => $this->sendBatchViaResend($webinar, $registrants, $subject, $intro),
         };
+
+        app(PostmarkDeliveryTrackingService::class)->syncWebinarProviderBatch(
+            $provider,
+            $webinar,
+            $registrants,
+            $subject,
+            $emailType,
+            $result,
+        );
+
+        return $result;
     }
 
     private function sendSingleUsingProvider(
@@ -175,7 +186,7 @@ class ResendService
         string $intro,
         ?string $emailType = null,
     ): bool {
-        return match ($provider) {
+        $sent = match ($provider) {
             'postmark' => $this->sendSingleViaPostmark($webinar, $registrant, $subject, $intro, $emailType),
             'elastic', 'elasticemail' => $this->sendSingleViaElasticEmail($webinar, $registrant, $subject, $intro, $emailType),
             'zeptomail' => $this->sendSingleViaZeptoMail($webinar, $registrant, $subject, $intro, $emailType),
@@ -187,6 +198,21 @@ class ResendService
             'ses_smtp', 'smtp' => $this->sendSingleViaSmtp($webinar, $registrant, $subject, $intro),
             default => $this->sendSingleViaResend($webinar, $registrant, $subject, $intro),
         };
+
+        app(PostmarkDeliveryTrackingService::class)->syncWebinarProviderBatch(
+            $provider,
+            $webinar,
+            [$registrant],
+            $subject,
+            $emailType,
+            [
+                'sent_registrant_ids' => $sent ? [$registrant->id] : [],
+                'skipped_registrant_ids' => [],
+                'attempted' => 1,
+            ],
+        );
+
+        return $sent;
     }
 
     /**

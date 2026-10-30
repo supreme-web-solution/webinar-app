@@ -17,8 +17,11 @@ class PostmarkEmailDelivery extends Model
 
     public const STATUS_SUPPRESSED = 'suppressed';
 
+    public const STATUS_FAILED = 'failed';
+
     protected $fillable = [
         'user_id',
+        'provider',
         'postmark_message_id',
         'email',
         'status',
@@ -34,6 +37,7 @@ class PostmarkEmailDelivery extends Model
         'bounced_at',
         'bounce_type',
         'bounce_description',
+        'status_detail',
     ];
 
     protected function casts(): array

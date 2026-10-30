@@ -12,34 +12,11 @@ import AppLayout from '@/layouts/AppLayout.vue';
 import { dashboard } from '@/routes';
 import type { BreadcrumbItem } from '@/types';
 
-type ActivityRow = {
-    id: number;
+type LogRow = {
+    id: string;
     level: string;
-    event: string;
-    summary: string;
-    context: Record<string, unknown> | null;
+    message: string;
     created_at: string | null;
-};
-
-type DeliveryRow = {
-    id: number;
-    email: string;
-    status: string;
-    email_type: string | null;
-    subject: string | null;
-    accepted_at: string | null;
-    delivered_at: string | null;
-    bounced_at: string | null;
-    bounce_type: string | null;
-    bounce_description: string | null;
-    created_at: string | null;
-};
-
-type FailedJobRow = {
-    id: number;
-    job: string;
-    failed_at: string | null;
-    error: string | null;
 };
 
 const props = defineProps<{
@@ -51,16 +28,12 @@ const props = defineProps<{
         failed_email_jobs: number;
         worker_hint: string | null;
     };
-    failedJobs: FailedJobRow[];
-    activity: ActivityRow[];
-    recentDeliveries: DeliveryRow[];
-    primaryProvider: string;
-    webhookConfigured: boolean;
+    logs: LogRow[];
 }>();
 
 const breadcrumbs: BreadcrumbItem[] = [
     { title: 'Dashboard', href: dashboard() },
-    { title: 'Email activity', href: '/admin/email-activity' },
+    { title: 'Email log', href: '/admin/email-activity' },
 ];
 
 function levelClass(level: string): string {
@@ -75,22 +48,6 @@ function levelClass(level: string): string {
     }
 }
 
-function statusClass(status: string): string {
-    switch (status) {
-        case 'delivered':
-            return 'bg-emerald-100 text-emerald-800';
-        case 'accepted':
-            return 'bg-amber-100 text-amber-800';
-        case 'bounced':
-        case 'spam_complaint':
-            return 'bg-red-100 text-red-800';
-        case 'suppressed':
-            return 'bg-gray-200 text-gray-700';
-        default:
-            return 'bg-gray-100 text-gray-700';
-    }
-}
-
 function formatPendingAge(seconds: number | null): string {
     if (seconds === null) {
         return '—';
@@ -98,20 +55,20 @@ function formatPendingAge(seconds: number | null): string {
     if (seconds < 60) {
         return `${seconds}s`;
     }
-    const minutes = Math.floor(seconds / 60);
-    return `${minutes}m`;
+
+    return `${Math.floor(seconds / 60)}m`;
 }
 </script>
 
 <template>
-    <Head title="Email activity" />
+    <Head title="Email log" />
 
     <AppLayout :breadcrumbs="breadcrumbs">
         <div class="flex flex-col gap-6 p-4 md:p-6">
             <div>
-                <h1 class="text-2xl font-semibold tracking-tight">Email activity</h1>
+                <h1 class="text-2xl font-semibold tracking-tight">Email log</h1>
                 <p class="text-sm text-muted-foreground">
-                    Quick check after you send — queue status, recent send results, and provider delivery (latest entries only).
+                    Latest email-related events — sends, queue jobs, and per-recipient results. Newest first (limited list, not full history).
                 </p>
             </div>
 
@@ -119,9 +76,9 @@ function formatPendingAge(seconds: number | null): string {
                 <CardHeader>
                     <CardTitle class="flex items-center gap-2 text-base">
                         <Icon icon="solar:server-bold-duotone" class="size-5 text-muted-foreground" />
-                        Queue &amp; workers
+                        Send queue
                     </CardTitle>
-                    <CardDescription>Background sends use the &quot;{{ queue.email_queue }}&quot; queue</CardDescription>
+                    <CardDescription>Whether background email jobs are backing up</CardDescription>
                 </CardHeader>
                 <CardContent class="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
                     <div class="rounded-lg border px-3 py-2">
@@ -133,11 +90,11 @@ function formatPendingAge(seconds: number | null): string {
                         <p class="text-2xl font-bold">{{ queue.pending_on_email_queue }}</p>
                     </div>
                     <div class="rounded-lg border px-3 py-2">
-                        <p class="text-xs text-muted-foreground">Oldest pending</p>
+                        <p class="text-xs text-muted-foreground">Oldest waiting</p>
                         <p class="text-sm font-medium">{{ formatPendingAge(queue.oldest_pending_seconds) }}</p>
                     </div>
                     <div class="rounded-lg border px-3 py-2">
-                        <p class="text-xs text-muted-foreground">Failed email jobs (total)</p>
+                        <p class="text-xs text-muted-foreground">Failed jobs (total)</p>
                         <p class="text-2xl font-bold">{{ queue.failed_email_jobs }}</p>
                     </div>
                 </CardContent>
@@ -151,37 +108,17 @@ function formatPendingAge(seconds: number | null): string {
                 </CardContent>
             </Card>
 
-            <Card v-if="failedJobs.length > 0">
-                <CardHeader>
-                    <CardTitle>Recent queue failures</CardTitle>
-                    <CardDescription>Latest failed send jobs from the queue (not paginated)</CardDescription>
-                </CardHeader>
-                <CardContent class="space-y-3">
-                    <div
-                        v-for="job in failedJobs"
-                        :key="job.id"
-                        class="rounded-lg border border-red-200 bg-red-50/50 px-3 py-2 text-sm"
-                    >
-                        <div class="flex flex-wrap items-center gap-2">
-                            <span class="font-medium">{{ job.job }}</span>
-                            <span class="text-xs text-muted-foreground">{{ job.failed_at ?? '—' }}</span>
-                        </div>
-                        <p class="mt-1 font-mono text-xs text-red-900">{{ job.error }}</p>
-                    </div>
-                </CardContent>
-            </Card>
-
             <Card>
                 <CardHeader>
-                    <CardTitle>Recent activity</CardTitle>
-                    <CardDescription>Sends, batches, and errors recorded for your account</CardDescription>
+                    <CardTitle>Latest log</CardTitle>
+                    <CardDescription>Batches, individual recipients, and queue errors in one timeline</CardDescription>
                 </CardHeader>
                 <CardContent class="space-y-2">
-                    <p v-if="activity.length === 0" class="py-6 text-center text-sm text-muted-foreground">
-                        No activity yet. Send a campaign or webinar email — results will show here.
+                    <p v-if="logs.length === 0" class="py-8 text-center text-sm text-muted-foreground">
+                        Nothing logged yet. After you send mail, entries will show up here.
                     </p>
                     <div
-                        v-for="row in activity"
+                        v-for="row in logs"
                         :key="row.id"
                         class="flex flex-col gap-1 rounded-lg border px-3 py-2 text-sm sm:flex-row sm:items-start sm:justify-between"
                     >
@@ -192,68 +129,10 @@ function formatPendingAge(seconds: number | null): string {
                             >
                                 {{ row.level }}
                             </span>
-                            <span>{{ row.summary }}</span>
+                            <span class="break-words">{{ row.message }}</span>
                         </div>
                         <span class="shrink-0 text-xs text-muted-foreground">{{ row.created_at ?? '—' }}</span>
                     </div>
-                </CardContent>
-            </Card>
-
-            <Card>
-                <CardHeader>
-                    <CardTitle>Provider delivery (Postmark)</CardTitle>
-                    <CardDescription>
-                        Latest per-recipient status when using Postmark. Primary provider: {{ primaryProvider }}.
-                    </CardDescription>
-                </CardHeader>
-                <CardContent v-if="primaryProvider !== 'postmark'" class="pb-6">
-                    <p class="text-sm text-muted-foreground">
-                        Delivery rows only populate for sends that go through Postmark. Other providers still appear in activity above.
-                    </p>
-                </CardContent>
-                <CardContent v-if="!webhookConfigured" class="border-b pb-4">
-                    <p class="text-sm text-amber-800">
-                        Postmark webhooks are not configured — you will see &quot;accepted&quot; but may not see delivered/bounced updates.
-                    </p>
-                </CardContent>
-                <CardContent class="overflow-x-auto">
-                    <table class="w-full min-w-[640px] text-left text-sm">
-                        <thead>
-                            <tr class="border-b text-muted-foreground">
-                                <th class="pb-2 pr-4 font-medium">When</th>
-                                <th class="pb-2 pr-4 font-medium">Email</th>
-                                <th class="pb-2 pr-4 font-medium">Status</th>
-                                <th class="pb-2 font-medium">Detail</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            <tr v-if="recentDeliveries.length === 0">
-                                <td colspan="4" class="py-6 text-center text-muted-foreground">No delivery records yet.</td>
-                            </tr>
-                            <tr
-                                v-for="row in recentDeliveries"
-                                :key="row.id"
-                                class="border-b border-border/60"
-                            >
-                                <td class="py-2 pr-4 text-xs text-muted-foreground">{{ row.created_at ?? '—' }}</td>
-                                <td class="py-2 pr-4 font-mono text-xs">{{ row.email }}</td>
-                                <td class="py-2 pr-4">
-                                    <span
-                                        class="inline-flex rounded-full px-2 py-0.5 text-xs font-medium capitalize"
-                                        :class="statusClass(row.status)"
-                                    >
-                                        {{ row.status.replaceAll('_', ' ') }}
-                                    </span>
-                                </td>
-                                <td class="py-2 text-xs text-muted-foreground">
-                                    <span v-if="row.bounce_description">{{ row.bounce_description }}</span>
-                                    <span v-else-if="row.delivered_at">Delivered {{ row.delivered_at }}</span>
-                                    <span v-else-if="row.accepted_at">Accepted {{ row.accepted_at }}</span>
-                                    <span v-else>—</span>
-                                </td>
-                            </tr>
-                        </tbody>
-                    </table>
                 </CardContent>
             </Card>
         </div>

@@ -27,8 +27,8 @@ class EmailActivityPageTest extends TestCase
         $response->assertOk();
         $response->assertInertia(fn ($page) => $page
             ->component('admin/email-activity/Index')
-            ->has('activity', 1)
-            ->where('activity.0.summary', 'Test send completed')
+            ->has('logs', 1)
+            ->where('logs.0.message', 'Test send completed')
             ->has('queue')
         );
     }

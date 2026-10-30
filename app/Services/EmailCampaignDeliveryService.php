@@ -151,7 +151,7 @@ class EmailCampaignDeliveryService
      */
     private function sendBatchUsingProvider(string $provider, EmailCampaign $campaign, User $owner, array $recipients): array
     {
-        return match ($provider) {
+        $result = match ($provider) {
             'postmark' => $this->sendBatchViaPostmark($campaign, $recipients),
             'elastic', 'elasticemail' => $this->sendBatchViaElasticEmail($campaign, $recipients),
             'zeptomail' => $this->sendBatchViaZeptoMail($campaign, $recipients),
@@ -163,6 +163,16 @@ class EmailCampaignDeliveryService
             'ses_smtp', 'smtp' => $this->sendBatchViaSmtp($campaign, $owner, $recipients),
             default => $this->sendBatchViaResend($campaign, $recipients),
         };
+
+        app(PostmarkDeliveryTrackingService::class)->syncCampaignProviderBatch(
+            $provider,
+            $campaign,
+            $recipients,
+            $campaign->prefixedTitleLine(),
+            $result,
+        );
+
+        return $result;
     }
 
     /**
